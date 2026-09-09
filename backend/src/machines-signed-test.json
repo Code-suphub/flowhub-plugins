@@ -1,0 +1,9 @@
+{
+  "package": "{\n  \"schema\": 1,\n  \"id\": \"machines\",\n  \"name\": \"机器管理\",\n  \"version\": \"0.1.0\",\n  \"hostVersion\": \">=0.1.9, <0.2.0\",\n  \"capabilities\": [\"ssh:collect\", \"ssh:execute\", \"ssh:terminal\"],\n  \"templates\": [\n    { \"name\": \"系统概况\", \"command\": \"uname -a; uptime; df -h /\" },\n    { \"name\": \"Docker 容器\", \"command\": \"docker ps --format 'table {{.Names}}\\t{{.Status}}\\t{{.Ports}}'\" },\n    { \"name\": \"最近系统日志\", \"command\": \"journalctl -n 80 --no-pager\" }\n  ]\n}\n",
+  "key": "dW50cnVzdGVkIGNvbW1lbnQ6IEZsb3dIdWIgdGVzdCBrZXkgb25seQpSV1NpVG1GZlVoTzJiVlpMRzY5OERDakRCOE96ODVreXNndXBmbHluZDYyT2hQTTFidzdHTGo2NQo=",
+  "entry": {
+    "id": "machines",
+    "sha256": "32f17b6453f20396568917c06516291ceb25de07657e0f4f6e65f23e379ca7ea",
+    "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHRlc3Qgc2lnbmF0dXJlClJVU2lUbUZmVWhPMmJkd0YxWmRVai9ZVTgvL1BuVllGTUpGa09LbXpQME5ML1VabnFONm5ycW1hWGI0RTlKNDF3VFpRQWY1K2ZyZ2xtTENGSHYvZ3lRVnBxQnpiK2NTek1BST0KdHJ1c3RlZCBjb21tZW50OiBGbG93SHViIHNpZ25lZCBwYWNrYWdlIGZpeHR1cmUKMFd1bFFMZE9Xc25oeVBPa2Npd0x6cDJmMDdsK3hjaTJHWWE4Z3p3UDFrMzFpYTY3a0xQSG03enU4b0dLaDdGQXlSbHVZWk54emJ5ZStZYjRRVklSQVE9PQo="
+  }
+}

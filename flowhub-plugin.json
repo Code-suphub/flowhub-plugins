@@ -1,0 +1,10 @@
+{
+  "schema": 2,
+  "id": "machines",
+  "name": "机器管理",
+  "version": "0.2.0",
+  "ui": "ui/machines.html",
+  "executable": "bin/flowhub-machines",
+  "permissions": ["native-process"],
+  "description": "本机 SSH、堡垒机会话、指标采集和命令工作台"
+}

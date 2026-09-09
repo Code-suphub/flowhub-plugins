@@ -1,0 +1,5 @@
+/backend/target/
+/bin/
+/node_modules/
+/dist/
+.DS_Store
