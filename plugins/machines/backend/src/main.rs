@@ -32,6 +32,10 @@ async fn dispatch(ctx: Context, request: &Value) -> Result<Value, String> {
     let p = &request["params"];
     let text = |key: &str| p[key].as_str().unwrap_or("").to_owned();
     match request["method"].as_str().unwrap_or("") {
+        "widget_api" => match p["action"].as_str() {
+            Some("history") => machines::machines_api(ctx.clone(),"metricHistory".into(),serde_json::json!({"hostId":p["row"],"metric":p["metric"],"seconds":p["seconds"]})).await,
+            _ => Err("不支持的组件操作".into()),
+        },
         "machines_api" => machines::machines_api(ctx.clone(),text("action"),p["payload"].clone()).await,
         "machines_run" => machines::machines_run(ctx.clone(),text("hostId"),text("expectedAlias"),text("id"),text("kind"),p["command"].as_str().map(str::to_owned)).await,
         "health" => Ok(json!({"protocol":1,"name":"flowhub-machines","version":env!("CARGO_PKG_VERSION")})),

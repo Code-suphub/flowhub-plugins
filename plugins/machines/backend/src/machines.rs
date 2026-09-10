@@ -409,6 +409,10 @@ impl Runtime {
         let mut status=status_summary(&snapshot, chrono::Utc::now().timestamp_millis());
         let instances=self.config.lock().unwrap().netdata.clone();let cache=self.netdata_cache.lock().unwrap();
         for instance in instances { if let Some(data)=cache.get(&instance.id){if let Some(rows)=data["rows"].as_array(){status["rows"].as_array_mut().unwrap().extend(rows.iter().cloned());}} }
+        for row in status["rows"].as_array_mut().unwrap() {
+            let summary=if row["status"]=="healthy" {let v=&row["values"];let value=|key:&str|v[key].as_f64().map(|n|format!("{n:.0}%")).unwrap_or("—".into());format!("CPU {} / 内存 {} / 磁盘 {}",value("cpu"),value("memory"),value("disk"))}else {match row["status"].as_str(){Some("error")=>"异常",Some("stale")=>"已过期",_=>"未采集"}.into()};
+            row["summary"]=json!(summary);
+        }
         status
     }
     fn snapshot(&self) -> Value {

@@ -14,6 +14,10 @@ test('independent executable reuses existing machine data without SSH',{timeout:
     const state=await call('machines_api',{action:'state',payload:{}});
     assert.equal(state.result.config.hosts[0].id,'retained');assert.equal(state.result.config.monitoring,false);
     const history=await call('machines_api',{action:'history',payload:{}});assert.equal(history.result.total,0);
+    const widgetHistory=await call('widget_api',{action:'history',row:'retained',metric:'cpu',seconds:86400});
+    assert(!widgetHistory.error,widgetHistory.error);assert(widgetHistory.result.data.length>0);assert(widgetHistory.result.data.every(([at,value])=>Number.isFinite(at)&&value===null));
+    assert.match((await call('widget_api',{action:'terminal',row:'retained'})).error,/不支持/);
+    assert.match((await call('widget_api',{action:'hosts',hosts:[]})).error,/不支持/);
     assert(fs.existsSync(path.join(root,'commands.sqlite3')));
     const profile={alias:'password-fixture',hostname:'example.test',user:'tester',port:22,identityFile:'',proxyJump:''};
     const password='fixture-only-password-8492';

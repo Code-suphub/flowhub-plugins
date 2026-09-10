@@ -1,0 +1,5 @@
+(() => {
+  const names={cpu:'CPU',memory:'内存',disk:'磁盘',rx:'下载速度',tx:'上传速度',load:'负载',uptime:'运行时间'};
+  FlowHubWidget.onInit(data=>{const rows=data.snapshot?.rows||[],select=document.querySelector('#row');select.replaceChildren(...rows.map(row=>{const option=document.createElement('option');option.value=row.id;option.textContent=row.name;return option;}));select.value=data.config?.row||rows[0]?.id||'';const metrics=data.config?.metrics||['cpu','memory','disk'];document.querySelector('#metrics').replaceChildren(...Object.entries(names).map(([key,name])=>{const label=document.createElement('label'),input=document.createElement('input');input.type='checkbox';input.value=key;input.checked=metrics.includes(key);label.append(input,name);return label;}));window.FlowHubSelects?.sync();});
+  FlowHubWidget.editor(()=>{const row=document.querySelector('#row').value,metrics=[...document.querySelectorAll('input:checked')].map(i=>i.value);if(!row)throw Error('请选择目标机器');if(!metrics.length)throw Error('至少选择一个显示指标');return {view:'machine',row,metrics};});
+})();

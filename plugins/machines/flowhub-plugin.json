@@ -1,6 +1,11 @@
 {
   "schema": 2,
   "statusSurface": true,
+  "widget": {
+    "card": "widget-card.html",
+    "editor": "widget-editor.html",
+    "detail": "widget-detail.html"
+  },
   "id": "machines",
   "name": "机器管理",
   "version": "0.2.0",
