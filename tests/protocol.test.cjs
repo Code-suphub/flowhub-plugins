@@ -24,6 +24,17 @@ test('independent executable reuses existing machine data without SSH',{timeout:
     const execFile=require('node:util').promisify(require('node:child_process').execFile);
     const helper=await execFile(binary,["tester@example.test's password:"],{env:{...process.env,FLOWHUB_ASKPASS_ACCOUNT:account,FLOWHUB_CREDENTIAL_ROOT:root}});
     assert.equal(helper.stdout.trim(),password);
+    const restricted=await call('machines_api',{action:'hosts',payload:{hosts:[{id:'retained',name:'Retained',alias:'never-connect.example',group:'Migration',readOnly:true}]}});
+    assert(!restricted.error,restricted.error);
+    const cliEnv={...process.env,FLOWHUB_PLUGIN_DATA:root};
+    const list=JSON.parse((await execFile(binary,['--cli','list'],{env:cliEnv})).stdout);
+    assert.equal(list.result[0].readOnly,true); assert(!JSON.stringify(list).includes(password));
+    assert.equal(fs.statSync(path.join(root,'cli.sock')).mode & 0o777,0o600);
+    await assert.rejects(execFile(binary,['--cli','exec','retained','touch /tmp/must-not-run'],{env:cliEnv}),e=>e.stdout.includes('仅允许查询'));
+    await assert.rejects(execFile(binary,['--terminal',root,'never-connect.example'],{env:cliEnv}),e=>e.stderr.includes('仅允许查询'));
+    const denied=await call('machines_run',{hostId:'retained',expectedAlias:'never-connect.example',id:'denied',kind:'command',command:'uptime; echo bad'});
+    assert.match(denied.error,/仅允许查询/);
+    assert.match((await call('machines_api',{action:'terminal',payload:{hostId:'retained'}})).error,/仅允许查询/);
     await assert.rejects(execFile(binary,['Are you sure (yes/no)?'],{env:{...process.env,FLOWHUB_ASKPASS_ACCOUNT:account,FLOWHUB_CREDENTIAL_ROOT:root}}));
     assert(!fs.readFileSync(path.join(root,'credentials.sqlite3')).includes(Buffer.from(password)));
     const backup=await call('backup_api',{action:'backup',password:'fixture-backup-passphrase'});assert(!backup.error,backup.error);

@@ -10,7 +10,7 @@
   const clone = value => structuredClone(value);
   const profiles = new Map();
   const state = {
-    config: { enabled: true, monitoring: false, interval: 60, installed: {
+    config: { enabled: true, monitoring: false, interval: 60, connectionIdleSeconds: 28800, installed: {
       version: 'dev', capabilities: ['ssh:collect', 'ssh:execute', 'ssh:configure', 'ssh:terminal'],
       templates: [{ name: '系统概况（模拟）', command: 'uname -a; uptime; df -h /' }],
     }, hosts: [
@@ -73,6 +73,15 @@
       return clone(sessions.get(host.id) || { connected: false, output: '会话未连接。' });
     }
     switch (action) {
+      case 'monitorSettings': state.config.retentionDays=payload.days;state.config.exporters=clone(payload.exporters);return clone(state);
+      case 'exporterTest':return {...metric(),rx:12,tx:3};
+      case 'metricHistory':return {unit:payload.metric==='rx'||payload.metric==='tx'?'KB/s':'%',data:Array.from({length:60},(_,i)=>[Math.floor(Date.now()/1000)-(60-i)*60,i>20&&i<30?null:40+Math.sin(i/5)*15])};
+      case 'netdataTest': return {rows:[],charts:[{id:'system.cpu',units:'%'},{id:'system.ram',units:'MiB'},{id:'system.net',units:'kilobits/s'},{id:'net.eth0',units:'kilobits/s'}]};
+      case 'netdataSave': state.config.netdata=(state.config.netdata||[]).filter(i=>i.id!==payload.id).concat(clone(payload));return clone(state);
+      case 'netdataRemove': state.config.netdata=(state.config.netdata||[]).filter(i=>i.id!==payload.id);return clone(state);
+      case 'netdataHistory': return {labels:['time','模拟指标'],data:Array.from({length:60},(_,i)=>[Math.floor(Date.now()/1000)-i*60,40+Math.sin(i/5)*15])};
+      case 'netdataInstallPlan': throw Error('浏览器预览不安装软件，请在 FlowHub 中选择真实目标并预览安装命令。');
+      case 'netdataInstall': throw Error('浏览器预览不安装软件。');
       case 'state': return clone(state);
       case 'hosts': state.config.hosts = clone(payload.hosts); return clone(state);
       case 'templates': state.config.templates = clone(payload.templates); return clone(state);

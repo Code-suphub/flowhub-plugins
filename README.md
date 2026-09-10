@@ -26,6 +26,10 @@ npm test
 - 重新加载会重启插件进程，进行中的命令连接会中断；tmux 堡垒机会话独立存在。
 - 发布包包含 flowhub-plugin.json、ui/、bin/；Rust 可执行文件需要按目标系统和架构构建。构建产物不随源码提交，克隆后先运行 npm run build。
 
+## Agent 调用与查询权限
+
+支持复制机器配置、按机器启用仅查询限制，以及本地 CLI。用 `./bin/flowhub-machines --cli --help` 查看入口，详见 [Agent CLI 文档](docs/agent-cli.md)。
+
 ## 数据与迁移
 
 宿主通过 FLOWHUB_PLUGIN_DATA 传入独立数据目录。插件 ID 仍为 machines，继续使用原 FlowHub 数据根目录下的 machines/state.json 和 machines/commands.sqlite3。现有 SSH 文件、私钥引用、堡垒机配置及执行记录无需搬迁。不要将真实配置或数据库加入仓库。

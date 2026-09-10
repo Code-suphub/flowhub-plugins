@@ -5,8 +5,16 @@ use std::{path::Path, sync::Mutex};
 
 pub(super) struct Store(Mutex<Connection>);
 impl Store {
+    pub(super) fn sample(&self,id:&str,host:&str,at:i64,status:&str,source:&str,value:&Value)->Result<(),String>{self.0.lock().unwrap().execute("INSERT OR REPLACE INTO metric_samples VALUES(?1,?2,?3,?4,?5,?6)",params![id,host,at,status,source,value.to_string()]).map_err(|e|e.to_string())?;Ok(())}
+    pub(super) fn prune_metrics(&self,days:u64)->Result<(),String>{let cutoff=chrono::Utc::now().timestamp_millis()-(days as i64)*86400000;let mut db=self.0.lock().unwrap();let tx=db.transaction().map_err(|e|e.to_string())?;tx.execute("DELETE FROM metric_samples WHERE at < ?1",[cutoff]).map_err(|e|e.to_string())?;tx.execute("DELETE FROM metric_samples WHERE id IN (SELECT id FROM metric_samples ORDER BY at DESC LIMIT -1 OFFSET 200000)",[]).map_err(|e|e.to_string())?;tx.execute("DELETE FROM jobs WHERE started < ?1 AND status NOT IN ('running','queued') AND json_extract(data,'$.kind')='collect'",[cutoff]).map_err(|e|e.to_string())?;tx.commit().map_err(|e|e.to_string())}
+    pub(super) fn metric_page(&self,host:&str,metric:&str,seconds:u64,interval:u64)->Result<Value,String>{
+        if !["cpu","memory","disk","load","uptime","rx","tx"].contains(&metric)||![3600,86400,604800,2592000,7776000].contains(&seconds){return Err("指标或时间范围无效".into());}
+        let end=chrono::Utc::now().timestamp_millis();let start=end-seconds as i64*1000;let width=((seconds/180).max(interval).max(30)*1000) as i64;let bins=((end-start)/width+1) as usize;let mut data:Vec<Value>=(0..bins).map(|i|json!([(start+i as i64*width)/1000,Value::Null])).collect();let db=self.0.lock().unwrap();
+        let mut stmt=db.prepare("SELECT (at-?1)/?2,avg(CASE WHEN status='success' THEN json_extract(data,?3) END) FROM metric_samples WHERE host=?4 AND at>=?1 AND at<=?5 GROUP BY (at-?1)/?2 ORDER BY 1").map_err(|e|e.to_string())?;let rows=stmt.query_map(params![start,width,format!("$.{metric}"),host,end],|r|Ok((r.get::<_,i64>(0)? as usize,r.get::<_,Option<f64>>(1)?))).map_err(|e|e.to_string())?;for row in rows{let(i,v)=row.map_err(|e|e.to_string())?;if i<data.len(){data[i][1]=json!(v);}}Ok(json!({"labels":["time",metric],"data":data,"unit":match metric{"cpu"|"memory"|"disk"=>"%","rx"|"tx"=>"KB/s","uptime"=>"秒",_=>""}}))
+    }
     pub(super) fn open(path: &Path) -> Result<Self, String> {
         let db = Connection::open(path).map_err(|e| e.to_string())?;
+        db.execute_batch("CREATE TABLE IF NOT EXISTS metric_samples(id TEXT PRIMARY KEY,host TEXT NOT NULL,at INTEGER NOT NULL,status TEXT NOT NULL,source TEXT NOT NULL,data TEXT NOT NULL); CREATE INDEX IF NOT EXISTS metric_time ON metric_samples(at); CREATE INDEX IF NOT EXISTS metric_host_time ON metric_samples(host,at);").map_err(|e|e.to_string())?;
         db.execute_batch("CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY, host TEXT NOT NULL, alias TEXT NOT NULL, status TEXT NOT NULL, started INTEGER NOT NULL, data TEXT NOT NULL); CREATE INDEX IF NOT EXISTS jobs_time ON jobs(started DESC,id DESC); CREATE INDEX IF NOT EXISTS jobs_host ON jobs(host,status,started DESC);").map_err(|e| e.to_string())?;
         let unfinished = {
             let mut stmt = db.prepare("SELECT data FROM jobs WHERE status IN ('queued','running')").map_err(|e| e.to_string())?;
@@ -53,6 +61,19 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn metrics_survive_restart_and_expire_with_gaps() {
+        let root=std::env::temp_dir().join(format!("metric-history-{}",std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        std::fs::create_dir_all(&root).unwrap();let path=root.join("history.db");
+        let store=Store::open(&path).unwrap();let now=chrono::Utc::now().timestamp_millis();
+        store.sample("old","host",now-3*86400000,"success","ssh",&json!({"cpu":50})).unwrap();
+        store.sample("new","host",now-1000,"success","node_exporter",&json!({"cpu":25})).unwrap();drop(store);
+        let store=Store::open(&path).unwrap();store.prune_metrics(1).unwrap();
+        let count:i64=store.0.lock().unwrap().query_row("SELECT count(*) FROM metric_samples",[],|r|r.get(0)).unwrap();assert_eq!(count,1);
+        let page=store.metric_page("host","cpu",3600,60).unwrap();let rows=page["data"].as_array().unwrap();assert!(rows.iter().any(|r|r[1]==25.0));assert!(rows.iter().any(|r|r[1].is_null()));
+        assert!(store.metric_page("host","invalid",3600,60).is_err());
+        drop(store);std::fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn persistent_pages_filters_details_and_restart_recovery() {
         let root = std::env::temp_dir().join(format!("flowhub-history-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));

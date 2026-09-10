@@ -96,7 +96,7 @@
     $("#interval").value = String(c.interval || 60);
     $('#connectionMode').value = c.reuseConnections ? 'reuse' : 'independent';
     $('#connectionSummary').textContent = c.reuseConnections ? '复用已认证连接' : '每次独立连接';
-    $('#connectionIdle').value = String(c.connectionIdleSeconds || 900);
+    $('#connectionIdle').value = String(c.connectionIdleSeconds >= 3600 ? c.connectionIdleSeconds : 28800);
     $('#connectionMode').disabled = readonly || !c.enabled;
     $('#connectionIdle').disabled = readonly || !c.enabled || !c.reuseConnections;
     $('#connectionIdleField').hidden = !c.reuseConnections;
@@ -126,7 +126,7 @@
       const values = status === "success" ? metric.values : null;
       const pct = k => values ? `${Number(values[k]).toFixed(1)}<small>%</small>` : "—";
       const disabled = readonly || !c.enabled ? "disabled" : "";
-      return `<tr><td><input type="checkbox" data-select="${esc(h.id)}" ${selection.has(h.id) ? "checked" : ""} aria-label="选择 ${esc(h.name)}"></td><td><strong>${esc(h.name)}</strong><small>${esc(h.alias)}${h.group ? " / " + esc(h.group) : ""}</small></td><td><span class="status ${esc(status)}" title="${esc(metric?.error || "")}">${labels[status] || esc(status)}</span><small>${metric ? new Date(metric.at).toLocaleTimeString() : ""}</small></td><td>${pct("cpu")}</td><td>${pct("memory")}</td><td>${pct("disk")}</td><td>${values ? `${Number(values.load).toFixed(2)}<small>${Math.floor(values.uptime / 86400)} 天 ${Math.floor(values.uptime % 86400 / 3600)} 时</small>` : "—"}</td><td><button data-host-action="collect" data-id="${esc(h.id)}" ${disabled}>采集</button> <button data-host-action="collections" data-id="${esc(h.id)}">采集记录</button> <button data-host-action="command" data-id="${esc(h.id)}" ${disabled}>命令</button> <button data-host-action="terminal" data-id="${esc(h.id)}" ${disabled}>系统终端</button> <button data-host-action="edit" data-id="${esc(h.id)}" ${disabled}>编辑</button> <button data-host-action="delete" data-id="${esc(h.id)}" ${disabled} aria-label="删除 ${esc(h.name)}">×</button></td></tr>`;
+      return `<tr><td><input type="checkbox" data-select="${esc(h.id)}" ${selection.has(h.id) ? "checked" : ""} aria-label="选择 ${esc(h.name)}"></td><td><strong>${esc(h.name)}${h.readOnly ? ' · 仅查询' : ''}</strong><small>${esc(h.alias)}${h.group ? " / " + esc(h.group) : ""}</small></td><td><span class="status ${esc(status)}" title="${esc(metric?.error || "")}">${labels[status] || esc(status)}</span><small>${metric ? new Date(metric.at).toLocaleTimeString() : ""}</small></td><td>${pct("cpu")}</td><td>${pct("memory")}</td><td>${pct("disk")}</td><td>${values ? `${Number(values.load).toFixed(2)}<small>${Math.floor(values.uptime / 86400)} 天 ${Math.floor(values.uptime % 86400 / 3600)} 时</small>` : "—"}</td><td><button data-host-action="collect" data-id="${esc(h.id)}" ${disabled}>采集</button> <button data-host-action="collections" data-id="${esc(h.id)}">采集记录</button> <button data-host-action="command" data-id="${esc(h.id)}" ${disabled}>命令</button> <button data-host-action="terminal" data-id="${esc(h.id)}" ${h.readOnly ? 'disabled title="仅查询机器不允许系统终端"' : disabled}>系统终端</button> <button data-host-action="copy" data-id="${esc(h.id)}" ${disabled}>复制</button> <button data-host-action="edit" data-id="${esc(h.id)}" ${disabled}>编辑</button> <button data-host-action="delete" data-id="${esc(h.id)}" ${disabled} aria-label="删除 ${esc(h.name)}">×</button></td></tr>`;
     }).join("");
     if (hostMarkup !== lastHosts) { $("#hostRows").innerHTML = hostMarkup; lastHosts = hostMarkup; }
     $("#empty").hidden = hosts.length > 0;
@@ -146,6 +146,9 @@
     if ((current?.id || '') !== bastionHostId) { bastionHostId = current?.id || ''; bastionConnected = false; $('#bastionOutput').textContent = '尚未连接此机器的会话。'; $('#bastionInput').value = ''; }
     $('#bastionState').textContent = !current ? '请选择一台堡垒机机器' : bastionConnected ? '会话已连接' : '未连接';
     for (const id of ['bastionConnect', 'bastionAttach', 'bastionDisconnect', 'bastionInterrupt', 'bastionSend', 'bastionEnter']) $('#' + id).disabled = readonly || !current || bastionBusy || (id !== 'bastionConnect' && !bastionConnected);
+    if (current?.readOnly) for (const id of ['bastionAttach','bastionInterrupt','bastionSend','bastionEnter']) $('#'+id).disabled = true;
+    $('#bastionInput').disabled = !!current?.readOnly;
+    $('#bastionQueryRun').disabled = readonly || !current || !bastionConnected || bastionBusy;
     $('#targetSummary').textContent = selection.size ? `已选 ${selection.size} 台机器 ▾` : '选择目标机器 ▾';
     const hosts = M.visibleHosts(state.config.hosts, $('#targetSearch').value, '');
     const markup = hosts.map(h => `<label class="target-option"><input type="checkbox" data-target="${esc(h.id)}" ${selection.has(h.id) ? 'checked' : ''} ${readonly || !state.config.enabled ? 'disabled' : ''}><span>${esc(h.name)}<small>${esc(h.alias)}${h.group ? ' · ' + esc(h.group) : ''}</small></span></label>`).join('') || '<p class="caption">没有匹配的机器</p>';
@@ -211,12 +214,12 @@
     } catch (e) { output.textContent = String(e); }
   }
   $("#jobs").addEventListener("toggle", e => { if (e.target.matches("details")) loadJob(e.target); }, true);
-  function renderConsole() {
+  function renderConsole(forceFollow = false) {
     for (const j of state.active) if (consoleJobs.has(j.id) && !consoleJobs.get(j.id).finishedAt) Object.assign(consoleJobs.get(j.id), { status: j.status });
     const rows = [...consoleJobs.values()];
     const markup = rows.map(j => `<article class="console-job"><header><strong>${esc(j.name || j.alias)} <small>${esc(j.alias)}</small></strong><span class="status ${esc(j.status)}">${labels[j.status] || esc(j.status)}${j.exitCode != null ? ` · exit ${j.exitCode}` : ''}</span>${!j.finishedAt ? `<button type="button" data-console-cancel="${esc(j.id)}">取消</button>` : ''}</header><pre class="console-command">$ ${esc(j.command || '')}</pre>${j.finishedAt ? `<pre class="console-output">${esc(j.stdout || '（无标准输出）')}</pre>${j.stderr ? `<pre class="console-error">${esc(j.stderr)}</pre>` : ''}${j.truncated ? '<p class="caption">输出已截断</p>' : ''}` : '<p class="caption">命令执行中，结束后在此显示输出…</p>'}</article>`).join('') || '<p class="console-empty">选择目标机器，在下方输入命令。<br>执行结果将直接显示在这里。</p>';
     if (markup !== consoleMarkup) {
-      const output=$('#consoleOutput'),follow=output.scrollHeight-output.scrollTop-output.clientHeight<48;
+      const output=$('#consoleOutput'),follow=forceFollow || output.scrollHeight-output.scrollTop-output.clientHeight<48;
       output.innerHTML = markup; consoleMarkup = markup;
       if(follow)output.scrollTop=output.scrollHeight;
     }
@@ -251,7 +254,7 @@
       if (kind === 'command') {
         consoleJobs.set(id, { id, name: h.name, alias: h.alias, command, status: 'queued', finishedAt: null });
         while (consoleJobs.size > 100) { const old = [...consoleJobs].find(([, j]) => j.finishedAt); if (!old) break; consoleJobs.delete(old[0]); }
-        renderConsole();
+        renderConsole(true);
       }
       try {
         const result = await invoke("machines_run", { hostId: h.id, expectedAlias: h.alias, id, kind, command: command || null });
@@ -272,7 +275,7 @@
   $("#filter").oninput = renderHosts; $("#group").onchange = renderHosts;
   $("#selectAll").onchange = e => { for (const h of filtered()) e.target.checked ? selection.add(h.id) : selection.delete(h.id); renderHosts(); };
   $("#hostRows").onchange = e => { if (e.target.dataset.select) { e.target.checked ? selection.add(e.target.dataset.select) : selection.delete(e.target.dataset.select); renderHosts(); } };
-  function edit(host) {
+  async function edit(host) {
     for(const id of ['hostAlias','sshHostname','sshUser','sshPort']){
       document.getElementById?.(id+'Error')?.remove();
       $('#'+id).removeAttribute?.('aria-invalid');$('#'+id).removeAttribute?.('aria-describedby');
@@ -293,8 +296,9 @@
     $('#hostConnectionType').value = host?.bastion ? 'bastion' : 'ssh';
     $('#relayScript').value = host?.bastion?.script || '';
     $('#relayCommand').value = host?.bastion?.command || 'n';
+    $('#hostReadOnly').checked = !!host?.readOnly;
     connectionForm();
-    if (host && !host.bastion) loadSshForEdit();
+    if (host && !host.bastion) await loadSshForEdit();
   }
   function connectionForm() {
     const bastion = $('#hostConnectionType').value === 'bastion';
@@ -389,6 +393,7 @@
   $("#hostForm").onsubmit = e => { e.preventDefault(); operate(async () => {
     const h = { id: $("#hostId").value || crypto.randomUUID(), name: $("#hostName").value.trim(), alias: $("#hostAlias").value.trim(), group: $("#hostGroup").value.trim() };
     h.bastion = $('#hostConnectionType').value === 'bastion' ? { script: $('#relayScript').value.trim(), target: h.alias, command: $('#relayCommand').value } : null;
+    h.readOnly = $('#hostReadOnly').checked;
     if (!h.bastion && sshEditStatus !== 'ready') throw new Error('请等待 SSH 配置加载成功后再保存。');
     if (!M.validAlias(h.alias)) throw new Error("SSH 别名只能包含字母、数字、点、下划线、冒号和连字符，不能以连字符开头");
     const hosts = state.config.hosts.filter(existing => existing.id !== h.id); hosts.push(h);
@@ -413,6 +418,16 @@
     const h = state.config.hosts.find(h => h.id === button.dataset.id); if (!h) return;
     if (button.dataset.hostAction === 'collections') { collectionHost = h; lastCollections = ''; renderCollections(); $('#collectionDialog').showModal(); return; }
     if (button.dataset.hostAction === "edit") { edit(h); return; }
+    if (button.dataset.hostAction === 'copy') {
+      operate(async () => {
+        await edit(h);
+        if (!h.bastion && sshEditStatus !== 'ready') throw Error('原配置加载失败，请重试后复制');
+        $('#hostId').value = ''; $('#hostName').value = h.name + ' 副本'; $('#hostAlias').value = '';
+        sshRevision = ''; sshLoadedAlias = ''; sshBaseline = ''; $('#sshPassword').value = '';
+        $('#hostAlias').focus();
+        message('已复制到新增表单，请填写新的目标机器。已保存密码不会复制。');
+      }); return;
+    }
     if (button.dataset.hostAction === 'command') { selection = new Set([h.id]); renderHosts(); window.FlowHubMachineTabs?.show('command', true); return; }
     operate(async () => {
       if (button.dataset.hostAction === "collect") submit([h], "collect");
@@ -420,17 +435,25 @@
       if (button.dataset.hostAction === "delete" && await confirmAction('移除机器', `确定从清单移除“${h.name}”？不会删除远端数据。`, '确认移除')) await api("hosts", { hosts: state.config.hosts.filter(x => x.id !== h.id) });
     });
   };
-  $("#collectSelected").onclick = () => submit(chosen().filter(h => !h.bastion), "collect");
+  $("#collectSelected").onclick = () => submit(chosen(), "collect");
+  function updateBastionOutput(text, forceFollow = false) {
+    const output = $('#bastionOutput');
+    const follow = forceFollow || output.scrollHeight - output.scrollTop - output.clientHeight < 48;
+    output.textContent = text;
+    if (follow) output.scrollTop = output.scrollHeight;
+  }
   async function sessionAction(action, extra = {}) {
     const h = bastionHost(); if (!h || readonly || bastionBusy) return;
     bastionBusy = true; renderTargets();
+    if (action === 'bastionSend') $('#bastionOutput').scrollTop = $('#bastionOutput').scrollHeight;
     try {
       const result = await api(action, { hostId: h.id, ...extra });
-      if (bastionHostId === h.id) { bastionConnected = result.connected; $('#bastionOutput').textContent = result.output; }
+      if (bastionHostId === h.id) { bastionConnected = result.connected; updateBastionOutput(result.output, action === 'bastionSend'); }
     } catch (e) { message(String(e), true); }
     finally { bastionBusy = false; renderTargets(); }
   }
   $('#bastionConnect').onclick = () => sessionAction('bastionStart');
+  $('#bastionQueryRun').onclick = () => { const h=bastionHost(); if(h && bastionConnected) submit([h], 'command', $('#bastionQuery').value); };
   $('#bastionAttach').onclick = () => sessionAction('bastionTerminal');
   $('#bastionDisconnect').onclick = async () => { if (await confirmAction('断开会话', '断开将终止共享会话及其中运行的程序，系统终端也会断开。', '确认断开')) sessionAction('bastionStop'); };
   $('#bastionInterrupt').onclick = () => sessionAction('bastionSend', { key: 'C-c' });
@@ -441,7 +464,7 @@
   if (!readonly) setInterval(async () => {
     const h = bastionHost(); if (!h || document.hidden || $('#commandPanel').hidden || (embedded && !true) || bastionBusy || bastionPolling) return;
     bastionPolling = true;
-    try { const result = await api('bastionState', { hostId: h.id }); if (bastionHostId === h.id) { bastionConnected = result.connected; $('#bastionOutput').textContent = result.output; renderTargets(); } }
+    try { const result = await api('bastionState', { hostId: h.id }); if (bastionHostId === h.id) { bastionConnected = result.connected; updateBastionOutput(result.output); renderTargets(); } }
     catch (e) { if (bastionHostId === h.id) $('#bastionState').textContent = String(e); }
     finally { bastionPolling = false; }
   }, 1500);

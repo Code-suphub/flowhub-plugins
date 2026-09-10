@@ -27,14 +27,19 @@ const OUTPUT_LIMIT: usize = 32768;
 const COLLECT: &str = r#"set -eu
 export LC_ALL=C
 test "$(uname -s)" = Linux || { echo '基础监控目前仅支持 Linux' >&2; exit 2; }
-cpu() { awk '/^cpu / {idle=$5+$6; total=0; for(i=2;i<=9;i++) total+=$i; print total, idle; exit}' /proc/stat; }
+cpu() { awk '/^cpu / {idle=$5+$6; total=0; for(i=2;i<=9;i++) total+=$i; printf "%.0f %.0f\n", total, idle; exit}' /proc/stat; }
 set -- $(cpu); t1=$1; i1=$2; sleep 1; set -- $(cpu)
-cpu_pct=$(awk -v t="$(( $1-t1 ))" -v i="$(( $2-i1 ))" 'BEGIN {if(t>0) printf "%.1f",100*(t-i)/t; else print 0}')
+cpu_pct=$(awk -v t1="$t1" -v t2="$1" -v i1="$i1" -v i2="$2" 'BEGIN {t=t2-t1; i=i2-i1; if(t>0 && i>=0 && i<=t) printf "%.1f",100*(t-i)/t; else print 0}')
 mem=$(awk '/MemTotal:/ {t=$2} /MemAvailable:/ {a=$2} END {if(t>0) printf "%.1f",100*(t-a)/t; else print 0}' /proc/meminfo)
 disk=$(df -P / | awk 'NR==2 {gsub(/%/,"",$5); print $5}')
 load=$(awk '{print $1}' /proc/loadavg)
 up=$(awk '{printf "%.0f",$1}' /proc/uptime)
-printf '{"cpu":%s,"memory":%s,"disk":%s,"load":%s,"uptime":%s}\n' "$cpu_pct" "$mem" "$disk" "$load" "$up"
+net() { awk 'NR>2 {gsub(/:/," "); if($1!="lo" && $1!~/^(veth|docker|br-)/){r+=$2;t+=$10}} END {printf "%.0f %.0f\n",r,t}' /proc/net/dev; }
+set -- $(net); r1=$1; s1=$2; n1=$(awk '{print $1}' /proc/uptime)
+sleep 1
+set -- $(net); n2=$(awk '{print $1}' /proc/uptime)
+rates=$(awk -v r1="$r1" -v r2="$1" -v s1="$s1" -v s2="$2" -v n1="$n1" -v n2="$n2" 'BEGIN {dt=n2-n1;if(dt>0 && r2>=r1 && s2>=s1) printf "%.2f,\"tx\":%.2f",(r2-r1)/dt/1000,(s2-s1)/dt/1000;else printf "null,\"tx\":null"}')
+printf '{"cpu":%s,"memory":%s,"disk":%s,"load":%s,"uptime":%s,"rx":%s}\n' "$cpu_pct" "$mem" "$disk" "$load" "$up" "$rates"
 "#;
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -96,8 +101,19 @@ struct Host {
     alias: String,
     name: String,
     group: String,
+    #[serde(default, rename = "readOnly")]
+    read_only: bool,
     #[serde(default)]
     bastion: Option<crate::bastion::Profile>,
+}
+pub(crate) fn query_allowed(command: &str) -> bool {
+    matches!(command.trim(), "uptime" | "hostname" | "uname -a" | "df -h /" | "free -m")
+}
+fn check_operation(host: &Host, kind: &str, command: &str) -> Result<(), String> {
+    if host.read_only && kind != "collect" && !(kind == "command" && query_allowed(command)) {
+        return Err("此机器仅允许查询：uptime、hostname、uname -a、df -h /、free -m，以及指标采集；不允许自由命令或系统终端".into());
+    }
+    Ok(())
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -122,6 +138,14 @@ struct Config {
     interval: u64,
     reuse_connections: bool,
     connection_idle_seconds: u64,
+    netdata: Vec<crate::netdata::Instance>,
+    exporters: HashMap<String,crate::exporter::Endpoint>,
+    retention_days:u64,
+}
+const DEFAULT_CONNECTION_IDLE: u64 = 8 * 3600;
+const MAX_CONNECTION_IDLE: u64 = 7 * 24 * 3600;
+fn connection_idle(seconds: u64) -> u64 {
+    if seconds < 3600 { DEFAULT_CONNECTION_IDLE } else { seconds.min(MAX_CONNECTION_IDLE) }
 }
 impl Config {
     fn save_templates(&mut self, templates: Vec<Template>) -> Result<(), String> {
@@ -305,6 +329,7 @@ pub(crate) struct Runtime {
     history: Mutex<Vec<Job>>,
     history_store: machine_history::Store,
     metrics: Mutex<HashMap<String, Value>>,
+    netdata_cache: Mutex<HashMap<String,Value>>,
     slots: Semaphore,
 }
 impl Runtime {
@@ -328,6 +353,10 @@ impl Runtime {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Config::default(),
             Err(e) => return Err(e.to_string()),
         };
+        config.connection_idle_seconds = connection_idle(config.connection_idle_seconds);
+        if config.retention_days==0{config.retention_days=30;}if config.retention_days>365{return Err("历史保留天数不能超过 365 天".into());}for e in config.exporters.values(){e.validate()?;}
+        if config.netdata.len()>64{return Err("Netdata 节点数量超出限制".into());}
+        for instance in &config.netdata {instance.validate()?;}
         validate_hosts(&config.hosts)?;
         // Copy only legacy FlowHub-owned profiles; never rewrite user SSH files.
         if let Some(home)=dirs::home_dir() {
@@ -359,6 +388,7 @@ impl Runtime {
             active: Mutex::new(HashMap::new()),
             history: Mutex::new(Vec::new()),
             metrics: Mutex::new(HashMap::new()),
+            netdata_cache: Mutex::new(HashMap::new()),
             slots: Semaphore::new(4),
         })
     }
@@ -376,7 +406,10 @@ impl Runtime {
     }
     pub(crate) fn status_snapshot(&self) -> Value {
         let snapshot=json!({"config":self.config.lock().unwrap().clone(),"metrics":self.metrics.lock().unwrap().clone()});
-        status_summary(&snapshot, chrono::Utc::now().timestamp_millis())
+        let mut status=status_summary(&snapshot, chrono::Utc::now().timestamp_millis());
+        let instances=self.config.lock().unwrap().netdata.clone();let cache=self.netdata_cache.lock().unwrap();
+        for instance in instances { if let Some(data)=cache.get(&instance.id){if let Some(rows)=data["rows"].as_array(){status["rows"].as_array_mut().unwrap().extend(rows.iter().cloned());}} }
+        status
     }
     fn snapshot(&self) -> Value {
         json!({"config": self.config.lock().unwrap().clone(), "pending": self.pending.lock().unwrap().clone(), "metrics": self.metrics.lock().unwrap().clone(), "active": self.active.lock().unwrap().values().map(|a| a.job.summary()).collect::<Vec<_>>(), "history": self.history.lock().unwrap().iter().map(Job::summary).collect::<Vec<_>>(), "readonly": false})
@@ -406,6 +439,12 @@ fn status_summary(snapshot: &Value, now: i64) -> Value {
 #[cfg(test)]
 mod status_tests {
     use super::*;
+    #[test]
+    fn netdata_configuration_survives_restart(){
+        let root=std::env::temp_dir().join(format!("fh-netdata-{}",chrono::Utc::now().timestamp_nanos_opt().unwrap()));let runtime=Runtime::new(root.clone()).unwrap();
+        runtime.save(|c|{c.netdata.push(crate::netdata::Instance{id:"node".into(),name:"Node".into(),url:"http://127.0.0.1:19999".into(),network_chart:"net.eth0".into()});Ok(())}).unwrap();
+        let restored=Runtime::new(root.clone()).unwrap();assert_eq!(restored.config.lock().unwrap().netdata[0].network_chart,"net.eth0");drop(restored);drop(runtime);std::fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn summary_distinguishes_missing_stale_and_failed_without_exposing_connections() {
         let snapshot=json!({"config":{"interval":60,"monitoring":true,"hosts":[
@@ -529,6 +568,30 @@ pub(crate) async fn machines_api(
 ) -> Result<Value, String> {
     let rt = app.runtime.clone();
     match action.as_str() {
+        "monitorSettings" => {
+            let days=payload["days"].as_u64().filter(|v|(1..=365).contains(v)).ok_or("历史保留时长应为 1–365 天")?;
+            let exporters:HashMap<String,crate::exporter::Endpoint>=serde_json::from_value(payload["exporters"].clone()).map_err(|_|"采集来源配置无效")?;for e in exporters.values(){e.validate()?;}
+            rt.save(|c|{authorize(c,"ssh:configure")?;if exporters.keys().any(|id|!c.hosts.iter().any(|h|&h.id==id)){return Err("来源对应的机器已移除".into());}c.exporters=exporters;c.retention_days=days;Ok(())})?;
+            rt.history_store.prune_metrics(days)?;Ok(rt.snapshot())
+        },
+        "metricHistory" => {let interval=rt.config.lock().unwrap().interval.max(30);rt.history_store.metric_page(payload["hostId"].as_str().unwrap_or(""),payload["metric"].as_str().unwrap_or("cpu"),payload["seconds"].as_u64().unwrap_or(86400),interval)},
+        "exporterTest" => {let e:crate::exporter::Endpoint=serde_json::from_value(payload).map_err(|e|e.to_string())?;crate::exporter::collect(&e).await},
+        "netdataTest" => {let instance:crate::netdata::Instance=serde_json::from_value(payload).map_err(|e|e.to_string())?;crate::netdata::fetch(&instance).await},
+        "netdataHistory" => {let instance={let c=rt.config.lock().unwrap();c.netdata.iter().find(|i|Some(i.id.as_str())==payload["id"].as_str()).cloned().ok_or("Netdata 节点不存在")?};crate::netdata::history(&instance,payload["chart"].as_str().unwrap_or("system.cpu"),payload["seconds"].as_u64().unwrap_or(86400)).await},
+        "netdataSave" => {
+            let instance:crate::netdata::Instance=serde_json::from_value(payload).map_err(|e|e.to_string())?;instance.validate()?;
+            rt.save(|c|{authorize(c,"ssh:configure")?;if let Some(old)=c.netdata.iter_mut().find(|i|i.id==instance.id){*old=instance;}else{if c.netdata.len()>=64{return Err("最多接入 64 个 Netdata 实例".into());}c.netdata.push(instance);}Ok(())})
+        },
+        "netdataRemove" => rt.save(|c|{authorize(c,"ssh:configure")?;c.netdata.retain(|i|Some(i.id.as_str())!=payload["id"].as_str());Ok(())}),
+        "netdataInstallPlan" | "netdataInstall" => {
+            let script=crate::netdata::install_script(payload["port"].as_u64().unwrap_or(19999),payload["bind"].as_str().unwrap_or("127.0.0.1"),payload["days"].as_u64().unwrap_or(7),payload["disk"].as_u64().unwrap_or(1024))?;
+            let host={let c=rt.config.lock().unwrap();authorize(&c,"ssh:execute")?;let h=c.hosts.iter().find(|h|Some(h.id.as_str())==payload["hostId"].as_str()).ok_or("请选择目标机器")?;check_operation(h,"command",&script)?;if h.bastion.is_some(){return Err("一键安装使用普通 SSH；堡垒机请在已登录的系统终端执行安装命令".into());}h.clone()};
+            if action=="netdataInstallPlan"{return Ok(json!({"command":script,"hostId":host.id,"alias":host.alias,"name":host.name}));}
+            if payload["expectedAlias"]!=host.alias || payload["command"]!=script{return Err("安装配置发生变化，请重新预览".into());}
+            let id=format!("netdata-{}",chrono::Utc::now().timestamp_nanos_opt().unwrap());let task_id=id.clone();
+            tokio::spawn(async move{let _guard=app.gate.read().await;if !app.backup.pending_restore(){let _=machines_run(app.clone(),host.id,host.alias,task_id,"command".into(),Some(script)).await;}});
+            Ok(json!({"id":id}))
+        },
         "bastionStart" | "bastionState" | "bastionSend" | "bastionStop" | "bastionTerminal" => {
             let host = {
                 let config = rt.config.lock().unwrap();
@@ -536,6 +599,7 @@ pub(crate) async fn machines_api(
                 config.hosts.iter().find(|h| Some(h.id.as_str()) == payload["hostId"].as_str()).cloned().ok_or("机器不存在")?
             };
             let profile = host.bastion.as_ref().ok_or("不是堡垒机连接")?;
+            if matches!(action.as_str(), "bastionSend" | "bastionTerminal") { check_operation(&host, "terminal", "")?; }
             crate::bastion::handle(&rt.path, &host.id, profile, &action, &payload).await
         }
         "state" => Ok(rt.snapshot()),
@@ -964,6 +1028,13 @@ pub(crate) async fn machines_api(
                     return Err("请先在工作台断开堡垒机会话，再修改连接配置或删除机器".into());
                 }
             }
+            for previous in &old {
+                if hosts.iter().any(|h| h.id == previous.id && h.read_only != previous.read_only)
+                    && (rt.active.lock().unwrap().values().any(|a| a.job.host_id == previous.id)
+                        || (previous.bastion.is_some() && crate::bastion::active(&rt.path, &previous.id).await)) {
+                    return Err("请先结束运行任务并断开堡垒机会话，再修改操作权限".into());
+                }
+            }
             let keep: HashSet<String> = hosts
                 .iter()
                 .filter(|h| old.iter().any(|o| o.id == h.id && o.alias == h.alias))
@@ -971,6 +1042,7 @@ pub(crate) async fn machines_api(
                 .collect();
             rt.save(|c| {
                 c.hosts = hosts;
+                c.exporters.retain(|id,_|keep.contains(id));
                 Ok(())
             })?;
             rt.metrics.lock().unwrap().retain(|id, _| keep.contains(id));
@@ -1015,8 +1087,8 @@ pub(crate) async fn machines_api(
         }
         "connectionSettings" => {
             let reuse = payload["reuse"].as_bool().ok_or("缺少连接模式")?;
-            let idle = payload["idleSeconds"].as_u64().unwrap_or(900);
-            if !(60..=3600).contains(&idle) { return Err("连接空闲时间应为 60–3600 秒".into()); }
+            let idle = payload["idleSeconds"].as_u64().unwrap_or(DEFAULT_CONNECTION_IDLE);
+            if !(3600..=MAX_CONNECTION_IDLE).contains(&idle) { return Err("连接空闲保留时间应为 1 小时至 7 天".into()); }
             rt.save(|c| { authorize(c, "ssh:execute")?; c.reuse_connections = reuse; c.connection_idle_seconds = idle; Ok(()) })?;
             Ok(rt.snapshot())
         }
@@ -1024,12 +1096,12 @@ pub(crate) async fn machines_api(
             let alias = {
                 let c = rt.config.lock().unwrap();
                 authorize(&c, "ssh:terminal")?;
-                c.hosts
+                let host = c.hosts
                     .iter()
                     .find(|h| h.id == payload["hostId"].as_str().unwrap_or(""))
-                    .ok_or("机器不存在")?
-                    .alias
-                    .clone()
+                    .ok_or("机器不存在")?;
+                check_operation(host, "terminal", "")?;
+                host.alias.clone()
             };
             let options = connection_args(&rt.config.lock().unwrap())?;
             let mut args = vec![std::env::current_exe().map_err(|e|e.to_string())?.to_string_lossy().into_owned(),"--terminal".into(),rt.path.parent().unwrap().to_string_lossy().into_owned(),alias]; args.extend(options);
@@ -1102,7 +1174,7 @@ fn connection_args_at(config: &Config, home: &std::path::Path) -> Result<Vec<Str
     }
     let socket = directory.join("%C").to_string_lossy().into_owned();
     if socket.len() + 38 >= 104 { return Err("SSH 连接目录路径过长，无法创建复用套接字".into()); }
-    Ok(vec!["-o".into(), "ControlMaster=auto".into(), "-o".into(), format!("ControlPath={socket}"), "-o".into(), format!("ControlPersist={}", config.connection_idle_seconds.clamp(60, 3600))])
+    Ok(vec!["-o".into(), "ControlMaster=auto".into(), "-o".into(), format!("ControlPath={socket}"), "-o".into(), format!("ControlPersist={}", connection_idle(config.connection_idle_seconds))])
 }
 fn ssh_args(alias: &str, command: &str) -> Vec<String> {
     [
@@ -1166,7 +1238,8 @@ async fn execute(
         if host.alias != expected_alias {
             return Err("机器地址在审阅后发生变化，请重新选择目标".into());
         }
-        if host.bastion.is_some() { return Err("堡垒机请使用持久会话工作台；暂不支持自动指标采集".into()); }
+        check_operation(host, &kind, &command)?;
+        if host.bastion.is_some() && kind != "collect" && !query_allowed(&command) { return Err("堡垒机自由命令请使用持久会话工作台；结构化调用仅支持内置查询".into()); }
         let job = Job {
             id: id.clone(),
             host_id,
@@ -1230,8 +1303,9 @@ async fn execute(
             && config
                 .hosts
                 .iter()
-                .any(|h| h.id == job.host_id && h.alias == job.alias)
+                .any(|h| h.id == job.host_id && h.alias == job.alias && check_operation(h, &job.kind, &command).is_ok())
     };
+    let exporter=if job.kind=="collect"{rt.config.lock().unwrap().exporters.get(&job.host_id).cloned()}else{None};
     if cancel.load(Ordering::Acquire) || !allowed {
         job.status = "cancelled".into();
     } else {
@@ -1239,6 +1313,16 @@ async fn execute(
         if let Some(a) = rt.active.lock().unwrap().get_mut(&id) {
             a.job.status = job.status.clone();
         }
+        let bastion = rt.config.lock().unwrap().hosts.iter().find(|h| h.id == job.host_id).and_then(|h| h.bastion.clone());
+        if let Some(endpoint)=&exporter {
+            match crate::exporter::collect(endpoint).await {Ok(values)=>{job.stdout=values.to_string();job.status="success".into();job.exit_code=Some(0);},Err(e)=>{job.status="failed".into();job.stderr=e;}}
+            if cancel.load(Ordering::Acquire){job.status="cancelled".into();}
+        } else if let Some(profile) = bastion {
+            match crate::bastion::collect(&rt.path, &job.host_id, &profile, &command, &cancel).await {
+                Ok(output) => { job.stdout = output; job.status = "success".into(); job.exit_code = Some(0); }
+                Err(error) => { job.status = if cancel.load(Ordering::Acquire) { "cancelled" } else { "failed" }.into(); job.stderr = error; }
+            }
+        } else {
         let mut child = Command::new("/usr/bin/ssh");
         let options = connection_args(&rt.config.lock().unwrap()).and_then(|options| {
             if let Some(connection)=crate::connections::load(rt.path.parent().unwrap(),&job.alias)? {crate::connections::configure(&mut child,&connection,rt.path.parent().unwrap())?;}
@@ -1246,10 +1330,11 @@ async fn execute(
         });
         if let Ok(options) = &options { child.args(options); }
         child.args(ssh_args(&job.alias, &command));
-        let duration = Duration::from_secs(if job.kind == "collect" { 20 } else { 60 });
+        let duration = Duration::from_secs(if job.kind == "collect" { 20 } else if crate::netdata::is_install(&command) { 600 } else { 60 });
         match options {
             Ok(_) => run_process(child, cancel, duration, &mut job).await,
             Err(error) => { job.status = "failed".into(); job.stderr = error; }
+        }
         }
     }
     drop(permit);
@@ -1258,7 +1343,7 @@ async fn execute(
         let parsed = if job.status == "success" {
             serde_json::from_str::<Value>(job.stdout.trim())
                 .ok()
-                .filter(valid_metrics)
+                .filter(|v|if exporter.is_some(){v.is_object()}else{valid_metrics(v)})
         } else {
             None
         };
@@ -1271,7 +1356,9 @@ async fn execute(
             .hosts
             .iter()
             .any(|h| h.id == job.host_id && h.alias == job.alias)
+            && config.exporters.get(&job.host_id) == exporter.as_ref()
         {
+            if let Err(e)=rt.history_store.sample(&job.id,&job.host_id,job.finished_at.unwrap(),&job.status,if exporter.is_some(){"node_exporter"}else{"ssh"},&parsed.clone().unwrap_or(Value::Null)){job.status="failed".into();job.stderr.push_str(&format!("历史保存失败：{e}"));}
             rt.metrics.lock().unwrap().insert(job.host_id.clone(), json!({"at": job.finished_at, "status": job.status, "values": parsed, "error": job.stderr.chars().take(1000).collect::<String>()}));
         }
     }
@@ -1387,8 +1474,22 @@ pub(crate) async fn machines_run(
             .unwrap(),
     )
 }
+pub(crate) fn start_netdata(app:&Context){
+    let app=app.clone();tokio::spawn(async move{loop{
+        {let _guard=app.gate.read().await;
+        if !app.backup.pending_restore(){
+            let instances=app.runtime.config.lock().unwrap().netdata.clone();
+            let permits=Arc::new(Semaphore::new(4));let mut jobs=tokio::task::JoinSet::new();
+            for instance in instances {let permits=permits.clone();jobs.spawn(async move {let _permit=permits.acquire().await.unwrap();let result=crate::netdata::fetch(&instance).await.unwrap_or_else(|e|json!({"rows":[{"id":format!("netdata-{}",instance.id),"name":format!("{} · 无法连接",instance.name),"status":"error","values":{},"at":chrono::Utc::now().timestamp_millis()}],"error":e}));(instance.id,result)});}
+            while let Some(Ok((id,result)))=jobs.join_next().await {app.runtime.netdata_cache.lock().unwrap().insert(id,result);}
+        }}
+        tokio::time::sleep(Duration::from_secs(30)).await;
+    }});
+}
 pub(crate) fn validate_backup_state(value:&Value,root:&std::path::Path)->Result<(),String>{
     let config:Config=serde_json::from_value(value.clone()).map_err(|_|"备份中的机器配置无效")?;validate_hosts(&config.hosts)?;
+    if config.retention_days>365{return Err("历史保留天数无效".into());}for e in config.exporters.values(){e.validate()?;}
+    if config.netdata.len()>64{return Err("Netdata 节点数量超出限制".into());}for instance in &config.netdata{instance.validate()?;}
     if root.join("commands.sqlite3").exists(){machine_history::Store::open(&root.join("commands.sqlite3"))?;}
     Ok(())
 }
@@ -1396,11 +1497,13 @@ pub(crate) fn start_monitor(app: &Context) {
     let app = app.clone();
     tokio::spawn(async move {
         let mut due: HashMap<String, (tokio::time::Instant, u32)> = HashMap::new();
+        let mut last_cleanup=None;
         loop {
             tokio::time::sleep(Duration::from_secs(3)).await;
             let _guard=app.gate.read().await;
             if app.backup.pending_restore(){continue;}
             let config = app.runtime.clone().config.lock().unwrap().clone();
+            if last_cleanup.is_none_or(|t:tokio::time::Instant|t.elapsed()>Duration::from_secs(60)){if app.runtime.history_store.prune_metrics(config.retention_days.max(1)).is_ok(){last_cleanup=Some(tokio::time::Instant::now());}}
             if !config.monitoring || authorize(&config, "ssh:collect").is_err() {
                 due.clear();
                 continue;
@@ -1411,7 +1514,6 @@ pub(crate) fn start_monitor(app: &Context) {
             let mut hosts = config.hosts.clone();
             hosts.sort_by_key(|host| due.get(&host.id).map(|(time, _)| *time));
             for host in &hosts {
-                if host.bastion.is_some() { continue; }
                 if due
                     .get(&host.id)
                     .is_some_and(|(time, _)| *time > tokio::time::Instant::now())
@@ -1473,6 +1575,44 @@ pub(crate) fn start_monitor(app: &Context) {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn query_policy_rejects_shell_composition_and_terminal_access() {
+        use super::*;
+        let host: Host = serde_json::from_value(json!({"id":"prod","alias":"prod","name":"Prod","group":"","readOnly":true})).unwrap();
+        assert!(check_operation(&host,"collect",COLLECT).is_ok());
+        for command in ["uptime","hostname","uname -a","df -h /","free -m"] { assert!(check_operation(&host,"command",command).is_ok()); }
+        for command in ["uptime; touch /tmp/x","uptime\nrm -rf /","echo $(id)","sudo uptime","df -h / > /tmp/x", "sh", "env"] { assert!(check_operation(&host,"command",command).is_err()); }
+        assert!(check_operation(&host,"terminal","").is_err());
+    }
+    #[tokio::test]
+    async fn cpu_collection_preserves_large_counter_deltas() {
+        use super::*;
+        let root = std::env::temp_dir().join(format!("fh-cpu-counters-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let stat = root.join("stat");
+        // Execute the production sampling code with synthetic /proc/stat snapshots.
+        let sampling = COLLECT.lines().skip(3).take(3).collect::<Vec<_>>().join("\n")
+            .replace("/proc/stat", &stat.to_string_lossy());
+        for base in [100u64, 3_292_880_000, 6_292_880_000_000] {
+            std::fs::write(&stat, format!("cpu 2000000000 0 1000000000 {base} 0 0 0 0 0 0\n")).unwrap();
+            let script = format!("set -eu\nexport LC_ALL=C\nsleep() {{ printf 'cpu 2000000100 0 1000000000 {} 0 0 0 0 0 0\\n' > {}; }}\n{sampling}\nprintf '%s' \"$cpu_pct\"", base + 300, stat.display());
+            let output = Command::new("/bin/sh").arg("-c").arg(script).output().await.unwrap();
+            assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+            assert_eq!(String::from_utf8_lossy(&output.stdout), "25.0");
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn connection_idle_migrates_short_values_and_preserves_long_retention() {
+        use super::*;
+        for seconds in [0, 60, 300, 900, 1800] {
+            assert_eq!(connection_idle(seconds), 28800);
+        }
+        for seconds in [3600, 28800, 86400, 604800] {
+            assert_eq!(connection_idle(seconds), seconds);
+        }
+        assert_eq!(connection_idle(u64::MAX), 604800);
+    }
+    #[test]
     fn managed_connection_modes_use_private_sockets_and_independent_disables_reuse() {
         use super::*;
         let home = PathBuf::from(format!("/tmp/fhcm-{}", std::process::id()));
@@ -1483,7 +1623,7 @@ mod tests {
         config.reuse_connections = true; config.connection_idle_seconds = 900;
         let args = connection_args_at(&config, &home).unwrap();
         assert!(args.contains(&"ControlMaster=auto".into()));
-        assert!(args.contains(&"ControlPersist=900".into()));
+        assert!(args.contains(&"ControlPersist=28800".into()));
         assert!(args.iter().any(|s| s.ends_with("/%C")));
         let saved = serde_json::to_vec(&config).unwrap();
         let restored: Config = serde_json::from_slice(&saved).unwrap();
@@ -1591,6 +1731,7 @@ mod tests {
         std::fs::write(&path, serde_json::to_vec(&updated).unwrap()).unwrap();
         let mut config = Config::default();
         config.hosts.push(Host {
+            read_only: false,
             bastion: None,
             id: "dev".into(),
             alias: "dev".into(),

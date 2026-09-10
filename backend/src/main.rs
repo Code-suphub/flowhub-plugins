@@ -1,4 +1,5 @@
 mod machines;
+mod cli;
 mod ssh_profiles;
 mod bastion;
 mod storage;
@@ -6,6 +7,8 @@ mod connections;
 mod vault;
 mod backup;
 mod update_cache;
+mod netdata;
+mod exporter;
 use std::{path::PathBuf, sync::Arc};
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
@@ -33,16 +36,24 @@ async fn dispatch(ctx: Context, request: &Value) -> Result<Value, String> {
         "machines_run" => machines::machines_run(ctx.clone(),text("hostId"),text("expectedAlias"),text("id"),text("kind"),p["command"].as_str().map(str::to_owned)).await,
         "health" => Ok(json!({"protocol":1,"name":"flowhub-machines","version":env!("CARGO_PKG_VERSION")})),
         "status_snapshot" => Ok(ctx.runtime.status_snapshot()),
+        "status_history" => machines::machines_api(ctx.clone(),"metricHistory".into(),serde_json::json!({"hostId":p["row"],"metric":p["metric"],"seconds":p["seconds"]})).await,
         _ => Err("未知插件方法".into())
     }
 }
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(result)=connections::askpass(){return result.map_err(Into::into);}
+    if std::env::args().nth(1).as_deref()==Some("--cli") {
+        return cli::run(&std::env::args().skip(2).collect::<Vec<_>>()).await.map_err(Into::into);
+    }
     if std::env::args().nth(1).as_deref()==Some("--terminal") {
         let args:Vec<String>=std::env::args().collect();
         let root=PathBuf::from(args.get(2).ok_or("缺少数据目录")?);
         let alias=args.get(3).ok_or("缺少机器别名")?;
+        let config:Value=serde_json::from_slice(&std::fs::read(root.join("state.json"))?)?;
+        if config["hosts"].as_array().is_some_and(|hosts|hosts.iter().any(|host|host["alias"].as_str()==Some(alias) && host["readOnly"].as_bool()==Some(true))) {
+            return Err("此机器仅允许查询，不允许系统终端".into());
+        }
         let mut process=tokio::process::Command::new("/usr/bin/ssh");
         if let Some(connection)=connections::load(&root,alias)? {connections::configure(&mut process,&connection,&root)?;}
         let status=process.args(&args[4..]).args(["-o","StrictHostKeyChecking=ask","--",alias]).status().await?;
@@ -51,6 +62,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let root = std::env::var_os("FLOWHUB_PLUGIN_DATA").map(PathBuf::from).ok_or("缺少 FLOWHUB_PLUGIN_DATA")?;
     backup::apply_pending(&root)?;
     let ctx = Context { runtime: Arc::new(machines::Runtime::new(root.clone())?),gate:Arc::new(tokio::sync::RwLock::new(())),backup:Arc::new(backup::Manager::new(root)) };
+    cli::serve(ctx.clone(), &std::env::var_os("FLOWHUB_PLUGIN_DATA").map(PathBuf::from).unwrap()).await?;
     machines::start_monitor(&ctx);
     let out = Arc::new(tokio::sync::Mutex::new(tokio::io::stdout()));
     let mut lines = tokio::io::BufReader::new(tokio::io::stdin()).lines();

@@ -132,7 +132,9 @@ test('commands execute immediately, reject invalid input and prevent duplicate s
     await element('#runCommand').onclick(); assert.equal(calls.length, 0);
   }
   element('#command').value = 'ls';
+  Object.assign(element('#consoleOutput'), { scrollHeight: 2000, clientHeight: 300, scrollTop: 0 });
   const running = element('#runCommand').onclick();
+  assert.equal(element('#consoleOutput').scrollTop, 2000, 'submitting follows latest output even when reading older commands');
   assert.equal(calls.length, 1);
   assert.equal(calls[0].hostId, 'a'); assert.equal(calls[0].expectedAlias, 'test-host');
   assert.equal(calls[0].command, 'ls'); assert.equal(calls[0].kind, 'command');
