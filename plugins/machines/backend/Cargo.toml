@@ -1,6 +1,6 @@
 [package]
 name = "flowhub-machines"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 
 # Test inherits these settings; avoid multi-GB symbols/incremental caches.

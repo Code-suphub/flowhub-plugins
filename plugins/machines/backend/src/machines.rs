@@ -101,6 +101,10 @@ struct Host {
     alias: String,
     name: String,
     group: String,
+    #[serde(default, rename = "countryCode")]
+    country_code: String,
+    #[serde(default, rename = "expiresAt")]
+    expires_at: Option<i64>,
     #[serde(default, rename = "readOnly")]
     read_only: bool,
     #[serde(default)]
@@ -434,7 +438,7 @@ fn status_summary(snapshot: &Value, now: i64) -> Value {
         let at = m["at"].as_i64();
         let status = if at.is_none() { "unknown" } else if now - at.unwrap() > stale_ms { "stale" }
             else if m["status"] == "success" { "healthy" } else { "error" };
-        json!({"id":id,"name":h["name"],"status":status,"at":at,
+        json!({"id":id,"name":h["name"],"status":status,"at":at,"countryCode":h["countryCode"],"expiresAt":h["expiresAt"],
             "values": if status == "healthy" {m["values"].clone()} else {Value::Null}})
     }).collect();
     json!({"title":"机器状态","monitoring":config["monitoring"],"rows":rows,"updatedAt":now})
@@ -486,6 +490,8 @@ fn validate_hosts(hosts: &[Host]) -> Result<(), String> {
         return Err("最多管理 500 台机器".into());
     }
     for h in hosts {
+        if !h.country_code.is_empty() && (h.country_code.len()!=2 || !h.country_code.bytes().all(|b|b.is_ascii_uppercase())) {return Err("地区代码必须为两位大写字母".into());}
+        if h.expires_at.is_some_and(|v| !(0..=253402300799000).contains(&v)) {return Err("到期时间无效".into());}
         if let Some(profile) = &h.bastion { profile.validate()?; }
         if !valid_alias(&h.alias)
             || !valid_alias(&h.id)
@@ -564,6 +570,23 @@ fn verify_package(bytes: &[u8], entry: &Value, key: &str) -> Result<Package, Str
     let package: Package = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
     package.validate()?;
     Ok(package)
+}
+fn widget_host_fields(h:&Host)->Value{json!({"name":h.name,"group":h.group,"countryCode":h.country_code,"expiresAt":h.expires_at})}
+pub(crate) fn widget_settings(app:Context,p:Value,save:bool)->Result<Value,String>{
+    let id=p["row"].as_str().ok_or("缺少机器")?;
+    if save {
+        #[derive(Deserialize)] #[serde(deny_unknown_fields,rename_all="camelCase")]
+        struct Fields{name:String,group:String,country_code:String,expires_at:Option<i64>}
+        let fields:Fields=serde_json::from_value(p["settings"].clone()).map_err(|e|e.to_string())?;
+        app.runtime.save(|c|{
+            let h=c.hosts.iter_mut().find(|h|h.id==id).ok_or("机器已移除")?;
+            if p["expected"]!=widget_host_fields(h){return Err("机器信息已在其他页面更新，请重新打开设置后再修改".into());}
+            let mut next=h.clone();next.name=fields.name.trim().into();next.group=fields.group.trim().into();next.country_code=fields.country_code;next.expires_at=fields.expires_at;
+            validate_hosts(&[next.clone()])?;*h=next;Ok(())
+        })?;
+    }
+    let config=app.runtime.config.lock().unwrap();let h=config.hosts.iter().find(|h|h.id==id).ok_or("此监控目标不支持机器设置")?;
+    Ok(widget_host_fields(h))
 }
 pub(crate) async fn machines_api(
     app: Context,
@@ -1735,6 +1758,8 @@ mod tests {
         std::fs::write(&path, serde_json::to_vec(&updated).unwrap()).unwrap();
         let mut config = Config::default();
         config.hosts.push(Host {
+            country_code: String::new(),
+            expires_at: None,
             read_only: false,
             bastion: None,
             id: "dev".into(),

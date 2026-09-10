@@ -3,7 +3,7 @@ const {spawn}=require('node:child_process'),fs=require('node:fs'),os=require('no
 test('independent executable reuses existing machine data without SSH',{timeout:15000},async(t)=>{
   const binary=path.resolve('bin/flowhub-machines');if(!fs.existsSync(binary))throw Error('先运行 npm run build');
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'flowhub-plugin-rpc-'));
-  fs.writeFileSync(path.join(root,'state.json'),JSON.stringify({hosts:[{id:'retained',name:'Retained',alias:'never-connect.example',group:'Migration'}],monitoring:false}));
+  fs.writeFileSync(path.join(root,'state.json'),JSON.stringify({hosts:[{id:'retained',name:'Retained',alias:'never-connect.example',group:'Migration',countryCode:'SG',expiresAt:1893456000000}],monitoring:false}));
   const child=spawn(binary,[],{env:{...process.env,FLOWHUB_PLUGIN_DATA:root},stdio:['pipe','pipe','pipe']});
   t.after(()=>{child.kill();fs.rmSync(root,{recursive:true,force:true});});
   const pending=new Map();let next=1;
@@ -13,6 +13,17 @@ test('independent executable reuses existing machine data without SSH',{timeout:
     const health=await call('health');assert.equal(health.result.protocol,1);
     const state=await call('machines_api',{action:'state',payload:{}});
     assert.equal(state.result.config.hosts[0].id,'retained');assert.equal(state.result.config.monitoring,false);
+    assert.equal(state.result.config.hosts[0].countryCode,'SG');assert.equal(state.result.config.hosts[0].expiresAt,1893456000000);
+    const status=await call('status_snapshot');assert.equal(status.result.rows[0].countryCode,'SG');assert.equal(status.result.rows[0].expiresAt,1893456000000);
+    assert.equal((await call('widget_api',{action:'machineSettings',request:{action:'state',payload:{}}})).result.config.hosts[0].id,'retained');
+    assert.match((await call('widget_api',{action:'machineSettings',request:{action:'run',payload:{}}})).error,/只支持机器配置/);
+    const baseline=(await call('widget_api',{action:'settings',row:'retained'})).result;
+    const settings={...baseline,name:'Updated',countryCode:'JP'};
+    assert(!(await call('widget_api',{action:'saveSettings',row:'retained',settings,expected:baseline})).error);
+    assert.equal((await call('widget_api',{action:'settings',row:'retained'})).result.countryCode,'JP');
+    assert.match((await call('widget_api',{action:'saveSettings',row:'retained',settings,expected:baseline})).error,/其他页面/);
+    assert((await call('widget_api',{action:'saveSettings',row:'retained',settings:{...settings,alias:'changed'},expected:settings})).error);
+    assert.equal((await call('machines_api',{action:'state',payload:{}})).result.config.hosts[0].alias,'never-connect.example');
     const history=await call('machines_api',{action:'history',payload:{}});assert.equal(history.result.total,0);
     const widgetHistory=await call('widget_api',{action:'history',row:'retained',metric:'cpu',seconds:86400});
     assert(!widgetHistory.error,widgetHistory.error);assert(widgetHistory.result.data.length>0);assert(widgetHistory.result.data.every(([at,value])=>Number.isFinite(at)&&value===null));

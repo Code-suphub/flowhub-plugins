@@ -100,3 +100,4 @@
 .console-command{color:var(--accent)}.console-error{color:var(--bad)}.console-output{color:var(--ink)}
 #command{background:#0b110e;font-size:13px}
 @media(max-width:600px){.select-shell{min-width:120px}.section-head>.actions{width:100%}}
+.select-menu .select-search{position:sticky;top:0;z-index:1;display:block;width:100%;min-width:0;margin:0 0 6px;padding:9px 10px;background:var(--panel,#17231c);font:inherit}.select-menu [role=status]{display:block;padding:10px;color:var(--muted,#99aa9e)}

@@ -33,6 +33,13 @@ async fn dispatch(ctx: Context, request: &Value) -> Result<Value, String> {
     let text = |key: &str| p[key].as_str().unwrap_or("").to_owned();
     match request["method"].as_str().unwrap_or("") {
         "widget_api" => match p["action"].as_str() {
+            Some("machineSettings") => {
+                let action=p["request"]["action"].as_str().unwrap_or("");
+                if !["state","hosts","sshRead","sshSave","sshProbe","chooseIdentity"].contains(&action){Err("此页面只支持机器配置操作".into())}
+                else {machines::machines_api(ctx.clone(),action.into(),p["request"]["payload"].clone()).await}
+            },
+            Some("settings") => machines::widget_settings(ctx.clone(),p.clone(),false),
+            Some("saveSettings") => machines::widget_settings(ctx.clone(),p.clone(),true),
             Some("history") => machines::machines_api(ctx.clone(),"metricHistory".into(),serde_json::json!({"hostId":p["row"],"metric":p["metric"],"seconds":p["seconds"]})).await,
             _ => Err("不支持的组件操作".into()),
         },

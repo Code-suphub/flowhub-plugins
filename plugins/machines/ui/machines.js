@@ -287,6 +287,7 @@
     for (const id of ["sshHostname", "sshUser", "sshJump", "sshIdentity"]) $("#" + id).value = "";
     $("#sshPort").value = "22";
     $("#sshStatus").textContent = '可直接沿用本机 SSH 配置；修改下方连接信息后，点击底部保存一并写入。';
+    $("#hostCountry").value = host?.countryCode || ""; const expiry=host?.expiresAt; $("#hostExpires").value=Number.isFinite(expiry)?new Date(expiry-new Date(expiry).getTimezoneOffset()*60000).toISOString().slice(0,16):"";
     $("#hostForm").hidden = false; $("#hostId").value = host?.id || ""; $("#hostName").value = host?.name || ""; $("#hostAlias").value = host?.alias || ""; $("#hostGroup").value = host?.group || ""; $("#hostName").focus();
     sshBaseline = sshSignature();
     const groups = [...new Set(state.config.hosts.map(h => h.group).filter(Boolean))];
@@ -394,6 +395,8 @@
     const h = { id: $("#hostId").value || crypto.randomUUID(), name: $("#hostName").value.trim(), alias: $("#hostAlias").value.trim(), group: $("#hostGroup").value.trim() };
     h.bastion = $('#hostConnectionType').value === 'bastion' ? { script: $('#relayScript').value.trim(), target: h.alias, command: $('#relayCommand').value } : null;
     h.readOnly = $('#hostReadOnly').checked;
+    h.countryCode = $('#hostCountry').value; h.expiresAt = $('#hostExpires').value ? new Date($('#hostExpires').value).getTime() : null;
+    if (h.expiresAt !== null && !Number.isFinite(h.expiresAt)) throw Error('到期时间无效');
     if (!h.bastion && sshEditStatus !== 'ready') throw new Error('请等待 SSH 配置加载成功后再保存。');
     if (!M.validAlias(h.alias)) throw new Error("SSH 别名只能包含字母、数字、点、下划线、冒号和连字符，不能以连字符开头");
     const hosts = state.config.hosts.filter(existing => existing.id !== h.id); hosts.push(h);
@@ -409,7 +412,7 @@
         const result = await api('sshSave', { profile, revision: sshRevision,passwordAuth:$('#sshAuth').value==='password',password:$('#sshPassword').value || null }); sshRevision = result.revision; $('#sshPassword').value='';
         sshBaseline = sshSignature(profile); savedSsh = true;
       }
-      await api("hosts", { hosts }); $('#sshPassword').value=''; $("#hostForm").hidden = true; message(h.bastion ? '堡垒机配置已保存到插件。' : savedSsh ? '机器连接配置已保存到插件。' : '机器已保存。');
+      await api("hosts", { hosts }); $('#sshPassword').value=''; $("#hostForm").hidden = true; if(window.machineSettingsReady)await edit(h); message(h.bastion ? '堡垒机配置已保存到插件。' : savedSsh ? '机器连接配置已保存到插件。' : '机器已保存。');
     } catch (error) { throw new Error(`${savedSsh ? 'SSH 配置已写入，但机器清单保存失败，请重试。' : ''}${error}`); }
     finally { $('#hostForm').inert = false; }
   }); };
@@ -524,7 +527,9 @@
   };
   async function init() {
     try {
+      if(window.machineSettingsReady)await window.machineSettingsReady;
       await refresh();
+      if(window.machineSettingsReady){const id=window.machineSettingsContext?.config?.row||new URLSearchParams(location.search).get('row');const selected=state.config.hosts.find(h=>h.id===id)||(window.parent===window?state.config.hosts[0]:null);if(!selected)throw Error('目标机器已移除');await edit(selected);}
       if (embedded) {
         document.body.classList.add("embedded");
       }
