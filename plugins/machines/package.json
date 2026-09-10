@@ -1,0 +1,11 @@
+{
+  "name": "flowhub-machines-plugin",
+  "version": "0.2.0",
+  "private": true,
+  "scripts": {
+    "dev": "vite --config vite.config.mjs",
+    "build": "node scripts/build.mjs",
+    "test": "cargo test --manifest-path backend/Cargo.toml && node --test tests/*.test.cjs"
+  },
+  "devDependencies": { "vite": "^6.4.1" }
+}

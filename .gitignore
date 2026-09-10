@@ -1,7 +1,7 @@
-/backend/target/
-/bin/
-/node_modules/
-/dist/
+**/backend/target/
+**/bin/
+**/node_modules/
+**/dist/
 .DS_Store
 credentials.key
 *.sqlite3*

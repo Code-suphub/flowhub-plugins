@@ -1,11 +1,13 @@
 {
-  "name": "flowhub-machines-plugin",
-  "version": "0.2.0",
+  "name": "flowhub-plugins",
   "private": true,
   "scripts": {
-    "dev": "vite --config vite.config.mjs",
-    "build": "node scripts/build.mjs",
-    "test": "cargo test --manifest-path backend/Cargo.toml && node --test tests/*.test.cjs"
-  },
-  "devDependencies": { "vite": "^6.4.1" }
+    "install:machines": "npm --prefix plugins/machines ci",
+    "dev": "npm run dev:machines --",
+    "dev:machines": "npm --prefix plugins/machines run dev --",
+    "build": "npm run build:machines",
+    "build:machines": "npm --prefix plugins/machines run build",
+    "test": "npm run test:machines",
+    "test:machines": "npm --prefix plugins/machines test"
+  }
 }
