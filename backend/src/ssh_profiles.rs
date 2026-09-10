@@ -201,14 +201,12 @@ impl Profile {
                 && s.bytes()
                     .all(|b| b.is_ascii_alphanumeric() || b"._:-".contains(&b))
         };
-        if !token(&self.alias)
-            || self.alias.contains(':')
-            || !token(&self.hostname)
-            || !token(&self.user)
-            || self.port == 0
-        {
-            return Err("别名、地址、用户名或端口无效".into());
-        }
+        if !token(&self.alias) || self.alias.contains(':') {return Err("SSH 别名无效：仅支持字母、数字、点、下划线和连字符，不能以连字符开头".into());}
+        if self.hostname.is_empty() {return Err("请填写主机地址".into());}
+        if !token(&self.hostname) {return Err("主机地址无效：请填写 IP 或主机名，不要填写协议或端口".into());}
+        if self.user.is_empty() {return Err("请填写登录用户名，例如 root 或 ubuntu；输入框中的示例不是已填写的值".into());}
+        if !token(&self.user) {return Err("登录用户名无效：不能包含空格或特殊符号".into());}
+        if self.port == 0 {return Err("SSH 端口必须在 1–65535 之间".into());}
         if !self.proxy_jump.is_empty() && !token(&self.proxy_jump) {
             return Err("跳板机请填写本机 SSH 别名".into());
         }

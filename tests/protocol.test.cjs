@@ -15,5 +15,19 @@ test('independent executable reuses existing machine data without SSH',{timeout:
     assert.equal(state.result.config.hosts[0].id,'retained');assert.equal(state.result.config.monitoring,false);
     const history=await call('machines_api',{action:'history',payload:{}});assert.equal(history.result.total,0);
     assert(fs.existsSync(path.join(root,'commands.sqlite3')));
+    const profile={alias:'password-fixture',hostname:'example.test',user:'tester',port:22,identityFile:'',proxyJump:''};
+    const password='fixture-only-password-8492';
+    const revision=require('node:crypto').createHash('sha256').update('null').digest('hex');
+    const saved=await call('machines_api',{action:'sshSave',payload:{profile,revision,passwordAuth:true,password}});assert(!saved.error,saved.error);
+    const loaded=await call('machines_api',{action:'sshRead',payload:{alias:profile.alias}});assert.equal(loaded.result.passwordAuth,true);assert(!JSON.stringify(loaded).includes(password));
+    const account=require('node:crypto').createHash('sha256').update([profile.alias,profile.hostname,profile.user,profile.port].join('\0')).digest('hex');
+    const execFile=require('node:util').promisify(require('node:child_process').execFile);
+    const helper=await execFile(binary,["tester@example.test's password:"],{env:{...process.env,FLOWHUB_ASKPASS_ACCOUNT:account,FLOWHUB_CREDENTIAL_ROOT:root}});
+    assert.equal(helper.stdout.trim(),password);
+    await assert.rejects(execFile(binary,['Are you sure (yes/no)?'],{env:{...process.env,FLOWHUB_ASKPASS_ACCOUNT:account,FLOWHUB_CREDENTIAL_ROOT:root}}));
+    assert(!fs.readFileSync(path.join(root,'credentials.sqlite3')).includes(Buffer.from(password)));
+    const backup=await call('backup_api',{action:'backup',password:'fixture-backup-passphrase'});assert(!backup.error,backup.error);
+    assert(fs.existsSync(backup.result.path));assert(!fs.readFileSync(backup.result.path).includes(Buffer.from(password)));
+    fs.rmSync(path.dirname(backup.result.path),{recursive:true,force:true});
   }finally{child.stdin.end();await new Promise(resolve=>child.once('exit',resolve));lines.close();fs.rmSync(root,{recursive:true,force:true});}
 });

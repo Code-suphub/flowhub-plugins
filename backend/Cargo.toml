@@ -3,13 +3,19 @@ name = "flowhub-machines"
 version = "0.2.0"
 edition = "2021"
 
+# Test inherits these settings; avoid multi-GB symbols/incremental caches.
+# Opt in to symbols when debugging with CARGO_PROFILE_DEV_DEBUG=1.
+[profile.dev]
+debug = 0
+incremental = false
+
 [dependencies]
 glob = "0.3"
 base64 = "0.22.1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 dirs = "6"
 reqwest = { version = "0.13", default-features = false, features = ["system-proxy", "rustls"] }
-rusqlite = { version = "0.40.2", features = ["bundled"] }
+rusqlite = { version = "0.40.2", features = ["bundled", "backup"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 minisign-verify = "0.2.5"
@@ -17,3 +23,4 @@ semver = "1"
 sha2 = "0.10.9"
 tokio = { version = "1", features = ["full"] }
 url = "2.5.8"
+ring = "0.17.14"

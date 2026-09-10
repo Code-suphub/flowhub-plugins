@@ -53,6 +53,11 @@
         pending.set(job.id, { finish, timer: setTimeout(() => finish(outcome), 3000) });
       });
     }
+    if (method === 'backup_api') {
+      if(args.action==='inspect') return {token:'preview-backup',summary:{created:'模拟备份 · 不读取本机文件',machines:2,files:4,hasPasswords:true,hasHistory:true}};
+      if(args.action==='restore') return {restartRequired:true,rollback:'/模拟备份/恢复前数据（未修改真实数据）'};
+      return {path:'/模拟备份/machines.fhbackup（预览未写入文件）'};
+    }
     if (method !== 'machines_api') throw new Error(`预览不支持调用：${method}`);
     const { action, payload = {} } = args;
     if (action.startsWith('bastion')) {
@@ -87,10 +92,10 @@
       case 'cancel': pending.get(payload.id)?.finish('cancelled'); return {};
       case 'discoverSsh': return { root: '/模拟目录/.ssh/config', files: 1, warnings: ['这是模拟配置，未读取本机文件。'], hosts: ['demo-app', 'demo-db', 'demo-new'].map((alias, i) => ({ alias, sources: [`/模拟目录/.ssh/config:${i * 5 + 1}`] })) };
       case 'sshRead': {
-        const profile = profiles.get(payload.alias) || defaultProfile(payload.alias);
-        return { profile: clone(profile), effective: clone(profile), revision: 'preview', inheritedKeys: [] };
+        const saved=profiles.get(payload.alias),profile = saved?.profile || defaultProfile(payload.alias);
+        return { profile: clone(profile), passwordAuth:!!saved?.passwordAuth,effective: clone(profile), revision: 'preview', inheritedKeys: [] };
       }
-      case 'sshSave': profiles.set(payload.profile.alias, clone(payload.profile)); return { revision: 'preview' };
+      case 'sshSave': profiles.set(payload.profile.alias, {profile:clone(payload.profile),passwordAuth:!!payload.passwordAuth}); return { revision: 'preview' };
       case 'sshProbe': return { reason: document.querySelector('#previewOutcome').value === 'success' ? '模拟连接成功，未建立真实连接' : '模拟连接失败', durationMs: 25, stderr: '' };
       case 'chooseIdentity': throw new Error('模拟预览不读取私钥；可在表单输入虚拟路径。');
       case 'terminal': throw new Error('模拟预览不打开终端；真实 SSH 请使用开发版 FlowHub。');

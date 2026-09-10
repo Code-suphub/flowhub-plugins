@@ -308,6 +308,10 @@ pub(crate) struct Runtime {
     slots: Semaphore,
 }
 impl Runtime {
+    pub(crate) fn backup_ready(&self)->Result<(),String>{
+        if self.config.lock().unwrap().monitoring{return Err("请先关闭后台监控，再进行备份或恢复".into());}
+        if !self.active.lock().unwrap().is_empty(){return Err("请等待当前任务结束，再进行备份或恢复".into());} Ok(())
+    }
     pub(crate) fn new(root: PathBuf) -> Result<Self, String> {
         std::fs::create_dir_all(&root).map_err(|e| e.to_string())?;
         #[cfg(unix)]
@@ -325,6 +329,17 @@ impl Runtime {
             Err(e) => return Err(e.to_string()),
         };
         validate_hosts(&config.hosts)?;
+        // Copy only legacy FlowHub-owned profiles; never rewrite user SSH files.
+        if let Some(home)=dirs::home_dir() {
+            for host in &config.hosts {
+                if host.bastion.is_none() && crate::connections::load(&root,&host.alias)?.is_none() {
+                    if let Ok(Some(profile))=crate::ssh_profiles::managed(&home.join(".ssh"),&host.alias) {
+                        let revision=crate::connections::revision(&root,&host.alias)?;
+                        crate::connections::save(&root,&crate::connections::Connection{profile,password_auth:false},&revision,None)?;
+                    }
+                }
+            }
+        }
         config.installed = Some(serde_json::from_str(BUILTIN).map_err(|e| format!("{e}"))?);
         config.enabled = true;
         // A host upgrade must not prevent FlowHub itself from starting.
@@ -359,6 +374,10 @@ impl Runtime {
         drop(config);
         Ok(self.snapshot())
     }
+    pub(crate) fn status_snapshot(&self) -> Value {
+        let snapshot=json!({"config":self.config.lock().unwrap().clone(),"metrics":self.metrics.lock().unwrap().clone()});
+        status_summary(&snapshot, chrono::Utc::now().timestamp_millis())
+    }
     fn snapshot(&self) -> Value {
         json!({"config": self.config.lock().unwrap().clone(), "pending": self.pending.lock().unwrap().clone(), "metrics": self.metrics.lock().unwrap().clone(), "active": self.active.lock().unwrap().values().map(|a| a.job.summary()).collect::<Vec<_>>(), "history": self.history.lock().unwrap().iter().map(Job::summary).collect::<Vec<_>>(), "readonly": false})
     }
@@ -366,6 +385,42 @@ impl Runtime {
         for active in self.active.lock().unwrap().values() {
             active.cancel.store(true, Ordering::Release);
         }
+    }
+}
+
+fn status_summary(snapshot: &Value, now: i64) -> Value {
+    let config = &snapshot["config"];
+    let stale_ms = config["interval"].as_i64().unwrap_or(60).max(30) * 3000;
+    let rows: Vec<Value> = config["hosts"].as_array().into_iter().flatten().map(|h| {
+        let id = h["id"].as_str().unwrap_or("");
+        let m = &snapshot["metrics"][id];
+        let at = m["at"].as_i64();
+        let status = if at.is_none() { "unknown" } else if now - at.unwrap() > stale_ms { "stale" }
+            else if m["status"] == "success" { "healthy" } else { "error" };
+        json!({"id":id,"name":h["name"],"status":status,"at":at,
+            "values": if status == "healthy" {m["values"].clone()} else {Value::Null}})
+    }).collect();
+    json!({"title":"机器状态","monitoring":config["monitoring"],"rows":rows,"updatedAt":now})
+}
+
+#[cfg(test)]
+mod status_tests {
+    use super::*;
+    #[test]
+    fn summary_distinguishes_missing_stale_and_failed_without_exposing_connections() {
+        let snapshot=json!({"config":{"interval":60,"monitoring":true,"hosts":[
+            {"id":"a","name":"A","alias":"private-host","password":"secret"},
+            {"id":"b","name":"B"},{"id":"c","name":"C"},{"id":"d","name":"D"}]},
+            "metrics":{"a":{"at":999000,"status":"success","values":{"cpu":12.}},
+            "b":{"at":1000,"status":"success","values":{"cpu":99.}},
+            "c":{"at":999000,"status":"failed","error":"private SSH details"}}});
+        let out=status_summary(&snapshot,1000000);
+        assert_eq!(out["rows"][0]["status"],"healthy");
+        assert_eq!(out["rows"][1]["status"],"stale");
+        assert!(out["rows"][1]["values"].is_null());
+        assert_eq!(out["rows"][2]["status"],"error");
+        assert_eq!(out["rows"][3]["status"],"unknown");
+        assert!(!out.to_string().contains("private"));assert!(!out.to_string().contains("secret"));
     }
 }
 fn valid_alias(s: &str) -> bool {
@@ -596,11 +651,8 @@ pub(crate) async fn machines_api(
                 let profile: crate::ssh_profiles::Profile =
                     serde_json::from_value(payload["profile"].clone())
                         .map_err(|e| e.to_string())?;
-                let revision = crate::ssh_profiles::save(
-                    &root,
-                    &profile,
-                    payload["revision"].as_str().ok_or("请先读取 SSH 配置")?,
-                )?;
+                let connection=crate::connections::Connection {profile,password_auth:payload["passwordAuth"].as_bool().unwrap_or(false)};
+                let revision=crate::connections::save(rt.path.parent().unwrap(),&connection,payload["revision"].as_str().ok_or("请先读取连接配置")?,payload["password"].as_str())?;
                 return Ok(json!({"revision": revision}));
             }
             let alias = payload["alias"].as_str().unwrap_or("").to_owned();
@@ -628,7 +680,10 @@ pub(crate) async fn machines_api(
                 truncated: false,
             };
             if action == "sshRead" {
-                let revision = crate::ssh_profiles::revision(&root, &alias)?;
+                let revision = crate::connections::revision(rt.path.parent().unwrap(), &alias)?;
+                if let Some(connection)=crate::connections::load(rt.path.parent().unwrap(),&alias)? {
+                    return Ok(json!({"profile":connection.profile,"revision":revision,"passwordAuth":connection.password_auth}));
+                }
                 let managed = crate::ssh_profiles::managed(&root, &alias)?;
                 process.args(["-G", "--", &alias]);
                 run_process(
@@ -679,7 +734,15 @@ pub(crate) async fn machines_api(
                 if profile.alias != alias {
                     return Err("SSH 别名与测试目标不一致".into());
                 }
+                if let Some(saved)=crate::connections::load(rt.path.parent().unwrap(),&alias)? {
+                    if saved.password_auth && serde_json::to_value(&saved.profile).unwrap()!=serde_json::to_value(&profile).unwrap() {
+                        return Err("密码模式下请先保存连接配置，再测试连接".into());
+                    }
+                }
                 process.args(profile.options()?);
+            }
+            if let Some(connection)=crate::connections::load(rt.path.parent().unwrap(),&alias)? {
+                crate::connections::configure(&mut process,&connection,rt.path.parent().unwrap())?;
             }
             // Force a fresh authentication rather than borrowing a multiplexed session.
             process.args(["-o", "ControlMaster=no", "-o", "ControlPath=none"]);
@@ -969,7 +1032,7 @@ pub(crate) async fn machines_api(
                     .clone()
             };
             let options = connection_args(&rt.config.lock().unwrap())?;
-            let mut args = vec!["/usr/bin/ssh".to_string()]; args.extend(options); args.extend(["--".into(), alias]);
+            let mut args = vec![std::env::current_exe().map_err(|e|e.to_string())?.to_string_lossy().into_owned(),"--terminal".into(),rt.path.parent().unwrap().to_string_lossy().into_owned(),alias]; args.extend(options);
             let command = format!("exec {}", args.iter().map(|s| format!("'{}'", s.replace('\'', "'\\''"))).collect::<Vec<_>>().join(" "));
             let script = format!("tell application \"Terminal\"\nactivate\ndo script {}\nend tell", serde_json::to_string(&command).unwrap());
             let status = Command::new("/usr/bin/osascript")
@@ -1177,7 +1240,10 @@ async fn execute(
             a.job.status = job.status.clone();
         }
         let mut child = Command::new("/usr/bin/ssh");
-        let options = connection_args(&rt.config.lock().unwrap()).and_then(|options| { rt.history_store.save(&job)?; Ok(options) });
+        let options = connection_args(&rt.config.lock().unwrap()).and_then(|options| {
+            if let Some(connection)=crate::connections::load(rt.path.parent().unwrap(),&job.alias)? {crate::connections::configure(&mut child,&connection,rt.path.parent().unwrap())?;}
+            rt.history_store.save(&job)?; Ok(options)
+        });
         if let Ok(options) = &options { child.args(options); }
         child.args(ssh_args(&job.alias, &command));
         let duration = Duration::from_secs(if job.kind == "collect" { 20 } else { 60 });
@@ -1321,12 +1387,19 @@ pub(crate) async fn machines_run(
             .unwrap(),
     )
 }
+pub(crate) fn validate_backup_state(value:&Value,root:&std::path::Path)->Result<(),String>{
+    let config:Config=serde_json::from_value(value.clone()).map_err(|_|"备份中的机器配置无效")?;validate_hosts(&config.hosts)?;
+    if root.join("commands.sqlite3").exists(){machine_history::Store::open(&root.join("commands.sqlite3"))?;}
+    Ok(())
+}
 pub(crate) fn start_monitor(app: &Context) {
     let app = app.clone();
     tokio::spawn(async move {
         let mut due: HashMap<String, (tokio::time::Instant, u32)> = HashMap::new();
         loop {
             tokio::time::sleep(Duration::from_secs(3)).await;
+            let _guard=app.gate.read().await;
+            if app.backup.pending_restore(){continue;}
             let config = app.runtime.clone().config.lock().unwrap().clone();
             if !config.monitoring || authorize(&config, "ssh:collect").is_err() {
                 due.clear();

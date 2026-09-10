@@ -290,6 +290,7 @@ dependencies = [
  "glob",
  "minisign-verify",
  "reqwest",
+ "ring",
  "rusqlite",
  "semver",
  "serde",

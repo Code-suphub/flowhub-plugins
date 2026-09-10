@@ -1,12 +1,39 @@
 (function () {
   "use strict";
   const $ = s => document.querySelector(s);
+  function confirmAction(title, description, action) {
+    return new Promise(resolve => {
+      const dialog = document.createElement('dialog');
+      dialog.style.width = 'min(400px, calc(100vw - 32px))';
+      dialog.innerHTML = '<h2 id="actionConfirmTitle"></h2><p id="actionConfirmDescription"></p><div class="actions"><button type="button" data-cancel autofocus>取消</button><button type="button" class="danger" data-confirm></button></div>';
+      dialog.setAttribute('aria-labelledby', 'actionConfirmTitle');
+      dialog.setAttribute('aria-describedby', 'actionConfirmDescription');
+      dialog.querySelector('h2').textContent = title;
+      dialog.querySelector('p').textContent = description;
+      dialog.querySelector('[data-confirm]').textContent = action;
+      const previous = document.activeElement;
+      dialog.querySelector('[data-cancel]').onclick = () => dialog.close('cancel');
+      dialog.querySelector('[data-confirm]').onclick = () => dialog.close('confirm');
+      dialog.addEventListener('close', () => {
+        const accepted = dialog.returnValue === 'confirm';
+        dialog.remove();
+        if (previous?.isConnected) previous.focus();
+        resolve(accepted);
+      }, { once: true });
+      document.body.append(dialog);
+      dialog.showModal();
+    });
+  }
   const M = window.FlowHubMachines;
   const esc = M.escape;
   const embedded = window.parent && window.parent !== window && new URLSearchParams(window.location.search).has("embedded");
   const host = window;
   const invoke = window.FlowHubPlugin?.invoke || host.__TAURI__?.core?.invoke;
   const readonly = !invoke;
+  $('#openStatus').onclick=async()=>{
+    if(!window.FlowHubPlugin){message('桌面组件与菜单栏需在 FlowHub 中使用，浏览器预览不创建系统窗口。');return;}
+    try{await window.FlowHubPlugin.invoke('flowhub_status',{});}catch(e){message(String(e),true);}
+  };
   let state = { config: { hosts: [], enabled: false, installed: null, interval: 60 }, metrics: {}, active: [], history: [] };
   let selection = new Set();
   let busy = false;
@@ -28,7 +55,8 @@
   let collectionHost = null;
   let lastCollections = '';
   const labels = { interrupted: "结果未知", success: "成功", failed: "失败", timeout: "超时", cancelled: "已取消", running: "执行中", queued: "排队", stale: "已过期", unknown: "未采集" };
-  const message = (text, error = false) => { $("#notice").textContent = text; $("#notice").classList.toggle("error", error); };
+  const errorText = error => String(error?.message || error).replace(/^(?:Error:\s*)+/, '');
+  const message = (text, error = false) => { $("#notice").textContent = error ? errorText(text) : text; $("#notice").classList.toggle("error", error); };
   async function api(action, payload = {}) {
     if (readonly) throw new Error("浏览器为只读预览；请在 FlowHub 桌面版操作。");
     return invoke("machines_api", { action, payload });
@@ -61,8 +89,8 @@
     $("#unavailable").hidden = !!c.installed && c.enabled;
     for (const id of ["addHost", "collectSelected", "runCommand", "monitor", "interval"]) $("#" + id).disabled = readonly || !c.enabled;
     $("#runCommand").disabled ||= commandRunning;
-    $("#runCommand").textContent = commandRunning ? "执行中…" : "执行命令 →";
-    for (const id of ["sshProbe", "chooseIdentity"]) $("#" + id).disabled = readonly || !c.enabled || !c.installed?.capabilities.includes("ssh:configure");
+    $("#runCommand").textContent = commandRunning ? "执行中…" : "执行 ↵";
+    for (const id of ["sshProbe", "chooseIdentity"]) $("#" + id).disabled = readonly || !c.enabled || !c.installed?.capabilities.includes("ssh:configure") || (id==='chooseIdentity' && $('#sshAuth').value==='password');
     $("#monitor").checked = !!c.monitoring;
     if (![...$("#interval").options].some(o => o.value === String(c.interval || 60))) $("#interval").add(new Option(`每 ${c.interval} 秒`, String(c.interval)));
     $("#interval").value = String(c.interval || 60);
@@ -187,7 +215,12 @@
     for (const j of state.active) if (consoleJobs.has(j.id) && !consoleJobs.get(j.id).finishedAt) Object.assign(consoleJobs.get(j.id), { status: j.status });
     const rows = [...consoleJobs.values()];
     const markup = rows.map(j => `<article class="console-job"><header><strong>${esc(j.name || j.alias)} <small>${esc(j.alias)}</small></strong><span class="status ${esc(j.status)}">${labels[j.status] || esc(j.status)}${j.exitCode != null ? ` · exit ${j.exitCode}` : ''}</span>${!j.finishedAt ? `<button type="button" data-console-cancel="${esc(j.id)}">取消</button>` : ''}</header><pre class="console-command">$ ${esc(j.command || '')}</pre>${j.finishedAt ? `<pre class="console-output">${esc(j.stdout || '（无标准输出）')}</pre>${j.stderr ? `<pre class="console-error">${esc(j.stderr)}</pre>` : ''}${j.truncated ? '<p class="caption">输出已截断</p>' : ''}` : '<p class="caption">命令执行中，结束后在此显示输出…</p>'}</article>`).join('') || '<p class="console-empty">选择目标机器，在下方输入命令。<br>执行结果将直接显示在这里。</p>';
-    if (markup !== consoleMarkup) { $('#consoleOutput').innerHTML = markup; consoleMarkup = markup; }
+    if (markup !== consoleMarkup) {
+      const output=$('#consoleOutput'),follow=output.scrollHeight-output.scrollTop-output.clientHeight<48;
+      output.innerHTML = markup; consoleMarkup = markup;
+      if(follow)output.scrollTop=output.scrollHeight;
+    }
+    const targets=chosen();$('#terminalPrompt').textContent=targets.length===1?`${targets[0].alias} $`:targets.length?`${targets.length} 台 $`:'$';
     $('#consoleCount').textContent = `${rows.length} 条 · ${rows.filter(j => !j.finishedAt).length} 条执行中`;
   }
   $('#clearConsole').onclick = () => { for (const [id, j] of consoleJobs) if (j.finishedAt) consoleJobs.delete(id); renderConsole(); };
@@ -196,8 +229,18 @@
     if (!id) return;
     try { await api('cancel', { id }); message('已请求取消。'); } catch (err) { message(String(err), true); }
   };
+  const inputHistory=[];let historyIndex=0,historyDraft='';
+  function sizeCommand(){const input=$('#command');if(input.style){input.style.height='auto';input.style.height=Math.min(150,Math.max(30,input.scrollHeight))+'px';}}
+  $('#command').addEventListener('input',sizeCommand);
   $('#command').addEventListener('keydown', e => {
-    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.isComposing) { e.preventDefault(); $('#runCommand').onclick(); }
+    if(e.isComposing||e.keyCode===229)return;
+    const input=$('#command');
+    if(e.key==='Enter' && !e.shiftKey){e.preventDefault();$('#runCommand').onclick();return;}
+    if((e.key==='ArrowUp'||e.key==='ArrowDown')&&!e.ctrlKey&&!e.metaKey&&!e.altKey&&!e.shiftKey&&!input.value.includes('\n')&&inputHistory.length){
+      e.preventDefault();if(historyIndex===inputHistory.length)historyDraft=input.value;
+      historyIndex=Math.max(0,Math.min(inputHistory.length,historyIndex+(e.key==='ArrowUp'?-1:1)));
+      input.value=historyIndex===inputHistory.length?historyDraft:inputHistory[historyIndex];sizeCommand();
+    }
   });
   async function batch(hosts, kind, command) {
     if (!hosts.length) throw new Error("请先选择机器");
@@ -230,6 +273,11 @@
   $("#selectAll").onchange = e => { for (const h of filtered()) e.target.checked ? selection.add(h.id) : selection.delete(h.id); renderHosts(); };
   $("#hostRows").onchange = e => { if (e.target.dataset.select) { e.target.checked ? selection.add(e.target.dataset.select) : selection.delete(e.target.dataset.select); renderHosts(); } };
   function edit(host) {
+    for(const id of ['hostAlias','sshHostname','sshUser','sshPort']){
+      document.getElementById?.(id+'Error')?.remove();
+      $('#'+id).removeAttribute?.('aria-invalid');$('#'+id).removeAttribute?.('aria-describedby');
+    }
+    $('#sshAuth').value='key'; $('#sshPassword').value=''; authForm();
     sshEditVersion++; sshEditStatus = 'ready';
     $("#saveHost").disabled = false; $("#retrySshLoad").hidden = true;
     sshRevision = ""; sshLoadedAlias = "";
@@ -270,6 +318,7 @@
       const p = result.profile;
       $('#sshHostname').value = p.hostname; $('#sshUser').value = p.user; $('#sshPort').value = p.port;
       $('#sshJump').value = p.proxyJump; $('#sshIdentity').value = p.identityFile;
+      $('#sshAuth').value=result.passwordAuth?'password':'key'; $('#sshPassword').value=''; authForm();
       sshRevision = result.revision; sshLoadedAlias = alias; sshBaseline = sshSignature();
       sshEditStatus = 'ready'; $('#sshStatus').textContent = '已加载连接配置。未修改的字段继续沿用现有 SSH 配置。';
     } catch (error) {
@@ -299,11 +348,28 @@
     $('#hostGroup').value = value === '__new' ? '' : value;
     if (value === '__new') $('#hostGroup').focus();
   };
-  $("#cancelHost").onclick = () => { sshEditVersion++; $("#hostForm").hidden = true; };
+  $("#cancelHost").onclick = () => { sshEditVersion++; $('#sshPassword').value=''; $("#hostForm").hidden = true; };
   function sshDraft() {
     return { alias: $("#hostAlias").value.trim(), hostname: $("#sshHostname").value.trim(), user: $("#sshUser").value.trim(), port: Number($("#sshPort").value), identityFile: $("#sshIdentity").value.trim(), proxyJump: $("#sshJump").value.trim() };
   }
-  function sshSignature(profile = sshDraft()) { return JSON.stringify({ ...profile, alias: '' }); }
+  $('#sshUser').setAttribute?.('placeholder','必填，例如 root 或 ubuntu');
+  for(const id of ['hostAlias','sshHostname','sshUser','sshPort']){
+    $('#'+id).addEventListener('input',()=>{
+      $('#'+id).setCustomValidity?.('');$('#'+id).removeAttribute?.('aria-invalid');
+      document.getElementById?.(id+'Error')?.remove();
+    });
+  }
+  function validateProfile(profile){
+    const error=M.profileError(profile);if(!error)return;
+    const [id,text]=error,input=$('#'+id);
+    document.getElementById?.(id+'Error')?.remove();
+    input.insertAdjacentHTML?.('afterend',`<small class="field-error" id="${id}Error" role="alert">${esc(text)}</small>`);
+    input.setAttribute?.('aria-invalid','true');input.setAttribute?.('aria-describedby',id+'Error');
+    input.focus();$('#sshStatus').textContent=text;throw new Error(text);
+  }
+  function sshSignature(profile = sshDraft()) { return JSON.stringify({ ...profile, alias: '',passwordAuth:$('#sshAuth').value==='password' }); }
+  function authForm(){const password=$('#sshAuth').value==='password';$('#sshPasswordField').hidden=!password;$('#sshIdentity').disabled=password;$('#chooseIdentity').disabled=password;window.FlowHubSelects?.sync();}
+  $('#sshAuth').onchange=authForm;
   for (const action of ["sshProbe", "chooseIdentity"]) $("#" + action).onclick = () => operate(async () => {
     try {
       const alias = $("#hostAlias").value.trim();
@@ -311,12 +377,14 @@
         const result = await api(action); if (!result.canceled) $("#sshIdentity").value = result.path; return;
       }
       const profile = sshDraft();
+      if(sshSignature(profile)!==sshBaseline)validateProfile(profile);
+      if ($('#sshPassword').value || sshSignature(profile)!==sshBaseline && $('#sshAuth').value==='password') throw new Error('请先保存密码和连接配置，再测试连接。');
       {
         $("#sshStatus").textContent = "正在测试当前表单：SSH 握手、认证与执行，最多等待 20 秒…";
         const result = await api(action, sshSignature(profile) === sshBaseline ? { alias } : { alias, profile });
         $("#sshStatus").textContent = `${JSON.stringify(profile) !== JSON.stringify(sshDraft()) ? "表单已修改；以下结果属于修改前的配置，请重新测试。\n" : ""}${result.reason}（${result.durationMs} ms）${result.stderr ? "\n" + result.stderr : ""}`;
       }
-    } catch (e) { $("#sshStatus").textContent = String(e); throw e; }
+    } catch (e) { $("#sshStatus").textContent = errorText(e); throw e; }
   });
   $("#hostForm").onsubmit = e => { e.preventDefault(); operate(async () => {
     const h = { id: $("#hostId").value || crypto.randomUUID(), name: $("#hostName").value.trim(), alias: $("#hostAlias").value.trim(), group: $("#hostGroup").value.trim() };
@@ -325,17 +393,18 @@
     if (!M.validAlias(h.alias)) throw new Error("SSH 别名只能包含字母、数字、点、下划线、冒号和连字符，不能以连字符开头");
     const hosts = state.config.hosts.filter(existing => existing.id !== h.id); hosts.push(h);
     const profile = sshDraft();
+    if(!h.bastion && (sshSignature(profile)!==sshBaseline || $('#sshPassword').value))validateProfile(profile);
     let savedSsh = false;
     $('#hostForm').inert = true;
     try {
-      if (!h.bastion && sshSignature(profile) !== sshBaseline) {
+      if (!h.bastion && (sshSignature(profile) !== sshBaseline || $('#sshPassword').value)) {
         if (!sshRevision || sshLoadedAlias !== h.alias) {
           const current = await api('sshRead', { alias: h.alias }); sshRevision = current.revision; sshLoadedAlias = h.alias;
         }
-        const result = await api('sshSave', { profile, revision: sshRevision }); sshRevision = result.revision;
+        const result = await api('sshSave', { profile, revision: sshRevision,passwordAuth:$('#sshAuth').value==='password',password:$('#sshPassword').value || null }); sshRevision = result.revision; $('#sshPassword').value='';
         sshBaseline = sshSignature(profile); savedSsh = true;
       }
-      await api("hosts", { hosts }); $("#hostForm").hidden = true; message(h.bastion ? '堡垒机配置已保存到 FlowHub，未修改 SSH 配置。' : savedSsh ? '机器和 SSH 配置已保存。' : '机器已保存，沿用本机 SSH 配置。');
+      await api("hosts", { hosts }); $('#sshPassword').value=''; $("#hostForm").hidden = true; message(h.bastion ? '堡垒机配置已保存到插件。' : savedSsh ? '机器连接配置已保存到插件。' : '机器已保存。');
     } catch (error) { throw new Error(`${savedSsh ? 'SSH 配置已写入，但机器清单保存失败，请重试。' : ''}${error}`); }
     finally { $('#hostForm').inert = false; }
   }); };
@@ -348,7 +417,7 @@
     operate(async () => {
       if (button.dataset.hostAction === "collect") submit([h], "collect");
       if (button.dataset.hostAction === "terminal") await api(h.bastion ? 'bastionTerminal' : "terminal", { hostId: h.id });
-      if (button.dataset.hostAction === "delete" && window.confirm(`从清单移除 ${h.name}？不会删除远端数据。`)) await api("hosts", { hosts: state.config.hosts.filter(x => x.id !== h.id) });
+      if (button.dataset.hostAction === "delete" && await confirmAction('移除机器', `确定从清单移除“${h.name}”？不会删除远端数据。`, '确认移除')) await api("hosts", { hosts: state.config.hosts.filter(x => x.id !== h.id) });
     });
   };
   $("#collectSelected").onclick = () => submit(chosen().filter(h => !h.bastion), "collect");
@@ -363,7 +432,7 @@
   }
   $('#bastionConnect').onclick = () => sessionAction('bastionStart');
   $('#bastionAttach').onclick = () => sessionAction('bastionTerminal');
-  $('#bastionDisconnect').onclick = () => { if (window.confirm('断开将终止共享会话及其中运行的程序，系统终端也会断开。继续？')) sessionAction('bastionStop'); };
+  $('#bastionDisconnect').onclick = async () => { if (await confirmAction('断开会话', '断开将终止共享会话及其中运行的程序，系统终端也会断开。', '确认断开')) sessionAction('bastionStop'); };
   $('#bastionInterrupt').onclick = () => sessionAction('bastionSend', { key: 'C-c' });
   $('#bastionEnter').onclick = () => sessionAction('bastionSend', { key: 'Enter' });
   $('#bastionSecret').onchange = () => { $('#bastionInput').type = $('#bastionSecret').checked ? 'password' : 'text'; };
@@ -388,7 +457,7 @@
     message('连接配置已保存，对后续命令、采集和系统终端生效；已建立连接按原空闲时间退出。');
   });
   for (const selector of ["#monitor", "#interval"]) $(selector).onchange = () => operate(() => api("monitor", { enabled: $("#monitor").checked, interval: Number($("#interval").value) }));
-  $("#template").onchange = e => { if (e.target.value !== "") $("#command").value = templates()[Number(e.target.value)]?.command || ''; };
+  $("#template").onchange = e => { if (e.target.value !== "") {$("#command").value = templates()[Number(e.target.value)]?.command || '';sizeCommand();$('#command').focus?.();} };
   let templateDraft = [];
   function renderTemplateEditor() {
     $('#templateRows').innerHTML = templateDraft.map((t, i) => `<div class="template-row"><label>模板名称<input data-template-name="${i}" value="${esc(t.name)}" maxlength="100"></label><label>命令内容<textarea data-template-command="${i}" rows="2">${esc(t.command)}</textarea></label><button type="button" data-template-delete="${i}">删除</button></div>`).join('') || '<p>暂无模板，点击“新建模板”添加。</p>';
@@ -414,6 +483,9 @@
     const hosts = chosen(); const command = $("#command").value;
     if (!hosts.length || hosts.length > 16 || !command.trim() || new TextEncoder().encode(command).length > 8192) { message("选择 1–16 台机器，并输入不超过 8192 字节的命令。", true); return; }
     commandRunning = true;
+    if(inputHistory[inputHistory.length-1]!==command)inputHistory.push(command);
+    if(inputHistory.length>100)inputHistory.shift();historyIndex=inputHistory.length;historyDraft='';
+    $('#command').value='';sizeCommand();$('#command').focus?.();
     render();
     try { await batch(structuredClone(hosts), "command", command); }
     catch (e) { message(String(e), true); }

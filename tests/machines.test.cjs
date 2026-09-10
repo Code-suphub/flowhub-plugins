@@ -23,6 +23,12 @@ test('host save leaves inherited SSH untouched and writes edited profiles before
   element('#hostForm').onsubmit({ preventDefault() {} }); await settle();
   assert(!calls.some(c => c.action === 'sshSave' || c.action === 'sshRead'));
   element('#addHost').onclick(); element('#hostName').value = 'Test'; element('#hostAlias').value = 'demo'; element('#sshHostname').value = 'example.test';
+  calls.length = 0;
+  element('#hostForm').onsubmit({ preventDefault() {} }); await settle();
+  assert(!calls.some(c => c.action === 'sshSave' || c.action === 'hosts'));
+  assert.match(element('#notice').textContent, /请填写登录用户名/);
+  assert(!element('#notice').textContent.includes('Error:'));
+  element('#sshUser').value = 'root';
   calls.length = 0; rejectSave = true;
   element('#hostForm').onsubmit({ preventDefault() {} }); await settle();
   assert(!calls.some(c => c.action === 'hosts')); assert.equal(element('#hostForm').hidden, false);
@@ -104,7 +110,7 @@ test('standalone development adapter simulates execution and never calls a nativ
 test('commands execute immediately, reject invalid input and prevent duplicate submissions', async () => {
   const elements = new Map();
   const element = selector => {
-    if (!elements.has(selector)) elements.set(selector, { value: '', textContent: '', innerHTML: '', options: [{ value: '60' }], classList: { toggle() {} }, addEventListener() {} });
+    if (!elements.has(selector)) elements.set(selector, { value: '', textContent: '', innerHTML: '', options: [{ value: '60' }], classList: { toggle() {} }, listeners: {}, addEventListener(name,fn) {this.listeners[name]=fn;} });
     return elements.get(selector);
   };
   const state = { config: { hosts: [{ id: 'a', alias: 'test-host', name: 'Test', group: '' }], enabled: true, installed: { version: '1', capabilities: [], templates: [] }, interval: 60 }, metrics: {}, active: [], history: [] };
@@ -130,6 +136,7 @@ test('commands execute immediately, reject invalid input and prevent duplicate s
   assert.equal(calls.length, 1);
   assert.equal(calls[0].hostId, 'a'); assert.equal(calls[0].expectedAlias, 'test-host');
   assert.equal(calls[0].command, 'ls'); assert.equal(calls[0].kind, 'command');
+  assert.equal(element('#command').value,'');
   element('#command').value = 'changed';
   poll(); await settle();
   assert.equal(element('#runCommand').disabled, true);
@@ -141,6 +148,13 @@ test('commands execute immediately, reject invalid input and prevent duplicate s
   assert(!element('#consoleOutput').innerHTML.includes('remote text'));
   assert.equal(element('#runCommand').disabled, false);
   assert.match(element('#notice').textContent, /1 成功/);
+  const key=element('#command').listeners.keydown;
+  key({key:'ArrowUp',preventDefault(){}});assert.equal(element('#command').value,'ls');
+  key({key:'ArrowDown',preventDefault(){}});assert.equal(element('#command').value,'changed');
+  let prevented=false;
+  key({key:'Enter',shiftKey:true,preventDefault(){prevented=true;}});
+  key({key:'Enter',isComposing:true,preventDefault(){prevented=true;}});
+  assert.equal(prevented,false);assert.equal(calls.length,1);
   state.config.installed.templates = [{ name: 'Disk', command: 'df -h' }];
   poll(); await settle();
   assert.equal(element('#templatePicker').hidden, false);
