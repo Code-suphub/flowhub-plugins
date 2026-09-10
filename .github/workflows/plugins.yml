@@ -1,0 +1,99 @@
+name: Plugin CI and Release
+on:
+  push:
+    branches: [main]
+    tags: ['*-v*']
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: plugins-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      has_jobs: ${{ steps.plan.outputs.has_jobs }}
+      release: ${{ steps.plan.outputs.release }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: node --test scripts/release.test.mjs
+      - id: plan
+        run: node scripts/release.mjs plan
+  build:
+    needs: plan
+    if: needs.plan.outputs.has_jobs == 'true'
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    env:
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_RELEASE_DEBUG: '0'
+      MACOSX_DEPLOYMENT_TARGET: '11.0'
+      PLUGIN_ID: ${{ matrix.plugin }}
+      PLUGIN_TARGET: ${{ matrix.target }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: plugins/${{ matrix.plugin }}/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - run: npm ci
+        working-directory: plugins/${{ matrix.plugin }}
+      - run: npm run build
+        working-directory: plugins/${{ matrix.plugin }}
+      - run: npm test
+        working-directory: plugins/${{ matrix.plugin }}
+      - if: needs.plan.outputs.release == 'true'
+        run: brew install minisign
+      - name: Sign plugin package
+        if: needs.plan.outputs.release == 'true'
+        env:
+          PLUGIN_SIGNING_KEY: ${{ secrets.PLUGIN_SIGNING_KEY }}
+        run: |
+          test -n "$PLUGIN_SIGNING_KEY"
+          umask 077
+          export PLUGIN_SIGNING_KEY_FILE="$RUNNER_TEMP/plugin-signing.key"
+          trap 'rm -f "$PLUGIN_SIGNING_KEY_FILE"' EXIT
+          printf '%s\n' "$PLUGIN_SIGNING_KEY" > "$PLUGIN_SIGNING_KEY_FILE"
+          node scripts/release.mjs bundle "$PLUGIN_ID" "$PLUGIN_TARGET"
+      - uses: actions/upload-artifact@v4
+        if: needs.plan.outputs.release == 'true'
+        with:
+          name: ${{ matrix.plugin }}-${{ matrix.target }}
+          path: release-output/*
+          retention-days: 3
+          if-no-files-found: error
+  publish:
+    needs: [plan, build]
+    if: needs.plan.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-output
+          merge-multiple: true
+      - run: sudo apt-get update && sudo apt-get install -y minisign
+      - run: node scripts/release.mjs catalog
+      - name: Publish complete release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" --notes '独立插件安装包。catalog.json 为 FlowHub schema 2 来源索引；按机器架构选择安装包。' --draft release-output/*
+          gh release edit "$GITHUB_REF_NAME" --draft=false --latest=false
