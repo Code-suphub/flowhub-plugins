@@ -6,6 +6,12 @@ import {fileURLToPath} from 'node:url';
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const json=p=>JSON.parse(fs.readFileSync(p,'utf8'));
+// Intel is paused. Restore its runner here to enable both planning and validation.
+export const releaseTargets=[{runner:'macos-15',target:'macos-aarch64'}];
+export function validateReleaseEntries(entries,id,version){
+  const expected=releaseTargets.map(t=>t.target);
+  if(entries.length!==expected.length||new Set(entries.map(e=>e.target)).size!==expected.length||entries.some(e=>!expected.includes(e.target)||e.manifest.id!==id||e.manifest.version!==version))throw Error('Incomplete release');
+}
 export function manifest(id){
   if(!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id))throw Error('Invalid plugin ID');
   const dir=path.join(root,'plugins',id),m=json(path.join(dir,'flowhub-plugin.json'));
@@ -28,7 +34,7 @@ function plan(){
     const files=base&&!/^0+$/.test(base)?execFileSync('git',['diff','--name-only',base,'HEAD'],{encoding:'utf8'}).trim().split('\n'):['scripts/'];
     selected=changedPlugins(files,ids);
   }
-  const include=selected.flatMap(plugin=>[{plugin,runner:'macos-15',target:'macos-aarch64'},{plugin,runner:'macos-15-intel',target:'macos-x86_64'}]);
+  const include=selected.flatMap(plugin=>releaseTargets.map(target=>({plugin,...target})));
   fs.appendFileSync(process.env.GITHUB_OUTPUT,`matrix=${JSON.stringify({include})}\nhas_jobs=${include.length>0}\nrelease=${release}\n`);
 }
 function bundle(id,target){
@@ -51,7 +57,7 @@ function bundle(id,target){
 function catalog(){
   const entries=fs.readdirSync('release-output').filter(n=>/^macos-.*\.json$/.test(n)).map(n=>json(path.join('release-output',n)));
   const id=parseTag(process.env.GITHUB_REF_NAME);
-  if(entries.length!==2||new Set(entries.map(e=>e.target)).size!==2||entries.some(e=>e.manifest.id!==id||e.manifest.version!==manifest(id).m.version))throw Error('Incomplete release');
+  validateReleaseEntries(entries,id,manifest(id).m.version);
   for(const e of entries){const name=e.url.split('/').at(-1),file=path.join('release-output',name);if(createHash('sha256').update(fs.readFileSync(file)).digest('hex')!==e.sha256)throw Error('Hash mismatch');execFileSync('minisign',['-V','-p','release-key.pub','-m',file,'-x',`${file}.minisig`]);}
   fs.writeFileSync('release-output/catalog.json',JSON.stringify({schema:2,plugins:entries},null,2)+'\n');
   fs.copyFileSync('release-key.pub','release-output/release-key.pub');
