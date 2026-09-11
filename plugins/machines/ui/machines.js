@@ -199,7 +199,7 @@
     const signature = JSON.stringify(jobs);
     if (signature === lastCollections) return; lastCollections = signature;
     $('#collectionTitle').textContent = `${collectionHost.name} · 采集记录`;
-    $('#collectionRows').innerHTML = jobs.map(j => `<div class="job"><details data-job="${esc(j.id)}"><summary><span class="status ${esc(j.status)}">${labels[j.status] || esc(j.status)}</span><span>${new Date(j.startedAt).toLocaleString()}</span></summary>${j.finishedAt ? '<pre data-job-output>展开以加载采集详情</pre>' : '<p>正在采集…</p>'}</details></div>`).join('') || '<p class="caption">暂无该机器的采集记录。</p>';
+    $('#collectionRows').innerHTML = jobs.map(j => `<div class="collection-job ${j.status === 'failed' ? 'is-failed' : ''}"><details data-job="${esc(j.id)}"><summary><span class="status ${esc(j.status)}">${labels[j.status] || esc(j.status)}</span><span class="collection-time">${new Date(j.startedAt).toLocaleString()}</span><span class="collection-chevron" aria-hidden="true">⌄</span></summary>${j.finishedAt ? '<div class="collection-output" data-job-output><span class="collection-loading">展开以加载采集详情</span></div>' : '<p class="collection-running">正在采集…</p>'}</details></div>`).join('') || '<div class="collection-empty"><span>⌁</span><p>暂无该机器的采集记录。</p></div>';
   }
   $('#collectionRows').addEventListener('toggle', e => { if (e.target.matches('details')) loadJob(e.target); }, true);
   $('#closeCollections').onclick = () => $('#collectionDialog').close();
@@ -210,7 +210,12 @@
     try {
       const j = jobDetails.get(details.dataset.job) || await api("job", { id: details.dataset.job });
       jobDetails.set(j.id, j);
-      output.textContent = `${j.command ? "[command]\n" + j.command + "\n\n" : ""}${j.stdout || "（无标准输出）"}${j.stderr ? "\n\n[stderr]\n" + j.stderr : ""}${j.truncated ? "\n\n[输出已截断]" : ""}`;
+      const unsupported = /仅支持 Linux|基础指标采集当前/i.test(j.stderr || '');
+      if (unsupported) {
+        output.innerHTML = `<div class="collection-explanation"><div class="explanation-icon">⌁</div><div><strong>这台机器暂不支持基础指标</strong><p>当前采集脚本依赖 Linux 内核指标，而目标机器返回了非 Linux 系统。SSH 连接本身正常，只有 CPU、内存、磁盘和负载采集失败。</p><div class="explanation-actions"><span>建议：在目标机配置 Node Exporter 后，前往监控设置填写 metrics 地址。</span></div></div></div><details class="raw-error"><summary>查看原始错误</summary><pre>${esc(j.stderr)}</pre></details>`;
+      } else {
+        output.textContent = `${j.command ? "[command]\n" + j.command + "\n\n" : ""}${j.stdout || "（无标准输出）"}${j.stderr ? "\n\n[stderr]\n" + j.stderr : ""}${j.truncated ? "\n\n[输出已截断]" : ""}`;
+      }
     } catch (e) { output.textContent = String(e); }
   }
   $("#jobs").addEventListener("toggle", e => { if (e.target.matches("details")) loadJob(e.target); }, true);

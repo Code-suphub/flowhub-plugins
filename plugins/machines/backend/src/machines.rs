@@ -26,7 +26,7 @@ const BUILTIN: &str = include_str!("../../legacy-package.json");
 const OUTPUT_LIMIT: usize = 32768;
 const COLLECT: &str = r#"set -eu
 export LC_ALL=C
-test "$(uname -s)" = Linux || { echo '基础监控目前仅支持 Linux' >&2; exit 2; }
+test "$(uname -s)" = Linux || { echo '基础指标采集当前仅支持 Linux；macOS/其他系统请配置 Node Exporter' >&2; exit 2; }
 cpu() { awk '/^cpu / {idle=$5+$6; total=0; for(i=2;i<=9;i++) total+=$i; printf "%.0f %.0f\n", total, idle; exit}' /proc/stat; }
 set -- $(cpu); t1=$1; i1=$2; sleep 1; set -- $(cpu)
 cpu_pct=$(awk -v t1="$t1" -v t2="$1" -v i1="$i1" -v i2="$2" 'BEGIN {t=t2-t1; i=i2-i1; if(t>0 && i>=0 && i<=t) printf "%.1f",100*(t-i)/t; else print 0}')
