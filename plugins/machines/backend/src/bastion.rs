@@ -76,10 +76,19 @@ pub async fn collect(root: &Path, host: &str, profile: &Profile, script: &str, c
     if call(&socket, &["display-message", "-p", "-t", &session, "#{session_attached}"]).await?.trim() != "0" {
         return Err("系统终端正在附着此会话，请先脱离终端再采集".into());
     }
-    if !call(&socket, &["show-option", "-qv", "-t", &session, "@flowhub-collect"]).await?.trim().is_empty() {
-        return Err("上次采集未确认结束，请断开并重新连接会话后重试".into());
-    }
     let mut before = call(&socket, &["capture-pane", "-p", "-J", "-t", &session, "-S", "-200"]).await?;
+    let collect_marker = call(&socket, &["show-option", "-qv", "-t", &session, "@flowhub-collect"]).await?;
+    if !collect_marker.trim().is_empty() {
+        // A plugin restart can leave the tmux marker behind even though the
+        // command has already returned to the target prompt. Recover that
+        // safe idle state automatically; keep the guard when a command is
+        // still running so two collectors cannot share the pane.
+        if target_prompt(&before, &profile.target) {
+            call(&socket, &["set-option", "-u", "-t", &session, "@flowhub-collect"]).await?;
+        } else {
+            return Err("上次采集仍在进行，请等待结束或断开并重新连接会话后重试".into());
+        }
+    }
     let target_sent = call(&socket, &["show-option", "-qv", "-t", &session, "@flowhub-target"]).await?.trim() == "1";
     if !target_prompt(&before, &profile.target) && !target_sent { return Err("目标机器尚未就绪或正在执行命令；采集需要 user@目标机器 的空闲 Shell 提示符".into()); }
     if target_sent && !target_prompt(&before, &profile.target) {
