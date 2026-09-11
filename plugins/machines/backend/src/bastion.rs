@@ -62,9 +62,11 @@ fn target_prompt(output: &str, target: &str) -> bool {
 pub async fn collect(root: &Path, host: &str, profile: &Profile, script: &str, cancel: &std::sync::atomic::AtomicBool) -> Result<String, String> {
     use base64::Engine;
     use std::sync::atomic::Ordering;
-    if !active(root, host).await {
-        handle(root, host, profile, "bastionStart", &json!({})).await?;
-    }
+    // Always run the idempotent start/prepare step. Besides creating a missing
+    // session, this repairs an existing relay session left at the gateway
+    // prompt (for example after a plugin reload) by sending the target command
+    // before collection continues.
+    handle(root, host, profile, "bastionStart", &json!({})).await?;
     let _guard = LOCK.lock().await;
     profile.validate()?;
     let (socket, session) = ids(root, host);
@@ -77,9 +79,24 @@ pub async fn collect(root: &Path, host: &str, profile: &Profile, script: &str, c
     if !call(&socket, &["show-option", "-qv", "-t", &session, "@flowhub-collect"]).await?.trim().is_empty() {
         return Err("上次采集未确认结束，请断开并重新连接会话后重试".into());
     }
-    let before = call(&socket, &["capture-pane", "-p", "-J", "-t", &session, "-S", "-200"]).await?;
+    let mut before = call(&socket, &["capture-pane", "-p", "-J", "-t", &session, "-S", "-200"]).await?;
     let target_sent = call(&socket, &["show-option", "-qv", "-t", &session, "@flowhub-target"]).await?.trim() == "1";
     if !target_prompt(&before, &profile.target) && !target_sent { return Err("目标机器尚未就绪或正在执行命令；采集需要 user@目标机器 的空闲 Shell 提示符".into()); }
+    if target_sent && !target_prompt(&before, &profile.target) {
+        // The relay command may still be dialing the target. Do not write the
+        // metrics command into the gateway shell until the target prompt is
+        // visible; otherwise it can be consumed by `s` and lost.
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+        loop {
+            if cancel.load(Ordering::Acquire) { return Err("采集已取消".into()); }
+            before = call(&socket, &["capture-pane", "-p", "-J", "-t", &session, "-S", "-200"]).await?;
+            if target_prompt(&before, &profile.target) { break; }
+            if tokio::time::Instant::now() >= deadline {
+                return Err("目标机器尚未就绪或正在执行命令；采集需要 user@目标机器 的空闲 Shell 提示符".into());
+            }
+            tokio::time::sleep(Duration::from_millis(150)).await;
+        }
+    }
     // Verify the real hostname again inside a separate shell before reading metrics.
     let checked = format!("h=$(hostname); case \"$h\" in {}|{}) ;; *) echo '目标机器身份不匹配'; exit 3;; esac\n{}", quote(&profile.target), quote(profile.target.split('.').next().unwrap()), script);
     let encoded = base64::engine::general_purpose::STANDARD.encode(checked);
@@ -158,8 +175,17 @@ pub async fn handle(root: &Path, host: &str, profile: &Profile, action: &str, pa
             call(&socket, &["send-keys", "-t", &session, "Enter"]).await?;
         }
     }
-    let output = call(&socket, &["capture-pane", "-p", "-J", "-t", &session, "-S", "-200"]).await?;
-    let sent = call(&socket, &["show-option", "-qv", "-t", &session, "@flowhub-target"]).await?;
+    let mut output = call(&socket, &["capture-pane", "-p", "-J", "-t", &session, "-S", "-200"]).await?;
+    let mut sent = call(&socket, &["show-option", "-qv", "-t", &session, "@flowhub-target"]).await?;
+    if action == "bastionStart" && sent.trim() == "0" && !gateway_ready(&output) {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+        while tokio::time::Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(150)).await;
+            output = call(&socket, &["capture-pane", "-p", "-J", "-t", &session, "-S", "-200"]).await?;
+            sent = call(&socket, &["show-option", "-qv", "-t", &session, "@flowhub-target"]).await?;
+            if sent.trim() != "0" || gateway_ready(&output) { break; }
+        }
+    }
     if sent.trim() == "0" && gateway_ready(&output) {
         // Mark first: interrupted requests must never replay a target command.
         call(&socket, &["set-option", "-t", &session, "@flowhub-target", "1"]).await?;
