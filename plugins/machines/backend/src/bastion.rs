@@ -6,6 +6,7 @@ use std::{path::{Path, PathBuf}, sync::LazyLock, time::Duration};
 use tokio::process::Command;
 
 static LOCK: LazyLock<tokio::sync::Mutex<()>> = LazyLock::new(|| tokio::sync::Mutex::new(()));
+const GATEWAY_READY_MARKER: &str = "FLOWHUB_GATEWAY_READY";
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct Profile {
@@ -40,6 +41,7 @@ async fn call(socket: &str, args: &[&str]) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 fn gateway_ready(output: &str) -> bool {
+    if output.lines().any(|line| line.trim() == GATEWAY_READY_MARKER) { return true; }
     let line = output.trim_end().lines().last().unwrap_or("").trim();
     line.contains('@') && line.ends_with(" ->") && !line.contains('\n')
 }
@@ -202,6 +204,7 @@ mod tests {
     #[test] fn profile_and_prompt_boundaries() {
         let mut p = Profile { script:"/tmp/relay".into(), command:"n".into(), target:"vm-01".into() }; assert!(p.validate().is_ok());
         p.target="vm; rm".into(); assert!(p.validate().is_err());
+        assert!(gateway_ready("banner\nFLOWHUB_GATEWAY_READY\n"));
         assert!(gateway_ready("banner\nuser@10.0.0.1 ->   \n")); assert!(!gateway_ready("user@host:~$"));
         assert_ne!(ids(Path::new("/a"),"host"), ids(Path::new("/b"),"host"));
     }
