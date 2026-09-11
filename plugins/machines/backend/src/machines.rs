@@ -34,7 +34,8 @@ if [ "$os" = Darwin ]; then
   mem_total=$(sysctl -n hw.memsize)
   mem_used=$(vm_stat | awk -v p="$page_size" -v total="$mem_total" '/Pages free/ {free=$3} /Pages inactive/ {inactive=$3} /Pages speculative/ {spec=$3} /Pages purgeable/ {purge=$3} END {gsub(/\./,"",free); gsub(/\./,"",inactive); gsub(/\./,"",spec); gsub(/\./,"",purge); print total-(free+inactive+spec+purge)*p}')
   mem=$(awk -v total="$mem_total" -v used="$mem_used" 'BEGIN {if(total>0) printf "%.1f",100*used/total; else print 0}')
-  disk=$(df -P / | awk 'NR==2 {gsub(/%/,"",$5); print $5}')
+  disk=$(df -P /System/Volumes/Data 2>/dev/null | awk 'NR==2 {gsub(/%/,"",$5); print $5}')
+  disk=${disk:-$(df -P / | awk 'NR==2 {gsub(/%/,"",$5); print $5}')}
   load=$(sysctl -n vm.loadavg | awk '{gsub(/[{},]/,""); print $1}')
   load=${load:-0}
   boot=$(sysctl -n kern.boottime | sed -E 's/.*sec = ([0-9]+).*/\1/')
@@ -1656,6 +1657,7 @@ mod tests {
         assert!(COLLECT.contains("[ \"$os\" = Darwin ]") && COLLECT.contains("top -l 2"));
         assert!(COLLECT.contains("vm_stat") && COLLECT.contains("sysctl -n hw.memsize"));
         assert!(COLLECT.contains("netstat -ib"));
+        assert!(COLLECT.contains("/System/Volumes/Data"));
         assert!(COLLECT.contains("基础指标采集支持 Linux 和 macOS"));
         for key in ["cpu", "memory", "disk", "load", "uptime", "rx"] {
             assert!(COLLECT.contains(&format!("\"{}\":%s", key)));
