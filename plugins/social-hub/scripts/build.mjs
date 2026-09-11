@@ -1,0 +1,2 @@
+import {execFileSync} from 'node:child_process'; import {mkdirSync,copyFileSync} from 'node:fs'; import {resolve} from 'node:path';
+const root=resolve(import.meta.dirname,'..'); const backend=resolve(root,'backend'); mkdirSync(resolve(root,'bin'),{recursive:true}); execFileSync('cargo',['build','--release','--manifest-path',resolve(backend,'Cargo.toml')],{stdio:'inherit'}); copyFileSync(resolve(backend,'target/release/flowhub-social-hub'),resolve(root,'bin/flowhub-social-hub'));

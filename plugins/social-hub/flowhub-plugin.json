@@ -1,0 +1,1 @@
+{"schema":2,"id":"social-hub","name":"社交聚合","version":"0.1.0","ui":"ui/index.html","executable":"bin/flowhub-social-hub","permissions":["native-process"],"description":"统一查看社交平台会话，支持本地演示数据和连接器状态","statusSurface":false}
