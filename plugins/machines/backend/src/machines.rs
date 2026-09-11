@@ -29,19 +29,21 @@ export LC_ALL=C
 os=$(uname -s)
 if [ "$os" = Darwin ]; then
   cpu_pct=$(top -l 2 -n 0 -s 1 | awk '/^CPU usage:/ {gsub("%",""); user=$3; sys=$5} END {if (user+sys >= 0) printf "%.1f", user+sys; else print 0}')
+  cpu_pct=${cpu_pct:-0}
   page_size=$(sysctl -n vm.pagesize)
   mem_total=$(sysctl -n hw.memsize)
   mem_used=$(vm_stat | awk -v p="$page_size" -v total="$mem_total" '/Pages free/ {free=$3} /Pages inactive/ {inactive=$3} /Pages speculative/ {spec=$3} /Pages purgeable/ {purge=$3} END {gsub(/\./,"",free); gsub(/\./,"",inactive); gsub(/\./,"",spec); gsub(/\./,"",purge); print total-(free+inactive+spec+purge)*p}')
   mem=$(awk -v total="$mem_total" -v used="$mem_used" 'BEGIN {if(total>0) printf "%.1f",100*used/total; else print 0}')
   disk=$(df -P / | awk 'NR==2 {gsub(/%/,"",$5); print $5}')
   load=$(sysctl -n vm.loadavg | awk '{gsub(/[{},]/,""); print $1}')
+  load=${load:-0}
   boot=$(sysctl -n kern.boottime | sed -E 's/.*sec = ([0-9]+).*/\1/')
-  up=$(date +%s | awk -v boot="$boot" '{print $1-boot}')
+  up=$(date +%s | awk -v boot="$boot" '{if (boot ~ /^[0-9]+$/) print $1-boot; else print 0}')
   net() { netstat -ib | awk 'NR>1 && $1!="Name" && $1!~/^(lo|utun|awdl)/ {r+=$7; t+=$10} END {printf "%.0f %.0f\n",r,t}'; }
-  set -- $(net); r1=$1; s1=$2; n1=$(date +%s)
+  set -- $(net); r1=${1:-0}; s1=${2:-0}; n1=$(date +%s)
   sleep 1
-  set -- $(net); n2=$(date +%s)
-  rates=$(awk -v r1="$r1" -v r2="$1" -v s1="$s1" -v s2="$2" -v n1="$n1" -v n2="$n2" 'BEGIN {dt=n2-n1;if(dt>0 && r2>=r1 && s2>=s1) printf "%.2f,\"tx\":%.2f",(r2-r1)/dt/1000,(s2-s1)/dt/1000;else printf "null,\"tx\":null"}')
+  set -- $(net); r2=${1:-0}; s2=${2:-0}; n2=$(date +%s)
+  rates=$(awk -v r1="$r1" -v r2="$r2" -v s1="$s1" -v s2="$s2" -v n1="$n1" -v n2="$n2" 'BEGIN {dt=n2-n1;if(dt>0 && r2>=r1 && s2>=s1) printf "%.2f,\"tx\":%.2f",(r2-r1)/dt/1000,(s2-s1)/dt/1000;else printf "null,\"tx\":null"}')
   printf '{"cpu":%s,"memory":%s,"disk":%s,"load":%s,"uptime":%s,"rx":%s}\n' "$cpu_pct" "$mem" "$disk" "$load" "$up" "$rates"
   exit 0
 fi
@@ -1395,7 +1397,7 @@ async fn execute(
         };
         if job.status == "success" && parsed.is_none() {
             job.status = "failed".into();
-            job.stderr.push_str("采集结果不是有效的 Linux 指标");
+            job.stderr.push_str("采集结果不是有效的机器指标");
         }
         let config = rt.config.lock().unwrap();
         if config
