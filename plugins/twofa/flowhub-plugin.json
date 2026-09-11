@@ -5,6 +5,9 @@
   "version": "0.1.0",
   "ui": "ui/index.html",
   "executable": "bin/flowhub-twofa",
-  "permissions": ["native-process"],
-  "description": "本地加密保存 TOTP 密钥，按名称生成一次性验证码"
+  "permissions": [
+    "native-process"
+  ],
+  "description": "本地加密保存 TOTP 密钥，按名称生成一次性验证码",
+  "searchable": true
 }
