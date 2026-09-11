@@ -13,3 +13,4 @@
 [data-theme=dark] .primary{background:#a4dfbc;color:#122419;border-color:#a4dfbc}
 .header-actions{display:flex;gap:8px;flex-shrink:0}
 @media(max-width:780px){header{flex-wrap:wrap}.header-actions{flex-wrap:wrap}}
+[data-theme=dark] .settings-panel{background:#1c2623}.settings-panel .settings-note{background:#17201d}.settings-panel select{color:inherit;background:#17201d}

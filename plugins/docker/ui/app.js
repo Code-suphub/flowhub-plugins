@@ -3,10 +3,17 @@
   const labels={running:'运行中',exited:'已停止',created:'未启动',restarting:'重启中',paused:'已暂停',dead:'异常',removing:'移除中'};
   const samples=[{id:'a'.repeat(64),name:'web-app-api-1',image:'example/api:dev',state:'restarting',status:'Restarting (1)',ports:'127.0.0.1:8080->8080/tcp',project:'web-app',service:'api'},{id:'b'.repeat(64),name:'web-app-postgres-1',image:'postgres:16',state:'running',status:'Up 2 hours (healthy)',ports:'127.0.0.1:5432->5432/tcp',project:'web-app',service:'postgres'},{id:'c'.repeat(64),name:'redis-dev',image:'redis:7',state:'exited',status:'Exited (0)',ports:'',project:'',service:''}];
   const sampleImages=[{ID:'sha256:'+'d'.repeat(64),Repository:'redis',Tag:'7',Size:'117MB',CreatedSince:'2 days ago'},{ID:'sha256:'+'e'.repeat(64),Repository:'postgres',Tag:'16',Size:'432MB',CreatedSince:'5 days ago'}];
-  let preview=true,data={containers:[],context:''},images=[],scope='all',selected=null,tab='overview',generation=0,loading=false,operating=false,logLoading=false,logText='',pendingAction=null,connected=false,started=false,initial=null,initialContext='',imageInfo=null;
+  const settingsKey='flowhub.docker.management.settings.v1',defaults={refreshSeconds:15,defaultScope:'all',onlyIssues:false,expandCompose:true,theme:'system'};
+  let preview=true,data={containers:[],context:''},images=[],scope='all',selected=null,tab='overview',generation=0,loading=false,operating=false,logLoading=false,logText='',pendingAction=null,connected=false,started=false,initial=null,initialContext='',imageInfo=null,settings=loadSettings(),refreshTimer=0,collapseInitialized=false;
   const collapsed=new Set();
-  function theme(dark){document.documentElement.dataset.theme=dark?'dark':'light';$('#theme').textContent=dark?'浅色':'深色';}
-  $('#theme').onclick=()=>theme(document.documentElement.dataset.theme!=='dark');
+  function loadSettings(){try{return {...defaults,...JSON.parse(localStorage.getItem(settingsKey)||'{}')}}catch{return {...defaults}}}
+  function persistSettings(){localStorage.setItem(settingsKey,JSON.stringify(settings));$('#settingsSaved').textContent='已保存';setTimeout(()=>$('#settingsSaved').textContent='',1800);}
+  function theme(mode){const dark=mode==='dark'||(mode==='system'&&matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.dataset.theme=dark?'dark':'light';$('#theme').textContent=dark?'浅色':'深色';}
+  $('#theme').onclick=()=>{settings.theme=document.documentElement.dataset.theme==='dark'?'light':'dark';theme(settings.theme);persistSettings();};
+  function fillSettings(){ $('#settingRefresh').value=String(settings.refreshSeconds);$('#settingScope').value=settings.defaultScope;$('#settingIssues').checked=!!settings.onlyIssues;$('#settingExpand').checked=!!settings.expandCompose;$('#settingTheme').value=settings.theme; }
+  function showSettings(show){$('#settingsPanel').hidden=!show;document.querySelector('main').hidden=show;document.querySelector('.summary').hidden=show;document.querySelector('footer').hidden=show;if(show){fillSettings();$('#settingsContext').textContent=data.context||'尚未连接';}}
+  $('#settingsForm').onsubmit=e=>{e.preventDefault();settings={...settings,refreshSeconds:Number($('#settingRefresh').value),defaultScope:$('#settingScope').value,onlyIssues:$('#settingIssues').checked,expandCompose:$('#settingExpand').checked,theme:$('#settingTheme').value};scope=settings.defaultScope;collapsed.clear();if(!settings.expandCompose)for(const c of data.containers)if(c.project)collapsed.add(c.project);collapseInitialized=true;theme(settings.theme);persistSettings();showSettings(false);renderList();refresh();scheduleRefresh();};
+  $('#resetSettings').onclick=()=>{settings={...defaults};fillSettings();theme(settings.theme);persistSettings();};
   async function invoke(method,params={}){
     if(!preview)return window.FlowHubWidget?FlowHubWidget.invoke({action:'management',method,params}):FlowHubPlugin.invoke(method,params);
     if(method==='list')return {context:'本机 · 模拟数据',containers:samples};
@@ -22,11 +29,12 @@
   function imageRef(i){return i.Repository==='<none>'?i.ID:`${i.Repository}:${i.Tag}`;}
   function row(c){return `<button class="container ${selected?.id===c.id?'selected':''}" data-id="${esc(c.id)}"><span class="dot ${esc(c.status?.includes('unhealthy')?'unhealthy':c.state)}"></span><span><strong>${esc(c.name)}</strong><small>${esc(labels[c.state]||c.state)} · ${esc(c.image)}</small></span></button>`;}
   function renderList(){
+    if(scope==='settings'){showSettings(true);return;}showSettings(false);
     const q=$('#filter').value.toLowerCase();$('#listTitle').textContent=scope==='images'?'本地镜像':'项目与容器';
     document.querySelectorAll('[data-scope]').forEach(b=>{b.classList.toggle('active',b.dataset.scope===scope);b.setAttribute('aria-pressed',b.dataset.scope===scope);});
     if(scope==='images')$('#containers').innerHTML=images.filter(i=>`${imageRef(i)} ${i.ID}`.toLowerCase().includes(q)).map(i=>`<button class="container image-list ${selected?.reference===imageRef(i)?'selected':''}" data-image="${esc(i.ID)}" data-reference="${esc(imageRef(i))}"><span><strong>${esc(imageRef(i))}</strong><small>${esc(i.Size)} · ${esc(i.CreatedSince)}<br>${esc(i.ID.slice(0,24))}</small></span></button>`).join('')||'<p class="empty">没有匹配的本地镜像</p>';
     else {
-      const groups=new Map();for(const c of data.containers){if(scope==='compose'&&!c.project||scope==='standalone'&&c.project)continue;if(!`${c.name} ${c.image} ${c.project}`.toLowerCase().includes(q))continue;const key=c.project||'';if(!groups.has(key))groups.set(key,[]);groups.get(key).push(c);}
+      const groups=new Map();for(const c of data.containers){if(scope==='compose'&&!c.project||scope==='standalone'&&c.project)continue;if(settings.onlyIssues&&!(['restarting','dead'].includes(c.state)||c.status?.includes('unhealthy')))continue;if(!`${c.name} ${c.image} ${c.project}`.toLowerCase().includes(q))continue;const key=c.project||'';if(!groups.has(key))groups.set(key,[]);groups.get(key).push(c);}
       $('#containers').innerHTML=[...groups].map(([project,rows])=>`<div class="group">${project?`<button class="fold" data-fold="${esc(project)}" aria-label="${collapsed.has(project)?'展开':'收起'} ${esc(project)}" aria-expanded="${!collapsed.has(project)}">${collapsed.has(project)?'▸':'▾'}</button><button class="project-link" data-project="${esc(project)}">${esc(project)}</button>`:'<span>独立容器</span>'}<small>${rows.filter(c=>c.state==='running').length}/${rows.length} 运行</small></div>${project&&collapsed.has(project)?'':rows.map(row).join('')}`).join('')||'<p class="empty">没有匹配的容器</p>';
     }
     $('#total').textContent=data.containers.length;$('#running').textContent=data.containers.filter(c=>c.state==='running').length;$('#issues').textContent=data.containers.filter(c=>['restarting','dead'].includes(c.state)||c.status?.includes('unhealthy')).length;$('#projects').textContent=new Set(data.containers.map(c=>c.project).filter(Boolean)).size;
@@ -40,7 +48,7 @@
   }
   async function refresh(){
     if(loading||operating||$('#confirm').open)return;loading=true;$('#refresh').disabled=true;actions();
-    try{const next=await invoke('list');const changed=data.context&&data.context!==next.context;data=next;connected=true;$('#context').textContent=data.context;$('#updated').textContent=new Date().toLocaleTimeString();
+    try{const next=await invoke('list');const changed=data.context&&data.context!==next.context;data=next;connected=true;$('#context').textContent=data.context;$('#settingsContext').textContent=data.context||'尚未连接';$('#updated').textContent=new Date().toLocaleTimeString();if(!collapseInitialized){if(!settings.expandCompose)for(const c of data.containers)if(c.project)collapsed.add(c.project);collapseInitialized=true;}
       if(changed){selected=null;generation++;notice('Docker 环境已变化，已清除原环境中的选择。');}
       if(initial){if(initialContext&&initialContext!==data.context&&!preview){notice('悬浮窗所选 Docker 环境已变化，请重新选择对象。');}else{selected=initial;if(selected.kind==='image'||selected.kind==='images')scope='images';}initial=null;}
       if(scope==='images')images=(await invoke('images',{context:data.context})).images;
@@ -86,7 +94,7 @@
   document.body.addEventListener('click',e=>{
     const b=e.target.closest('button');if(!b||b.disabled)return;
     if(b.dataset.fold!==undefined){collapsed.has(b.dataset.fold)?collapsed.delete(b.dataset.fold):collapsed.add(b.dataset.fold);renderList();}
-    else if(b.dataset.scope){if(operating||loading)return;scope=b.dataset.scope;selected=null;generation++;$('#filter').value='';renderList();refresh();}
+    else if(b.dataset.scope){if(operating||loading)return;scope=b.dataset.scope;selected=null;generation++;$('#filter').value='';if(scope==='settings'){showSettings(true);return;}renderList();refresh();}
     else if(b.dataset.id){if(scope==='images')scope='all';select({kind:'container',id:b.dataset.id});}
     else if(b.dataset.project)select({kind:'project',project:b.dataset.project});
     else if(b.dataset.image)select({kind:'image',id:b.dataset.image,reference:b.dataset.reference});
@@ -96,7 +104,8 @@
   });
   $('#filter').oninput=renderList;$('#refresh').onclick=()=>{notice();refresh();};$('#reloadLogs').onclick=loadLogs;$('#logFilter').oninput=renderLogs;
   $('#desktop').onclick=async()=>{try{await FlowHubPlugin.invoke('flowhub_status');}catch(e){notice(e.message);}};
-  function start(context){if(started)return;started=true;preview=window.FlowHubWidget?!!context.preview:!window.FlowHubPlugin;initial=context?.config?.selection||null;initialContext=initial?.context||'';if(!initial&&context?.config?.project&&context.config.project!=='*')initial={kind:'project',project:context.config.project};scope=context?.config?.type||'all';if(!['all','compose','standalone'].includes(scope))scope='all';$('#preview').hidden=!preview;$('#desktop').hidden=!!window.FlowHubWidget;$('#desktop').disabled=preview;theme(!preview||matchMedia('(prefers-color-scheme: dark)').matches);refresh();}
+  function scheduleRefresh(){clearTimeout(refreshTimer);refreshTimer=setTimeout(()=>{if(started&&!document.hidden&&scope!=='settings')refresh();scheduleRefresh();},Math.max(15,settings.refreshSeconds)*1000);}
+  function start(context){if(started)return;started=true;preview=window.FlowHubWidget?!!context.preview:!window.FlowHubPlugin;initial=context?.config?.selection||null;initialContext=initial?.context||'';if(!initial&&context?.config?.project&&context.config.project!=='*')initial={kind:'project',project:context.config.project};scope=context?.config?.type||settings.defaultScope;if(!['all','compose','standalone','images'].includes(scope))scope='all';$('#preview').hidden=!preview;$('#desktop').hidden=!!window.FlowHubWidget;$('#desktop').disabled=preview;theme(preview?'system':settings.theme);if(!preview)fillSettings();refresh();scheduleRefresh();}
   if(window.FlowHubWidget)FlowHubWidget.onInit(start);else start({});
-  setInterval(()=>{if(started&&!document.hidden)refresh();},15000);setInterval(()=>{if(started&&!document.hidden&&tab==='logs'&&$('#follow').checked)loadLogs();},3000);
+  setInterval(()=>{if(started&&!document.hidden&&tab==='logs'&&$('#follow').checked)loadLogs();},3000);
 })();
