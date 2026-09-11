@@ -78,7 +78,8 @@ pub async fn collect(root: &Path, host: &str, profile: &Profile, script: &str, c
         return Err("上次采集未确认结束，请断开并重新连接会话后重试".into());
     }
     let before = call(&socket, &["capture-pane", "-p", "-J", "-t", &session, "-S", "-200"]).await?;
-    if !target_prompt(&before, &profile.target) { return Err("目标机器尚未就绪或正在执行命令；采集需要 user@目标机器 的空闲 Shell 提示符".into()); }
+    let target_sent = call(&socket, &["show-option", "-qv", "-t", &session, "@flowhub-target"]).await?.trim() == "1";
+    if !target_prompt(&before, &profile.target) && !target_sent { return Err("目标机器尚未就绪或正在执行命令；采集需要 user@目标机器 的空闲 Shell 提示符".into()); }
     // Verify the real hostname again inside a separate shell before reading metrics.
     let checked = format!("h=$(hostname); case \"$h\" in {}|{}) ;; *) echo '目标机器身份不匹配'; exit 3;; esac\n{}", quote(&profile.target), quote(profile.target.split('.').next().unwrap()), script);
     let encoded = base64::engine::general_purpose::STANDARD.encode(checked);
