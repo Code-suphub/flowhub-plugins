@@ -26,7 +26,26 @@ const BUILTIN: &str = include_str!("../../legacy-package.json");
 const OUTPUT_LIMIT: usize = 32768;
 const COLLECT: &str = r#"set -eu
 export LC_ALL=C
-test "$(uname -s)" = Linux || { echo '基础指标采集当前仅支持 Linux；macOS/其他系统请配置 Node Exporter' >&2; exit 2; }
+os=$(uname -s)
+if [ "$os" = Darwin ]; then
+  cpu_pct=$(top -l 2 -n 0 -s 1 | awk '/^CPU usage:/ {gsub("%",""); user=$3; sys=$5} END {if (user+sys >= 0) printf "%.1f", user+sys; else print 0}')
+  page_size=$(sysctl -n vm.pagesize)
+  mem_total=$(sysctl -n hw.memsize)
+  mem_used=$(vm_stat | awk -v p="$page_size" -v total="$mem_total" '/Pages free/ {free=$3} /Pages inactive/ {inactive=$3} /Pages speculative/ {spec=$3} /Pages purgeable/ {purge=$3} END {gsub(/\./,"",free); gsub(/\./,"",inactive); gsub(/\./,"",spec); gsub(/\./,"",purge); print total-(free+inactive+spec+purge)*p}')
+  mem=$(awk -v total="$mem_total" -v used="$mem_used" 'BEGIN {if(total>0) printf "%.1f",100*used/total; else print 0}')
+  disk=$(df -P / | awk 'NR==2 {gsub(/%/,"",$5); print $5}')
+  load=$(sysctl -n vm.loadavg | awk '{gsub(/[{},]/,""); print $1}')
+  boot=$(sysctl -n kern.boottime | sed -E 's/.*sec = ([0-9]+).*/\1/')
+  up=$(date +%s | awk -v boot="$boot" '{print $1-boot}')
+  net() { netstat -ib | awk 'NR>1 && $1!="Name" && $1!~/^(lo|utun|awdl)/ {r+=$7; t+=$10} END {printf "%.0f %.0f\n",r,t}'; }
+  set -- $(net); r1=$1; s1=$2; n1=$(date +%s)
+  sleep 1
+  set -- $(net); n2=$(date +%s)
+  rates=$(awk -v r1="$r1" -v r2="$1" -v s1="$s1" -v s2="$2" -v n1="$n1" -v n2="$n2" 'BEGIN {dt=n2-n1;if(dt>0 && r2>=r1 && s2>=s1) printf "%.2f,\"tx\":%.2f",(r2-r1)/dt/1000,(s2-s1)/dt/1000;else printf "null,\"tx\":null"}')
+  printf '{"cpu":%s,"memory":%s,"disk":%s,"load":%s,"uptime":%s,"rx":%s}\n' "$cpu_pct" "$mem" "$disk" "$load" "$up" "$rates"
+  exit 0
+fi
+test "$os" = Linux || { echo '基础指标采集支持 Linux 和 macOS；其他系统请配置 Node Exporter' >&2; exit 2; }
 cpu() { awk '/^cpu / {idle=$5+$6; total=0; for(i=2;i<=9;i++) total+=$i; printf "%.0f %.0f\n", total, idle; exit}' /proc/stat; }
 set -- $(cpu); t1=$1; i1=$2; sleep 1; set -- $(cpu)
 cpu_pct=$(awk -v t1="$t1" -v t2="$1" -v i1="$i1" -v i2="$2" 'BEGIN {t=t2-t1; i=i2-i1; if(t>0 && i>=0 && i<=t) printf "%.1f",100*(t-i)/t; else print 0}')
@@ -1617,8 +1636,9 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         let stat = root.join("stat");
         // Execute the production sampling code with synthetic /proc/stat snapshots.
-        let sampling = COLLECT.lines().skip(3).take(3).collect::<Vec<_>>().join("\n")
-            .replace("/proc/stat", &stat.to_string_lossy());
+        let start = COLLECT.find("cpu() {").unwrap();
+        let end = COLLECT[start..].find("\nmem=").unwrap() + start;
+        let sampling = COLLECT[start..end].replace("/proc/stat", &stat.to_string_lossy());
         for base in [100u64, 3_292_880_000, 6_292_880_000_000] {
             std::fs::write(&stat, format!("cpu 2000000000 0 1000000000 {base} 0 0 0 0 0 0\n")).unwrap();
             let script = format!("set -eu\nexport LC_ALL=C\nsleep() {{ printf 'cpu 2000000100 0 1000000000 {} 0 0 0 0 0 0\\n' > {}; }}\n{sampling}\nprintf '%s' \"$cpu_pct\"", base + 300, stat.display());
@@ -1627,6 +1647,17 @@ mod tests {
             assert_eq!(String::from_utf8_lossy(&output.stdout), "25.0");
         }
         std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn collector_contains_native_macos_commands_and_shared_output_shape() {
+        use super::*;
+        assert!(COLLECT.contains("[ \"$os\" = Darwin ]") && COLLECT.contains("top -l 2"));
+        assert!(COLLECT.contains("vm_stat") && COLLECT.contains("sysctl -n hw.memsize"));
+        assert!(COLLECT.contains("netstat -ib"));
+        assert!(COLLECT.contains("基础指标采集支持 Linux 和 macOS"));
+        for key in ["cpu", "memory", "disk", "load", "uptime", "rx"] {
+            assert!(COLLECT.contains(&format!("\"{}\":%s", key)));
+        }
     }
     #[test]
     fn connection_idle_migrates_short_values_and_preserves_long_retention() {
