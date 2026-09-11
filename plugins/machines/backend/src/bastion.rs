@@ -62,10 +62,13 @@ fn target_prompt(output: &str, target: &str) -> bool {
 pub async fn collect(root: &Path, host: &str, profile: &Profile, script: &str, cancel: &std::sync::atomic::AtomicBool) -> Result<String, String> {
     use base64::Engine;
     use std::sync::atomic::Ordering;
+    if !active(root, host).await {
+        handle(root, host, profile, "bastionStart", &json!({})).await?;
+    }
     let _guard = LOCK.lock().await;
     profile.validate()?;
     let (socket, session) = ids(root, host);
-    if call(&socket, &["has-session", "-t", &session]).await.is_err() { return Err("请先连接堡垒机会话并完成目标机器登录".into()); }
+    if call(&socket, &["has-session", "-t", &session]).await.is_err() { return Err("堡垒机会话启动失败".into()); }
     let saved = call(&socket, &["show-option", "-qv", "-t", &session, "@flowhub-profile"]).await?;
     if saved.trim() != serde_json::to_string(profile).unwrap() { return Err("会话配置已变化，请重新连接".into()); }
     if call(&socket, &["display-message", "-p", "-t", &session, "#{session_attached}"]).await?.trim() != "0" {
