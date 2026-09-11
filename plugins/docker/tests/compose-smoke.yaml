@@ -1,0 +1,11 @@
+services:
+  alpha:
+    image: minio/minio:latest
+    network_mode: none
+    tmpfs: ["/data"]
+    entrypoint: ["/bin/sh", "-c", "trap 'exit 0' TERM; echo FLOWHUB_COMPOSE_TEST; while true; do sleep 1; done"]
+  beta:
+    image: minio/minio:latest
+    network_mode: none
+    tmpfs: ["/data"]
+    entrypoint: ["/bin/sh", "-c", "trap 'exit 0' TERM; echo FLOWHUB_COMPOSE_TEST; while true; do sleep 1; done"]

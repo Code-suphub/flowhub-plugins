@@ -8,6 +8,9 @@
     "build": "npm run build:machines",
     "build:machines": "npm --prefix plugins/machines run build",
     "test": "npm run test:machines",
-    "test:machines": "npm --prefix plugins/machines test"
+    "test:machines": "npm --prefix plugins/machines test",
+    "dev:docker": "npm --prefix plugins/docker run dev",
+    "build:docker": "npm --prefix plugins/docker run build",
+    "test:docker": "npm --prefix plugins/docker test"
   }
 }

@@ -1,0 +1,15 @@
+:root[data-theme=dark]{color-scheme:dark;color:#dce6e3;background:#151c1c;--line:#303d3a;--muted:#98aaa5;--accent:#91d5b5}
+[data-theme=dark] :is(button,.summary,main){background:#1c2623}
+[data-theme=dark] button:hover{background:#283c33;border-color:#537b68}
+[data-theme=dark] :is(h1 span,.badge){background:#2c3e35;color:#b2d6c4}
+[data-theme=dark] :is(input[type=search],.metric){background:#17201d}
+[data-theme=dark] .container.selected{background:#2b4436;color:#c4edda}
+[data-theme=dark] nav button{background:transparent}
+[data-theme=dark] .large h2{color:#bfd2c9}
+[data-theme=dark] pre{background:#101814;color:#c8ded1}
+[data-theme=dark] #notice{background:#30291b;color:#e3c690;border-color:#675336}
+[data-theme=dark] #preview{background:#223a2e;color:#c1dfcf;border-color:#436950}
+[data-theme=dark] dialog{background:#1c2623}
+[data-theme=dark] .primary{background:#a4dfbc;color:#122419;border-color:#a4dfbc}
+.header-actions{display:flex;gap:8px;flex-shrink:0}
+@media(max-width:780px){header{flex-wrap:wrap}.header-actions{flex-wrap:wrap}}

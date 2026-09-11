@@ -1,0 +1,9 @@
+{
+  "id":"docker", "title":"Docker 管理",
+  "widget":{"interactive":true,"card":"widget-card.html","editor":"widget-editor.html","detail":"widget-detail.html"},
+  "snapshot":{"title":"Docker 管理","context":"模拟环境","monitoring":true,"rows":[
+    {"id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","name":"web-app-api-1","project":"web-app","state":"restarting","status":"error","summary":"重启中"},
+    {"id":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","name":"web-app-postgres-1","project":"web-app","state":"running","status":"healthy","summary":"运行中"},
+    {"id":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","name":"redis-dev","project":"","state":"exited","status":"unknown","summary":"已停止"}
+  ]}
+}

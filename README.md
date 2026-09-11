@@ -7,6 +7,7 @@ FlowHub 官方插件集中在本仓库维护。每个插件保留独立的清单
 | 插件 | ID | 目录 | 文档 |
 | --- | --- | --- | --- |
 | 机器管理 | `machines` | `plugins/machines` | [开发和安装说明](plugins/machines/README.md) |
+| Docker 管理 | `docker` | `plugins/docker` | [开发和安装说明](plugins/docker/README.md) |
 
 ```text
 flowhub-plugins/

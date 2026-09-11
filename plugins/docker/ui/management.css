@@ -1,0 +1,8 @@
+.scope-tabs{gap:8px;margin-bottom:15px;flex-wrap:wrap}.scope-tabs button{padding:10px 16px}.group{align-items:center;padding:0;margin-top:15px}.group button{background:transparent;border:0;padding:7px 5px}.group .project-link{flex:1;text-align:left;font-size:12px;color:var(--accent);min-width:0;overflow-wrap:anywhere}.group .fold{font-size:13px;flex-shrink:0}.group small{white-space:nowrap}.detail .member{display:flex;width:100%;justify-content:space-between;gap:15px;text-align:left;margin:7px 0;overflow-wrap:anywhere}.member small{color:var(--muted);flex-shrink:0}.danger{color:#b64f43;border-color:#bf776b}.image-list small{font-family:Menlo,monospace}.detail-head .badge{max-width:140px;white-space:normal}.project-note{padding:10px 0}#actions:empty{display:none}.scope-tabs .active{font-weight:600}button.selected{box-shadow:inset 2px 0 var(--accent)}.detail #overview{overflow-wrap:anywhere}dialog{max-height:85vh;overflow:auto}dialog p{white-space:pre-wrap}.card-navigation{flex-shrink:0}@media(max-width:450px){body{min-width:300px;padding:12px}.summary>div{padding:9px}.summary span{font-size:10px}.summary strong{font-size:20px}.scope-tabs{gap:0}.scope-tabs button{padding:9px 11px}.detail-head{flex-wrap:wrap}}
+/* Keep persistent macOS scrollbars compact, including non-overlay preferences. */
+*{scrollbar-width:thin;scrollbar-color:#71857d66 transparent}
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#71857d66;border-radius:6px}
+::-webkit-scrollbar-thumb:hover{background:#71857daa}
+::-webkit-scrollbar-corner{background:transparent}
