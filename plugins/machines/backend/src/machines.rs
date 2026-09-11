@@ -38,7 +38,7 @@ if [ "$os" = Darwin ]; then
   disk=${disk:-$(df -P / | awk 'NR==2 {gsub(/%/,"",$5); print $5}')}
   load=$(sysctl -n vm.loadavg | awk '{gsub(/[{},]/,""); print $1}')
   load=${load:-0}
-  boot=$(sysctl -n kern.boottime | sed -E 's/.*sec = ([0-9]+).*/\1/')
+  boot=$(sysctl -n kern.boottime | awk '{for (i=1; i<=NF; i++) if ($i=="=" && $(i-1)=="sec") {value=$(i+1); gsub(/[^0-9]/,"",value); print value; exit}}')
   up=$(date +%s | awk -v boot="$boot" '{if (boot ~ /^[0-9]+$/) print $1-boot; else print 0}')
   net() { netstat -ib | awk 'NR>1 && $1!="Name" && $1!~/^(lo|utun|awdl)/ {r+=$7; t+=$10} END {printf "%.0f %.0f\n",r,t}'; }
   set -- $(net); r1=${1:-0}; s1=${2:-0}; n1=$(date +%s)
