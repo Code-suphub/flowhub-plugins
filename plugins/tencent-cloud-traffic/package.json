@@ -1,0 +1,7 @@
+{
+  "name": "flowhub-tencent-cloud-traffic",
+  "private": true,
+  "scripts": {
+    "test": "node --test tests/*.cjs"
+  }
+}

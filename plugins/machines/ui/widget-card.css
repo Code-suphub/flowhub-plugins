@@ -14,3 +14,40 @@ header{opacity:1}.heading{display:none!important}#canvas{display:flex;flex-wrap:
 html,body{height:100%;overflow:hidden;background:transparent}body{padding:0}.card{position:static;width:100%;height:100%;border:0;border-radius:0;background:transparent;box-shadow:none;backdrop-filter:none}.card-head{display:flex;gap:8px;justify-content:space-between}.card-head h2{min-width:0;margin:0}.card:has(.header-network:not(:empty)) h2{font-size:12px}
 .expiry{margin-top:5px;font-size:10px;color:#c8c0b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.expiry.urgent{color:#f7b460}.expiry.expired{color:#f38e82}.card-body:has(.expiry:not([hidden])) .gauges{min-height:0}
 .widget-foot{margin-top:auto;display:flex;flex-wrap:nowrap;align-items:center;justify-content:space-between;padding-right:0;gap:6px}.widget-foot>span:first-child{flex-shrink:0}.widget-foot .expiry{min-width:0;margin-top:0;margin-left:auto;text-align:right;font-size:9px}.widget-foot [hidden]{display:none!important}
+.traffic-metric{margin:8px 0;padding:8px 10px;border:1px solid #ffffff20;border-radius:9px;font-size:13px}.traffic-metric b{font-size:16px}.traffic-metric small{display:block;margin-top:4px;opacity:.65;font-size:10px}
+
+.card-body:has(.traffic-metric){overflow-y:auto;min-height:0}.traffic-metric{flex-shrink:0}
+/* Embedded cards have bounded space: each metric owns its layout height. */
+.card{min-width:0;min-height:0}
+.card-body{overflow-x:hidden;overflow-y:auto}
+.card .card-body .gauges{display:flex;flex:0 0 auto;height:auto;min-height:0;gap:6px;align-items:flex-start}
+.card .card-body .gauges:empty{display:none}
+.card .card-body .gauge{display:block;flex:1 1 0;min-width:0;height:auto;max-height:none;max-width:105px!important;overflow:hidden}
+.card .card-body .gauge svg{display:block;width:100%;height:auto;max-height:88px;overflow:hidden}
+.traffic-metric{margin:0;padding:3px 0;border:0;border-top:1px solid #ffffff20;border-radius:0;font-size:10px;line-height:1.4;overflow-wrap:anywhere}
+.traffic-metric b{font-size:12px;font-variant-numeric:tabular-nums}
+.traffic-metric small{margin-top:1px;font-size:9px;line-height:1.4}
+@media(max-height:150px){.card-head{padding-top:6px;min-height:26px}.card-body{padding-top:2px;padding-bottom:6px;gap:2px}.traffic-metric small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+
+/* Balanced layout: identity, resource gauges, network, then lifecycle details. */
+.card-head{align-items:center;gap:6px;padding-bottom:3px}.card-head h2{font-size:12px}.card-head #network{flex:none;font-size:9px;white-space:nowrap}
+.network-row{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:3px 8px;flex-shrink:0;border-top:1px solid #ffffff15;padding-top:4px}
+.network-row .traffic-metric{border:0;padding:0;margin:0;min-width:0}.network-row .traffic-metric b{font-size:12px}
+.network-row .header-network{display:flex;flex-wrap:wrap;gap:2px 6px;font-size:9px;color:var(--muted);margin-left:auto}.network-row .header-network>span{white-space:nowrap}
+.widget-foot{border-top:1px solid #ffffff15;padding-top:4px;flex-wrap:wrap;gap:3px 8px}.widget-foot .bottom-metrics{font-size:9px;gap:3px 6px;padding:0;justify-content:flex-start}.widget-foot .expiry{font-size:9px}
+
+/* Keep the compact network values at the same visual weight. */
+.network-row .traffic-metric b{font-size:9px;font-weight:400}
+.network-row{flex-wrap:nowrap}.network-row .header-network{flex-wrap:nowrap}
+.widget-foot{flex-wrap:nowrap}.widget-foot .bottom-metrics{flex-wrap:nowrap;white-space:nowrap;flex-shrink:1;min-width:0}.widget-foot .expiry{flex-shrink:0;white-space:nowrap}
+
+/* Lifecycle details follow network metrics without a growing spacer. */
+.card .widget-foot{margin-top:3px;padding-top:4px}
+
+@media(max-height:140px){
+ .card-head{min-height:25px;padding-top:5px;padding-bottom:0}
+ .card-body{gap:2px;padding-top:2px;padding-bottom:5px}
+ .card .card-body .gauge svg{max-height:52px}
+ .card .widget-foot{margin-top:1px;padding-top:3px}
+ .network-row{padding-top:3px}
+}

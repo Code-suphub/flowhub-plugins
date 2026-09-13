@@ -1,0 +1,13 @@
+{
+  "schema": 2,
+  "id": "tencent-cloud-traffic",
+  "name": "腾讯云流量",
+  "version": "0.1.0",
+  "ui": "ui/index.html",
+  "executable": "bin/flowhub-tencent-cloud-traffic",
+  "permissions": [
+    "native-process"
+  ],
+  "statusSurface": false,
+  "description": "只读查询腾讯云轻量应用服务器套餐总量、已用、剩余与超额流量"
+}
