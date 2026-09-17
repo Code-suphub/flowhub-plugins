@@ -65,7 +65,7 @@
           pending.delete(job.id);
           state.active = state.active.filter(j => j.id !== job.id);
           Object.assign(job, { status, finishedAt: Date.now(), exitCode: status === 'success' ? 0 : 1,
-            stdout: status === 'success' ? `【模拟输出，未执行命令】\n${args.command || '指标采集'}\n目标：${host.alias}` : '',
+            stdout: status === 'success' ? `【模拟输出，未执行命令】\n${args.command || '指标采集'}\n目标：${host.alias}` + (args.command && args.command.includes('FLOWHUB Netdata installation') ? '\nFLOWHUB_NETDATA_AGENT_HOST=203.0.113.10\nFLOWHUB_NETDATA_AGENT_PORT=19999' : '') : '',
             stderr: status === 'success' ? '' : `模拟${status === 'cancelled' ? '取消' : status === 'timeout' ? '连接超时' : '认证失败'}` });
           state.history.unshift(job);
           if (job.kind === 'command') archive.unshift(clone(job));
@@ -107,8 +107,10 @@
       case 'trafficRead': return clone(state.traffic?.[payload.hostId] || { configured: false });
       case 'trafficSave': { const saved = clone(payload); delete saved.clearToken; state.traffic = state.traffic || {}; state.traffic[payload.hostId] = { ...saved, configured: true, revision: 'preview' }; return clone(state.traffic[payload.hostId]); }
       case 'trafficQuery': return trafficResult(state.traffic?.[payload.hostId] || {});
-      case 'netdataInstallPlan': throw Error('浏览器预览不安装软件，请在 FlowHub 中选择真实目标并预览安装命令。');
-      case 'netdataInstall': throw Error('浏览器预览不安装软件。');
+      // 预览里模拟完整安装过程：任务几秒后成功，并按真实脚本的格式回传探测到的地址，
+      // 这样「安装 → 一键填入 Agent 地址」这条链路在浏览器里就能验证。
+      case 'netdataInstallPlan': { const h=state.config.hosts.find(x=>x.id===payload.hostId); return {alias:h?.alias||'demo-app',name:h?.name||'模拟机器',command:'set -eu\n# FlowHub Netdata installation\n【模拟命令，不会执行】'}; }
+      case 'netdataInstall': { const job={id:'preview-netdata-'+Date.now(),hostId:payload.hostId,alias:'demo-app',kind:'command',command:'# FlowHub Netdata installation',status:'running',startedAt:Date.now(),finishedAt:null,stdout:'',stderr:''}; state.active.push(job); pending.set(job.id,{finish:()=>{},timer:setTimeout(()=>{state.active=state.active.filter(j=>j.id!==job.id);Object.assign(job,{status:'success',finishedAt:Date.now(),exitCode:0,stderr:'',stdout:'【模拟输出，未执行命令】\nNetdata 已安装并已就绪。Agent 地址：http://203.0.113.10:19999\nFLOWHUB_NETDATA_AGENT_HOST=203.0.113.10\nFLOWHUB_NETDATA_AGENT_PORT=19999'});state.history.unshift(job);},4000)}); return {id:job.id}; }
       case 'state': return clone(state);
       case 'hosts': state.config.hosts = clone(payload.hosts); return clone(state);
       case 'templates': state.config.templates = clone(payload.templates); return clone(state);

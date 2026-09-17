@@ -86,7 +86,30 @@ if test -z "$ready"; then
   echo '这不是安装失败：请查看 systemctl status netdata 与 journalctl -u netdata 排查服务状态。'
   exit 1
 fi
-echo 'Netdata 已安装并已就绪。FlowHub 里「接入已有 Netdata」的 Agent 地址填 http://<本机IP>:{port}。'
+# 探测一个 FlowHub 能用的地址。云主机的公网 IP 通常不在网卡上（NAT），所以先问外部回显服务，
+# 失败再退回本机默认路由地址。两种都拿不到时留空，由用户在接入表单里手工填写。
+agent_host=''
+if command -v curl >/dev/null; then
+  for probe in https://ifconfig.me/ip https://api.ipify.org; do
+    agent_host=$(curl --fail --silent --max-time 5 "$probe" 2>/dev/null | tr -d '[:space:]') || agent_host=''
+    # 必须是 IP 或域名：只有数字/十六进制/点/冒号，且含点或冒号，避免把错误页正文当成地址。
+    case "$agent_host" in
+      *[!0-9a-fA-F:.]*|'') agent_host='' ;;
+      *.*|*:*) break ;;
+      *) agent_host='' ;;
+    esac
+  done
+fi
+if test -z "$agent_host"; then
+  agent_host=$(ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.*src \([0-9.]*\).*/\1/p' | head -1) || agent_host=''
+fi
+echo "FLOWHUB_NETDATA_AGENT_HOST=$agent_host"
+echo "FLOWHUB_NETDATA_AGENT_PORT={port}"
+if test -n "$agent_host"; then
+  echo "Netdata 已安装并已就绪。Agent 地址：http://$agent_host:{port}"
+else
+  echo 'Netdata 已安装并已就绪。未能自动探测本机地址，请在接入表单填写 Agent 地址。'
+fi
 echo '请确认本机防火墙与云安全组已放行 {port} 端口；历史保留受时间与容量两者限制；原始安装配置已备份。'
 "#))
 }
@@ -115,9 +138,16 @@ pub(crate) fn is_install(script:&str)->bool{script.starts_with("set -eu\n# FlowH
   assert!(public.contains("default port = 19999"));
   assert!(public.contains("dbengine tier 0 retention time = 30d"));
   assert!(public.contains("dbengine tier 0 retention size = 2048MiB"));
-  // 安装结束后要直接给出可粘贴的接入地址，否则用户不知道该填什么。
-  assert!(public.contains("http://<本机IP>:19999"));
+  // 安装结束后要回传探测到的地址，供接入表单一键填入（FlowHub 解析这两个标记）。
+  assert!(public.contains("FLOWHUB_NETDATA_AGENT_HOST="));
+  assert!(public.contains("FLOWHUB_NETDATA_AGENT_PORT=19999"));
+  // 探测不到时必须留空并提示手填，不能让用户拿到一个假地址。
+  assert!(public.contains("未能自动探测本机地址"));
   assert!(is_install(&public));
+  // 端口必须跟着参数走，否则一键填入的地址会指向错误端口。
+  let other=install_script(20000,"0.0.0.0",7,1024).unwrap();
+  assert!(other.contains("FLOWHUB_NETDATA_AGENT_PORT=20000"));
+  assert!(!other.contains("FLOWHUB_NETDATA_AGENT_PORT=19999"));
   // 仅本机模式必须如实写成 127.0.0.1，且不再暗示会自动建立隧道。
   let local=install_script(19999,"127.0.0.1",7,512).unwrap();
   assert!(local.contains("bind to = 127.0.0.1"));
