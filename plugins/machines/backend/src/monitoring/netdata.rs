@@ -45,8 +45,21 @@ pub(crate) fn install_script(port:u64,bind:&str,days:u64,disk:u64)->Result<Strin
     Ok(format!(r#"set -eu
 # FlowHub Netdata installation
 probe_port={port}
-# 探测一个 FlowHub 能用的地址并回传，供接入表单一键填入。云主机的公网 IP 通常不在网卡上（NAT），
-# 所以先问外部回显服务，失败再退回本机默认路由地址；都拿不到时留空，由用户手工填写。
+# 读取已有 Agent 真正在监听的端口：用户可能改过 netdata.conf，或装了容器/自定义端口。
+# 只读配置，不做任何改动。解析不出来就沿用表单里的端口。
+detect_agent_port() {{
+  conf=''
+  for candidate in /etc/netdata/netdata.conf /opt/netdata/etc/netdata/netdata.conf; do
+    if test -r "$candidate"; then conf="$candidate"; break; fi
+  done
+  if test -n "$conf"; then
+    found=$(sed -n 's/^[[:space:]]*default port[[:space:]]*=[[:space:]]*\([0-9]\{{2,5\}}\).*/\1/p' "$conf" | head -1)
+    if test -n "$found"; then probe_port="$found"; fi
+  fi
+}}
+# 回传一个 FlowHub 可用的地址，供接入表单一键填入。地址是「这台机器的 IP + Agent 端口」，
+# 与「本机能否连上」无关——已有安装时也要回填，用户不该因为探测不到就被要求手填。
+# 云主机的公网 IP 通常不在网卡上（NAT），所以先问外部回显服务，失败再退回本机默认路由地址。
 # 这个函数在「已有安装」和「全新安装」两条路径上都会调用。
 report_agent_address() {{
   agent_host=''
@@ -69,26 +82,28 @@ report_agent_address() {{
   if test -n "$agent_host"; then
     echo "Agent 地址：http://$agent_host:$probe_port"
   else
-    echo '未能自动探测本机地址，请在接入表单填写 Agent 地址。'
+    echo '未能自动探测本机 IP，请在接入表单填写 Agent 地址。'
   fi
 }}
 test "$(uname -s)" = Linux || {{ echo '仅支持 Linux'; exit 1; }}
 if command -v netdata >/dev/null 2>&1 || test -e /etc/netdata/netdata.conf || test -e /opt/netdata/etc/netdata/netdata.conf; then
-  # 已有安装：不改动任何配置（保持「未更改」语义），但仍然探测并回传地址，
-  # 否则用户装完之后依旧不知道该往接入表单里填什么。
+  # 已有安装：不改动任何配置（保持「未更改」语义），但照样回传地址——机器上已经有 Netdata，
+  # 就没有理由因为「FlowHub 这台机探测不到」而让用户去手填。本机自检结果只作为附加提示。
   echo '发现已有 Netdata，未更改配置。'
+  detect_agent_port
+  report_agent_address
   if curl --fail --silent --max-time 5 "http://127.0.0.1:$probe_port/api/v1/info" >/dev/null 2>&1; then
-    report_agent_address
+    echo "Agent 在 127.0.0.1:$probe_port 响应正常。"
   else
-    echo "已有 Netdata 未在 127.0.0.1:$probe_port 响应。若监听在其他端口或仅监听本机，请按实际地址填写。"
-    echo "FLOWHUB_NETDATA_AGENT_HOST="
-    echo "FLOWHUB_NETDATA_AGENT_PORT=$probe_port"
+    echo "注意：本机自检未连上 127.0.0.1:$probe_port，这不代表地址不可用。"
+    echo "若 Agent 监听在其他端口或仅监听本机，请按上面的地址调整后再接入。"
   fi
   exit 0
 fi
 if command -v docker >/dev/null 2>&1 && docker container inspect netdata >/dev/null 2>&1; then
-  # 容器同样不改动，但端口可能被映射到别处，所以只回传地址、不猜端口映射。
-  echo '发现已有 Netdata 容器，未更改。若容器映射了 19999 端口，可填本机地址接入。'
+  # 容器同样不改动，端口可能被映射到别处，所以只回传地址、不猜映射关系。
+  echo '发现已有 Netdata 容器，未更改。若容器映射了 19999 端口，可填上面的地址接入。'
+  detect_agent_port
   report_agent_address
   exit 0
 fi
@@ -162,19 +177,26 @@ pub(crate) fn is_install(script:&str)->bool{script.starts_with("set -eu\n# FlowH
   assert!(public.contains("probe_port=19999"));
   assert!(public.contains("FLOWHUB_NETDATA_AGENT_HOST="));
   assert!(public.contains("FLOWHUB_NETDATA_AGENT_PORT=$probe_port"));
-  // 探测不到时必须留空并提示手填，不能让用户拿到一个假地址。
-  assert!(public.contains("未能自动探测本机地址"));
+  // 探测不到机器 IP 时必须留空并提示手填，不能让用户拿到一个假地址。
+  assert!(public.contains("未能自动探测本机 IP"));
   assert!(is_install(&public));
   // 端口必须跟着参数走，否则一键填入的地址会指向错误端口。
   let other=install_script(20000,"0.0.0.0",7,1024).unwrap();
   assert!(other.contains("probe_port=20000"));
   assert!(!other.contains("probe_port=19999"));
-  // 探测逻辑只定义一次、两条路径共用：否则「已有安装」时又会不回传地址（用户实际撞到过）。
+  // 探测逻辑只定义一次；两个报告点（已有安装 / 全新安装）都必须调用它。
   // 注意断言的是渲染后的脚本，所以用单个大括号。
   assert_eq!(public.matches("report_agent_address() {").count(),1,"探测函数只应定义一次");
-  assert!(public.matches("report_agent_address\n").count()>=1,"已有安装分支与全新安装都要调用探测函数");
+  assert_eq!(public.matches("\n  report_agent_address\n").count(),2,"已有安装与全新安装两条路径都要调用探测函数");
+  assert!(public.contains("detect_agent_port"),"应读取已有配置里的真实端口");
   assert!(public.contains("发现已有 Netdata，未更改配置。"));
   assert!(!public.contains("请填写已有 Agent 地址接入。"),"旧的空提示应已移除");
+  // 关键回归：已有安装时不能因为「本机自检没连通」就不回传地址。
+  let existing=public.split("发现已有 Netdata，未更改配置。").nth(1).unwrap();
+  let branch=existing.split("exit 0").next().unwrap();
+  assert!(branch.contains("report_agent_address"),"已有安装分支必须回传地址");
+  assert!(!branch.contains("FLOWHUB_NETDATA_AGENT_HOST=\n"),"已有安装分支不应把地址清空");
+  assert!(branch.contains("这不代表地址不可用"),"本机自检失败只能作为附加提示");
   // 仅本机模式必须如实写成 127.0.0.1，且不再暗示会自动建立隧道。
   let local=install_script(19999,"127.0.0.1",7,512).unwrap();
   assert!(local.contains("bind to = 127.0.0.1"));

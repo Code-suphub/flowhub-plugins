@@ -34,7 +34,8 @@ if(!job){missing=0;continue;}missing=0;status.textContent=`安装任务：${job.
   // 安装脚本结束时回传探测到的地址（FLOWHUB_NETDATA_AGENT_HOST/PORT），这里解析出来直接填进接入表单，
   // 免得用户自己去拼 http://IP:19999。云主机 NAT 下探测到的可能是内网地址，所以仍然让用户确认后再保存。
   function offerDiscoveredAgent(job){if(!job||job.status!=='success')return;const text=`${job.stdout||''}\n${job.stderr||''}`;const host=/FLOWHUB_NETDATA_AGENT_HOST=(\S*)/.exec(text)?.[1]?.trim();const port=/FLOWHUB_NETDATA_AGENT_PORT=(\d+)/.exec(text)?.[1];const hint=$('[data-agent-suggestion]'),use=$('[data-use-agent]');
-  // 回传了端口但地址为空：通常是「已有安装但没在预期端口响应」，提示用户手填而不是静默结束。
-  if(port&&!host){hint.hidden=false;hint.textContent=`未能自动探测到可用的 Agent 地址（端口 ${port} 未响应）。请在 Agent 地址里填写 http://<机器IP>:${port}，并确认 Agent 已监听所有网卡、防火墙与安全组已放行。`;return;}
+  // 回传了端口但地址为空：只有「机器自己也不知道自己的 IP」这一种情况（无外网、无默认路由）。
+  // 这时给出明确的拼装方式，而不是静默结束。
+  if(port&&!host){hint.hidden=false;hint.textContent=`未能自动探测到机器 IP（Agent 端口 ${port}）。请在 Agent 地址里填写 http://<机器IP>:${port}，并确认 Agent 已监听所有网卡、防火墙与云安全组已放行。`;return;}
   if(!host||!port)return;const url=`http://${host}:${port}`;hint.hidden=false;hint.textContent=`已探测到 Agent 地址 ${url}（安装任务 ${job.id}）。云主机若是 NAT，这个地址可能是内网 IP，请确认后再保存。`;use.hidden=false;use.onclick=()=>{form.elements.url.value=url;const target=document.querySelector('#hostName');if(target&&!form.elements.name.value.trim())form.elements.name.value=(target.value||'').trim();hint.textContent=`已填入 ${url}，请点「测试并发现指标」验证后保存。`;use.hidden=true;};}
 })();
