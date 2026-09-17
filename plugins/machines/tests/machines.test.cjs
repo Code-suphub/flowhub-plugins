@@ -17,7 +17,7 @@ test('host save leaves inherited SSH untouched and writes edited profiles before
     if (action === 'hosts') state.config.hosts = payload.hosts;
     return state;
   } } } };
-  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../ui/machines.js'), 'utf8'), { window, document: { querySelector: element, querySelectorAll: () => [] }, structuredClone, crypto: { randomUUID: () => 'new' }, setInterval() {} });
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../ui/machines.js'), 'utf8'), { window, document: { body: { classList: { contains: () => false, add() {}, toggle() {} } }, querySelector: element, querySelectorAll: () => [] }, structuredClone, crypto: { randomUUID: () => 'new' }, setInterval() {} });
   const settle = () => new Promise(resolve => setImmediate(resolve)); await settle();
   element('#addHost').onclick(); element('#hostName').value = 'Test'; element('#hostAlias').value = 'demo';
   element('#hostForm').onsubmit({ preventDefault() {} }); await settle();
@@ -58,7 +58,7 @@ test('editing loads SSH configuration and blocks failed or stale loads from savi
     if (action === 'sshRead') return new Promise((resolve, reject) => { resolveRead = resolve; rejectRead = reject; });
     return state;
   } } } };
-  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../ui/machines.js'), 'utf8'), { window, document: { querySelector: element, querySelectorAll: () => [] }, structuredClone, setInterval() {} });
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../ui/machines.js'), 'utf8'), { window, document: { body: { classList: { contains: () => false, add() {}, toggle() {} } }, querySelector: element, querySelectorAll: () => [] }, structuredClone, setInterval() {} });
   const settle = () => new Promise(resolve => setImmediate(resolve)); await settle();
   const edit = () => element('#hostRows').onclick({ target: { closest: () => ({ dataset: { hostAction: 'edit', id: 'one' } }) } });
   edit(); assert.equal(element('#saveHost').disabled, true);
@@ -120,7 +120,7 @@ test('commands execute immediately, reject invalid input and prevent duplicate s
     calls.push(payload);
     return new Promise(resolve => { finish = resolve; });
   } } } };
-  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../ui/machines.js'), 'utf8'), { window, document: { querySelector: element, querySelectorAll: () => [] }, TextEncoder, structuredClone, crypto: { randomUUID: () => 'job-id' }, setInterval: fn => { poll = fn; } });
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../ui/machines.js'), 'utf8'), { window, document: { body: { classList: { contains: () => false, add() {}, toggle() {} } }, querySelector: element, querySelectorAll: () => [] }, TextEncoder, structuredClone, crypto: { randomUUID: () => 'job-id' }, setInterval: fn => { poll = fn; } });
   const settle = () => new Promise(resolve => setImmediate(resolve));
   await settle();
   assert.equal(element('#templatePicker').hidden, true);
@@ -201,7 +201,7 @@ test('browser preview never invokes SSH or exposes enabled write controls', asyn
   const writes = ['#sourceUrl', '#sourceKey', '#checkUpdate', '#installPending'].map(element);
   let intervals = 0;
   const context = vm.createContext({
-    window: { FlowHubMachines: M }, document: { querySelector: element, querySelectorAll: selector => selector.includes('#sourceForm') ? writes : [] },
+    window: { FlowHubMachines: M }, document: { body: { classList: { contains: () => false, add() {}, toggle() {} } }, querySelector: element, querySelectorAll: selector => selector.includes('#sourceForm') ? writes : [] },
     Set, Date, String, Number, JSON, Promise, Option: function(text, value) { this.text = text; this.value = value; },
     setInterval() { intervals++; },
   });
@@ -225,7 +225,7 @@ test('SSH import scans, connects and adopts only on explicit user actions', asyn
     if (action === 'hosts') config.hosts = payload.hosts;
   };
   const window = { FlowHubMachines: M };
-  const context = vm.createContext({ window, document: { querySelector: element }, crypto: { randomUUID: () => 'new-id' } });
+  const context = vm.createContext({ window, document: { body: { classList: { contains: () => false, add() {}, toggle() {} } }, querySelector: element }, crypto: { randomUUID: () => 'new-id' } });
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../ui/ssh-discovery.js'), 'utf8'), context);
   const update = () => window.FlowHubSshDiscovery.update(config, api, update);
   update(); await new Promise(resolve => setImmediate(resolve)); update();

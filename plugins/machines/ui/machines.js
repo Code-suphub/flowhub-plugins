@@ -293,7 +293,7 @@
     $("#sshPort").value = "22";
     $("#sshStatus").textContent = '可直接沿用本机 SSH 配置；修改下方连接信息后，点击底部保存一并写入。';
     $("#hostCountry").value = host?.countryCode || ""; const expiry=host?.expiresAt; $("#hostExpires").value=Number.isFinite(expiry)?new Date(expiry-new Date(expiry).getTimezoneOffset()*60000).toISOString().slice(0,16):"";
-    if (!$('#hostDialog').open) $('#hostDialog').showModal(); $('#hostDialogTitle').textContent = host ? '编辑机器' : '添加机器'; $("#hostId").value = host?.id || ""; $("#hostName").value = host?.name || ""; $("#hostAlias").value = host?.alias || ""; $("#hostGroup").value = host?.group || ""; $("#hostName").focus();
+    if (document.body.classList.contains('widget-settings')) $('#hostDialog').setAttribute('open', ''); else if (!$('#hostDialog').open) $('#hostDialog').showModal(); $('#hostDialogTitle').textContent = host ? '编辑机器' : '添加机器'; $("#hostId").value = host?.id || ""; $("#hostName").value = host?.name || ""; $("#hostAlias").value = host?.alias || ""; $("#hostGroup").value = host?.group || ""; $("#hostName").focus();
     const savedHostId = host?.id || "";
     $("#hostCloudTraffic").disabled = !savedHostId; $("#hostNetdata").disabled = !savedHostId;
     $("#hostMonitorNote").textContent = savedHostId ? "云流量按机器保存凭证；Netdata 接入后可读远端历史。" : "先保存机器，再配置云流量与 Netdata。";
