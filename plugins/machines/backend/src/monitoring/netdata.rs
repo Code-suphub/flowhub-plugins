@@ -157,17 +157,50 @@ if test -z "$ready"; then
 fi
 echo 'Netdata 已安装并已就绪。'
 # 校验监听地址是否真的生效：只测 127.0.0.1 无法区分「绑定所有网卡」和「只绑定本机」，
-# 而后者会让 FlowHub 永远连不上，是这套流程里最容易踩空的一步。
+# 而后者会让 FlowHub 永远连不上。发现没生效就直接修，而不是丢一句提示让用户自己改。
+is_wildcard_listening() {{
+  (ss -ltn 2>/dev/null || netstat -ltn 2>/dev/null) | grep -E "(^|[[:space:]])(0\.0\.0\.0|\*|\[::\]):${{probe_port}}[[:space:]]" >/dev/null 2>&1
+}}
 if test "{bind}" = "0.0.0.0"; then
-  listening=$( (ss -ltn 2>/dev/null || netstat -ltn 2>/dev/null) | grep -c ":${{probe_port}} " || true)
-  wildcard=$( (ss -ltn 2>/dev/null || netstat -ltn 2>/dev/null) | grep -E "0\.0\.0\.0:${{probe_port}} |\*:${{probe_port}} |\[::\]:${{probe_port}} " | head -1 || true)
-  if test -n "$wildcard"; then
+  if is_wildcard_listening; then
     echo "监听检查：端口 $probe_port 已在所有网卡监听。"
-  elif test "$listening" != "0"; then
-    echo "监听检查：端口 $probe_port 已监听，但没有绑定到所有网卡。"
-    echo "配置里写的是 bind to = 0.0.0.0；请确认 $conf 生效并重启 netdata。"
   else
-    echo "监听检查：没有看到端口 $probe_port 的监听项，请检查 $conf 与 systemctl status netdata。"
+    echo "监听检查：端口 $probe_port 未绑定所有网卡，正在修正…"
+    # 修正手段因安装方式而异，逐个尝试：
+    # 1) 配置文件里可能没有 [web] 段，或 bind 行被注释/写错 —— 用 awk 重写这一段。
+    #    不能用「sed 只删再补」：删掉 bind 行却不补新的会让配置更糟（已验证过这种写法有 bug）。
+    if test -n "$conf" && test -f "$conf"; then
+      # awk 的大括号在 Rust format! 里需要写成双重花括号才能正确渲染。
+      as_root awk '
+        /^[[:space:]]*#?[[:space:]]*bind[[:space:]]+to[[:space:]]*=/ {{ next }}
+        {{ print }}
+        /^\[web\][[:space:]]*$/ && !done {{ print "    bind to = 0.0.0.0"; done=1 }}
+        END {{ if (!done) {{ print ""; print "[web]"; print "    bind to = 0.0.0.0" }} }}
+      ' "$conf" > "$conf.flowhub-tmp" && as_root mv "$conf.flowhub-tmp" "$conf"
+    fi
+    # 2) Netdata 2.x 以运行时配置为准，用 -W set 写进它真正读取的位置。
+    if command -v netdata >/dev/null 2>&1; then
+      as_root netdata -W set "web" "bind to" "0.0.0.0" >/dev/null 2>&1 || true
+    fi
+    # 3) 部分发行版通过 sysconfig 传入启动参数。
+    for sysconfig in /etc/default/netdata /etc/sysconfig/netdata; do
+      if test -f "$sysconfig"; then
+        as_root sed -i -E '/^[[:space:]]*NETDATA_EXTRA_ARGS=.*bind/d' "$sysconfig" 2>/dev/null || true
+      fi
+    done
+    if command -v systemctl >/dev/null; then as_root systemctl restart netdata; else as_root service netdata restart; fi
+    # 重启后重新校验，用事实说话。
+    fixed=''
+    for _ in $(seq 1 15); do
+      if is_wildcard_listening; then fixed=1; break; fi
+      sleep 2
+    done
+    if test -n "$fixed"; then
+      echo "监听检查：已修正，端口 $probe_port 现在监听在所有网卡。"
+    else
+      echo "监听检查：自动修正未生效，端口 $probe_port 仍未绑定所有网卡。"
+      echo "请手工检查 $conf 与 'netdata -W set web \"bind to\"' 的实际取值，并查看 journalctl -u netdata。"
+    fi
   fi
 fi
 report_agent_address
@@ -214,15 +247,31 @@ pub(crate) fn is_install(script:&str)->bool{script.starts_with("set -eu\n# FlowH
   // 永远连不上。绑定 0.0.0.0 时必须检查监听项里是否出现通配地址。
   let public=install_script(19999,"0.0.0.0",7,1024).unwrap();
   assert!(public.contains("监听检查：端口 $probe_port 已在所有网卡监听"));
-  assert!(public.contains("已监听，但没有绑定到所有网卡"),"应能识别「只监听本机」");
-  assert!(public.contains(r"0\.0\.0\.0:${probe_port}"),"应匹配 IPv4 通配监听");
-  assert!(public.contains(r"\[::\]:${probe_port}"),"应匹配 IPv6 通配监听");
+  assert!(public.contains(r"0\.0\.0\.0|\*|\[::\]"),"应匹配 IPv4/IPv6 通配监听");
   assert!(public.contains("ss -ltn 2>/dev/null || netstat -ltn"),"缺少 ss 时应退回 netstat");
-  // 仅本机模式不做这项检查（本来就只监听本机），避免误报。检查体仍在脚本里，
-  // 但它被 `if test "127.0.0.1" = "0.0.0.0"` 包住，运行时不会执行。
+  // 仅本机模式不做这项检查，避免误报（检查体被 if test 包住，运行时不执行）。
   let local=install_script(19999,"127.0.0.1",7,1024).unwrap();
   assert!(local.contains(r#"if test "127.0.0.1" = "0.0.0.0"; then"#),"仅本机模式不应执行通配监听检查");
   assert!(public.contains(r#"if test "0.0.0.0" = "0.0.0.0"; then"#),"绑定所有网卡时应执行该检查");
+ }
+ #[test]fn install_script_repairs_a_bind_that_did_not_take_effect(){
+  let script=install_script(19999,"0.0.0.0",7,1024).unwrap();
+  // 发现没绑定所有网卡时要直接修，而不是丢一句提示让用户自己改。
+  assert!(script.contains("未绑定所有网卡，正在修正"),"应自动尝试修正");
+  assert!(script.contains("已修正，端口 $probe_port 现在监听在所有网卡"),"修正后要重新验证并报告");
+  assert!(script.contains(r#"netdata -W set "web" "bind to" "0.0.0.0""#),"应通过 -W set 写入运行时配置");
+  // 配置重写必须用 awk 一次完成：用 sed 先删后补会把 bind 行删掉却不补新的（实测过这个 bug）。
+  assert!(script.contains("END { if (!done)"),"缺少 [web] 段时应追加");
+  assert!(script.contains(r"/^[[:space:]]*#?[[:space:]]*bind[[:space:]]+to[[:space:]]*=/ { next }"),
+    "应同时删除被注释的 bind 行");
+  assert!(!script.contains("sed -i -E '/^[[:space:]]*bind to"),"不应退回有 bug 的 sed 写法");
+  // awk 的花括号必须正确渲染（format! 里要写双重花括号），渲染后不应再有双括号。
+  let awk_block=&script[script.find("as_root awk").expect("应有 awk 修正")..];
+  let awk_block=&awk_block[..awk_block.find("flowhub-tmp").expect("awk 应写入临时文件")];
+  assert!(!awk_block.contains("{{")&&!awk_block.contains("}}"),"awk 块里不应残留未转义的花括号");
+  // 修正失败时要给出可操作的排查方向，并保留 journalctl 指引。
+  assert!(script.contains("自动修正未生效"));
+  assert!(script.contains("journalctl -u netdata"));
  }
  #[test]fn install_script_binds_the_requested_address_and_states_the_endpoint(){
   let public=install_script(19999,"0.0.0.0",30,2048).unwrap();
