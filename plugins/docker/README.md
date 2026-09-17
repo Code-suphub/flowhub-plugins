@@ -40,11 +40,11 @@ Docker 页面右上角「桌面悬浮窗」打开 FlowHub 桌面组件画布，�
 
 `npm run dev`：打开 `http://127.0.0.1:5184`，仅模拟数据，不暴露 Docker 或宿主接口。
 
-`node scripts/compose-smoke.mjs`：使用已有的 minio/minio:latest 镜像创建独立双容器 Compose 项目，验证单个停止、整个项目停止和目标变化拒绝，最后自动清理测试项目。测试容器不挂载宿主目录、不开放网络，不操作已有业务项目。
+`node tests/compose-smoke.mjs`：使用已有的 minio/minio:latest 镜像创建独立双容器 Compose 项目，验证单个停止、整个项目停止和目标变化拒绝，最后自动清理测试项目。测试容器不挂载宿主目录、不开放网络，不操作已有业务项目。
 
-`node scripts/management-smoke.mjs`：导入独立空镜像、创建测试容器及测试卷，通过真实 widget RPC 验证对象详情、未确认/环境变化拒绝、容器删除后数据卷保留、被引用镜像拒绝删除，以及多标签逐个删除。自动清理专用测试资源，不下载或改动业务镜像。
+`node tests/management-smoke.mjs`：导入独立空镜像、创建测试容器及测试卷，通过真实 widget RPC 验证对象详情、未确认/环境变化拒绝、容器删除后数据卷保留、被引用镜像拒绝删除，以及多标签逐个删除。自动清理专用测试资源，不下载或改动业务镜像。
 
-真实冒烟测试：先创建专用容器，名称以 `flowhub-docker-smoke-` 开头、项目标签为 `flowhub-plugin-test`，日志包含 `FLOWHUB_PLUGIN_SMOKE_READY`，然后运行 `node scripts/smoke.mjs <完整容器ID>`。脚本会对该测试容器执行 restart/stop/start，拒绝测试普通业务容器。测试后需清理专用容器。
+真实冒烟测试：先创建专用容器，名称以 `flowhub-docker-smoke-` 开头、项目标签为 `flowhub-plugin-test`，日志包含 `FLOWHUB_PLUGIN_SMOKE_READY`，然后运行 `node tests/smoke.mjs <完整容器ID>`。脚本会对该测试容器执行 restart/stop/start，拒绝测试普通业务容器。测试后需清理专用容器。
 
 2026-09-11 本机验证：插件 Rust 测试 4 项通过，FlowHub 全量 `npm test` 通过；在已安装 FlowHub 0.1.11 中完成开发目录安装、真实列表和 Compose 分组、日志展示与停止/启动操作。真实 RPC 冒烟覆盖资源详情、日志、重启/停止/启动，以及未确认和环境切换拒绝。
 
