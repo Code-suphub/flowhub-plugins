@@ -236,7 +236,12 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
         handle(&root, "collect", &profile, "bastionSend", &json!({"text":"sleep 1"})).await.unwrap();
-        assert!(collect(&root, "collect", &profile, "echo must-not-run", &cancel).await.unwrap_err().contains("尚未就绪"));
+        // 自 356721c 起，忙碌的 shell 不再直接报错：采集会等待目标提示符后再继续，
+        // 以免把指标命令写进仍在拨号的网关 shell。这里用 1 秒阻塞制造忙碌窗口，
+        // 断言采集确实等到提示符才执行（而不是立即注入）。
+        let started = std::time::Instant::now();
+        assert_eq!(collect(&root, "collect", &profile, "echo after-wait", &cancel).await.unwrap(), "after-wait");
+        assert!(started.elapsed() >= Duration::from_millis(200), "忙碌的 shell 上采集应等待提示符，而不是立即注入");
         handle(&root, "collect", &profile, "bastionStop", &json!({})).await.unwrap();
         std::fs::remove_dir_all(root).unwrap();
     }
