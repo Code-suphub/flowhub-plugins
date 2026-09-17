@@ -17,6 +17,7 @@
     "build:social-hub": "npm --prefix plugins/social-hub run build",
     "build:twofa": "npm --prefix plugins/twofa run build",
     "test:machines": "npm --prefix plugins/machines test",
+    "layout:machines": "npm --prefix plugins/machines run layout --",
     "test:docker": "npm --prefix plugins/docker test",
     "test:social-hub": "npm --prefix plugins/social-hub test",
     "test:twofa": "npm --prefix plugins/twofa test"

@@ -22,7 +22,6 @@
 #fleetPanel .toolbar .select-shell{min-width:0;width:108px}
 #fleetPanel .toolbar .select-trigger{display:block;padding-right:28px;overflow:hidden;text-overflow:ellipsis}
 #fleetPanel .toolbar .monitor{white-space:nowrap;flex:none}
-#fleetPanel .toolbar input[type=search],#fleetPanel .toolbar .select-trigger,#collectSelected{height:36px;min-height:36px}
 .connection-options{position:relative;margin:0;padding:0;border:0}
 .connection-options>summary{list-style:none;display:flex;align-items:center;gap:10px;min-height:40px;padding:9px 0;font-size:13px;color:var(--muted)}
 .connection-options>summary::-webkit-details-marker{display:none}
@@ -47,7 +46,7 @@
 .target-picker>summary{display:flex;align-items:center;min-height:40px;list-style:none;margin:0;padding:9px 13px;border:1px solid var(--line);border-radius:7px;background:#1e2a22;color:var(--ink);font-weight:500}
 .target-picker>summary::-webkit-details-marker{display:none}
 .tab-actions{align-items:center;gap:12px;margin-bottom:20px}
-.tab-actions>button,.select-trigger{min-height:40px}
+.tab-actions>button,.select-trigger{min-height:var(--control-h)}
 .select-shell{display:inline-block;position:relative;min-width:150px;max-width:100%;vertical-align:middle}
 .select-trigger{display:flex;justify-content:space-between;align-items:center;width:100%;text-align:left;font-weight:400;background:#1e2a22}
 .select-trigger{position:relative;padding-right:34px}
@@ -57,9 +56,9 @@
 @media(max-width:850px){.host-form>label{flex-basis:calc((100% - 12px)/2)}}
 @media(max-width:480px){.host-form>label{flex-basis:100%}}
 .host-form .select-shell{display:block;width:100%;min-width:0}
-.host-form .select-trigger{height:40px;min-height:40px;border-radius:6px;background:#101813;padding-left:11px;font-weight:400}
+.host-form .select-trigger{height:var(--control-h);min-height:var(--control-h);border-radius:6px;background:#101813;padding-left:11px;font-weight:400}
 .host-form .select-trigger:hover{background:#152019;border-color:#52705b}
-.host-form input:not([type=hidden]){height:40px;width:100%;min-width:0}
+.host-form input:not([type=hidden]){height:var(--control-h);width:100%;min-width:0}
 .host-form .select-menu{width:100%;max-width:100%;min-width:100%}
 .select-menu{position:absolute;top:calc(100% + 6px);left:0;min-width:100%;width:max-content;max-width:min(400px,80vw);max-height:260px;overflow:auto;background:#1a261e;border:1px solid #405748;box-shadow:0 12px 30px #0006;border-radius:8px;padding:5px;z-index:30}
 .select-menu>button{display:block;width:100%;text-align:left;border:0;background:transparent;white-space:normal;border-radius:4px}
