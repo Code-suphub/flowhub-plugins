@@ -1,14 +1,10 @@
 //! OpenSSH is the source of truth; never store passwords or private-key contents.
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::{
     fs,
-    io::{Read, Write},
+    io::Read,
     path::{Path, PathBuf},
-    sync::Mutex,
 };
-static SAVE_LOCK: Mutex<()> = Mutex::new(());
-const HEADER: &str = "# FlowHub SSH profiles\nInclude flowhub.d/*.conf\nHost *\n";
 
 // Discovery only reads config text. OpenSSH evaluates Host/Match when a user views
 // a candidate or connects; scanning must never execute Match exec or contact hosts.
@@ -289,13 +285,6 @@ fn paths(root: &Path, alias: &str) -> Result<(PathBuf, PathBuf), String> {
         root.join("flowhub.d").join(format!("{alias}.conf")),
     ))
 }
-pub(crate) fn revision(root: &Path, alias: &str) -> Result<String, String> {
-    let (main, own) = paths(root, alias)?;
-    Ok(format!(
-        "{:x}",
-        Sha256::digest(format!("{}\0{}", read(&main)?, read(&own)?).as_bytes())
-    ))
-}
 pub(crate) fn managed(root: &Path, alias: &str) -> Result<Option<Profile>, String> {
     let (_, own) = paths(root, alias)?;
     let text = read(&own)?;
@@ -332,87 +321,6 @@ pub(crate) fn managed(root: &Path, alias: &str) -> Result<Option<Profile>, Strin
     }
     Ok(Some(p))
 }
-fn atomic(path: &Path, text: &str) -> Result<(), String> {
-    use std::os::unix::fs::OpenOptionsExt;
-    let temporary = path.with_extension(format!(
-        "tmp-{}-{}",
-        std::process::id(),
-        chrono::Utc::now().timestamp_nanos_opt().unwrap()
-    ));
-    let result = (|| {
-        let mut f = fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&temporary)
-            .map_err(|e| e.to_string())?;
-        f.write_all(text.as_bytes())
-            .and_then(|_| f.sync_all())
-            .map_err(|e| e.to_string())?;
-        fs::rename(&temporary, path).map_err(|e| e.to_string())
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(&temporary);
-    }
-    result
-}
-pub(crate) fn save(root: &Path, profile: &Profile, expected: &str) -> Result<String, String> {
-    use std::os::unix::fs::PermissionsExt;
-    let _lock = SAVE_LOCK.lock().unwrap();
-    profile.validate()?;
-    let (main, own) = paths(root, &profile.alias)?;
-    for path in [
-        root.to_path_buf(),
-        root.join("flowhub.d"),
-        main.clone(),
-        own.clone(),
-    ] {
-        if fs::symlink_metadata(&path).is_ok_and(|m| m.file_type().is_symlink()) {
-            return Err("SSH 配置路径是符号链接，请在终端维护以避免替换链接".into());
-        }
-    }
-    if revision(root, &profile.alias)? != expected {
-        return Err("SSH 配置已被其他程序修改，请重新读取后保存".into());
-    }
-    managed(root, &profile.alias)?;
-    let old = read(&main)?;
-    if old.contains("# FlowHub SSH profiles") && !old.starts_with(HEADER) {
-        return Err("FlowHub Include 位置已改变，请在终端检查 SSH 配置".into());
-    }
-    let new_dir = !root.exists();
-    fs::create_dir_all(root.join("flowhub.d")).map_err(|e| e.to_string())?;
-    if new_dir {
-        fs::set_permissions(root, fs::Permissions::from_mode(0o700)).map_err(|e| e.to_string())?;
-    }
-    fs::set_permissions(root.join("flowhub.d"), fs::Permissions::from_mode(0o700))
-        .map_err(|e| e.to_string())?;
-    let added_include = !old.starts_with(HEADER);
-    if added_include {
-        if !old.is_empty() {
-            atomic(
-                &root.join(format!(
-                    "config.flowhub-backup-{}",
-                    chrono::Utc::now().timestamp_nanos_opt().unwrap()
-                )),
-                &old,
-            )?;
-        }
-        if read(&main)? != old {
-            return Err("SSH 主配置在保存时发生变化，请重新读取".into());
-        }
-        atomic(&main, &(HEADER.to_owned() + &old))?;
-    }
-    if let Err(error) = atomic(&own, &profile.text()) {
-        if added_include && read(&main)? == HEADER.to_owned() + &old {
-            atomic(&main, &old).map_err(|rollback| {
-                format!("{error}；主配置恢复失败：{rollback}，请使用备份恢复")
-            })?;
-        }
-        return Err(error);
-    }
-    revision(root, &profile.alias)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -456,16 +364,13 @@ mod tests {
         assert!(!discover(&root)["warnings"].as_array().unwrap().is_empty());
     }
     #[test]
-    fn preserves_original_and_rejects_stale_writes() {
+    fn managed_reads_only_untouched_flowhub_files() {
         let root = std::env::temp_dir().join(format!(
-            "flowhub-ssh-{}",
+            "flowhub-managed-{}",
             chrono::Utc::now().timestamp_nanos_opt().unwrap()
         ));
-        fs::create_dir_all(&root).unwrap();
-        let original =
-            "ServerAliveInterval 9\nHost example\n  HostName old.example\n  User original\n";
-        fs::write(root.join("config"), original).unwrap();
-        let p = Profile {
+        fs::create_dir_all(root.join("flowhub.d")).unwrap();
+        let profile = Profile {
             alias: "example".into(),
             hostname: "127.0.0.1".into(),
             user: "tester".into(),
@@ -473,36 +378,18 @@ mod tests {
             identity_file: "/tmp/key with spaces".into(),
             proxy_jump: String::new(),
         };
-        let rev = revision(&root, &p.alias).unwrap();
-        let next = save(&root, &p, &rev).unwrap();
-        assert_eq!(
-            read(&root.join("config")).unwrap(),
-            HEADER.to_owned() + original
-        );
-        assert_eq!(
-            managed(&root, "example").unwrap().unwrap().identity_file,
-            p.identity_file
-        );
-        assert!(save(&root, &p, &rev).is_err());
-        assert!(save(&root, &p, &next).is_ok());
-        // Resolve using an isolated HOME-independent Include path; no SSH connection is made.
-        let config = read(&root.join("config")).unwrap().replace(
-            "flowhub.d/*.conf",
-            &format!("{}/*.conf", root.join("flowhub.d").display()),
-        );
-        fs::write(root.join("test.conf"), config).unwrap();
-        let output = std::process::Command::new("/usr/bin/ssh")
-            .args(["-G", "-F"])
-            .arg(root.join("test.conf"))
-            .arg("example")
-            .output()
-            .unwrap();
-        assert!(output.status.success());
-        let out = String::from_utf8_lossy(&output.stdout);
-        assert!(out.contains("hostname 127.0.0.1\n"));
-        assert!(out.contains("user tester\n"));
-        assert!(out.contains("serveraliveinterval 9\n"));
-        fs::remove_dir_all(root).unwrap();
+        assert!(managed(&root, "example").unwrap().is_none());
+        let own = root.join("flowhub.d").join("example.conf");
+        fs::write(&own, profile.text()).unwrap();
+        let read_back = managed(&root, "example").unwrap().unwrap();
+        assert_eq!(read_back.hostname, profile.hostname);
+        assert_eq!(read_back.user, profile.user);
+        assert_eq!(read_back.port, profile.port);
+        assert_eq!(read_back.identity_file, profile.identity_file);
+        // 手工改过的文件不能被静默覆盖，必须报错。
+        fs::write(&own, format!("{}# hand edited\n", profile.text())).unwrap();
+        assert!(managed(&root, "example").is_err());
+        fs::remove_dir_all(&root).unwrap();
     }
     #[test]
     fn rejects_directive_injection() {
