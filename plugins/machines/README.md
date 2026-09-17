@@ -36,7 +36,7 @@ npm test
 
 宿主通过 FLOWHUB_PLUGIN_DATA 传入独立数据目录。插件 ID 仍为 machines，继续使用原 FlowHub 数据根目录下的 machines/state.json 和 machines/commands.sqlite3。现有 SSH 文件、私钥引用、堡垒机配置及执行记录无需搬迁。不要将真实配置或数据库加入仓库。
 
-旧的声明式包信息仅用于读取旧配置及默认模板，legacy-package.json 不是安装入口。安装入口是 flowhub-plugin.json。
+旧的声明式包信息仅用于读取旧配置及默认模板，backend/src/builtin-package.json 是后端的构建输入，不是安装入口。安装入口是 flowhub-plugin.json。
 
 连接参数保存于插件数据目录的 connections/，不再写入 ~/.ssh/config。启动时将原 FlowHub 管理的 ~/.ssh/flowhub.d 配置复制到插件目录；原文件保留供其他 SSH 工具使用。未导入的用户 SSH 别名继续由系统解析，私钥仅引用路径，不复制私钥。
 

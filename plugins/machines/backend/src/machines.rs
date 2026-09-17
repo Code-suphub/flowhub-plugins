@@ -22,7 +22,7 @@ use tokio::{
     sync::Semaphore,
 };
 
-const BUILTIN: &str = include_str!("../../legacy-package.json");
+const BUILTIN: &str = include_str!("builtin-package.json");
 const OUTPUT_LIMIT: usize = 32768;
 const COLLECT: &str = r#"set -eu
 export LC_ALL=C
