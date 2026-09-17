@@ -71,6 +71,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     cli::serve(ctx.clone(), &std::env::var_os("FLOWHUB_PLUGIN_DATA").map(PathBuf::from).unwrap()).await?;
     machines::start_monitor(&ctx);
     machines::start_cloud_traffic(&ctx);
+    machines::start_netdata(&ctx);
     let out = Arc::new(tokio::sync::Mutex::new(tokio::io::stdout()));
     let mut lines = tokio::io::BufReader::new(tokio::io::stdin()).lines();
     while let Some(line) = lines.next_line().await? {
