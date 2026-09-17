@@ -19,6 +19,7 @@
   }
   window.FlowHubNetdata={open};
   const instance=()=>({id:editId||crypto.randomUUID(),name:form.elements.name.value.trim(),url:form.elements.url.value.trim(),networkChart:form.elements.network.value});
+  $('[data-dismiss]').onclick=()=>dialog.close();
   $('[data-reset]').onclick=()=>{editId=null;form.reset();setCharts([]);};
   $('[data-test]').onclick=()=>{if(!invoke||!form.reportValidity())return;run(async()=>{status.textContent='正在连接…';const data=await api('netdataTest',instance());setCharts(data.charts);status.textContent=`连接成功，发现 ${data.charts.length} 项指标，可选择具体网卡。`;});};
   form.onsubmit=e=>{e.preventDefault();if(!invoke)return;run(async()=>{await api('netdataSave',instance());editId=null;form.reset();await refresh();status.textContent='已保存，下一次刷新后可添加到桌面组件。';});};
