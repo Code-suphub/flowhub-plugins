@@ -4,7 +4,7 @@
   const banner = document.createElement('section');
   banner.className = 'panel';
   banner.setAttribute('aria-label', '插件开发预览');
-  banner.innerHTML = '<strong>插件开发预览 · 全部为模拟数据</strong><p>不读取本机 SSH 配置，不连接机器、不执行命令。修改页面自动刷新；刷新后恢复初始数据。后台监控仅生成一次模拟快照。</p><div class="actions"><label>模拟结果 <select id="previewOutcome"><option value="success">成功</option><option value="failed">失败</option><option value="timeout">超时</option></select></label><button id="previewReset" type="button">重置预览数据</button></div>';
+  banner.innerHTML = '<strong>插件开发预览 · 全部为模拟数据</strong><p>不读取本机 SSH 配置，不连接机器、不执行命令。修改页面自动刷新；刷新后恢复初始数据。后台监控仅生成一次模拟快照。</p><div class="actions"><label>模拟结果 <select id="previewOutcome"><option value="success">成功</option><option value="failed">失败</option><option value="timeout">超时</option></select></label><label><input id="previewNetdataExisting" type="checkbox"> Netdata 模拟为「已有安装」</label><button id="previewReset" type="button">重置预览数据</button></div>';
   document.body.prepend(banner);
   document.querySelector('#previewReset').onclick = () => window.location.reload();
   const clone = value => structuredClone(value);
@@ -110,7 +110,7 @@
       // 预览里模拟完整安装过程：任务几秒后成功，并按真实脚本的格式回传探测到的地址，
       // 这样「安装 → 一键填入 Agent 地址」这条链路在浏览器里就能验证。
       case 'netdataInstallPlan': { const h=state.config.hosts.find(x=>x.id===payload.hostId); return {alias:h?.alias||'demo-app',name:h?.name||'模拟机器',command:'set -eu\n# FlowHub Netdata installation\n【模拟命令，不会执行】'}; }
-      case 'netdataInstall': { const job={id:'preview-netdata-'+Date.now(),hostId:payload.hostId,alias:'demo-app',kind:'command',command:'# FlowHub Netdata installation',status:'running',startedAt:Date.now(),finishedAt:null,stdout:'',stderr:''}; state.active.push(job); pending.set(job.id,{finish:()=>{},timer:setTimeout(()=>{state.active=state.active.filter(j=>j.id!==job.id);Object.assign(job,{status:'success',finishedAt:Date.now(),exitCode:0,stderr:'',stdout:'【模拟输出，未执行命令】\nNetdata 已安装并已就绪。Agent 地址：http://203.0.113.10:19999\nFLOWHUB_NETDATA_AGENT_HOST=203.0.113.10\nFLOWHUB_NETDATA_AGENT_PORT=19999'});state.history.unshift(job);},4000)}); return {id:job.id}; }
+      case 'netdataInstall': { const job={id:'preview-netdata-'+Date.now(),hostId:payload.hostId,alias:'demo-app',kind:'command',command:'# FlowHub Netdata installation',status:'running',startedAt:Date.now(),finishedAt:null,stdout:'',stderr:''}; state.active.push(job); const existing=document.querySelector('#previewNetdataExisting')?.checked; pending.set(job.id,{finish:()=>{},timer:setTimeout(()=>{state.active=state.active.filter(j=>j.id!==job.id);Object.assign(job,{status:'success',finishedAt:Date.now(),exitCode:0,stderr:'',stdout:existing?'【模拟输出，未执行命令】\n发现已有 Netdata，未更改配置。\n已有 Netdata 未在 127.0.0.1:19999 响应。若监听在其他端口或仅监听本机，请按实际地址填写。\nFLOWHUB_NETDATA_AGENT_HOST=\nFLOWHUB_NETDATA_AGENT_PORT=19999':'【模拟输出，未执行命令】\nNetdata 已安装并已就绪。\nFLOWHUB_NETDATA_AGENT_HOST=203.0.113.10\nFLOWHUB_NETDATA_AGENT_PORT=19999\nAgent 地址：http://203.0.113.10:19999'});state.history.unshift(job);},4000)}); return {id:job.id}; }
       case 'state': return clone(state);
       case 'hosts': state.config.hosts = clone(payload.hosts); return clone(state);
       case 'templates': state.config.templates = clone(payload.templates); return clone(state);

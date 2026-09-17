@@ -44,12 +44,53 @@ pub(crate) fn install_script(port:u64,bind:&str,days:u64,disk:u64)->Result<Strin
     if !(1024..=65535).contains(&port)||!["127.0.0.1","0.0.0.0"].contains(&bind)||![7,30,90].contains(&days)||![512,1024,2048,4096].contains(&disk){return Err("安装端口、保留时间或容量配置无效".into());}
     Ok(format!(r#"set -eu
 # FlowHub Netdata installation
+probe_port={port}
+# 探测一个 FlowHub 能用的地址并回传，供接入表单一键填入。云主机的公网 IP 通常不在网卡上（NAT），
+# 所以先问外部回显服务，失败再退回本机默认路由地址；都拿不到时留空，由用户手工填写。
+# 这个函数在「已有安装」和「全新安装」两条路径上都会调用。
+report_agent_address() {{
+  agent_host=''
+  if command -v curl >/dev/null; then
+    for probe in https://ifconfig.me/ip https://api.ipify.org; do
+      agent_host=$(curl --fail --silent --max-time 5 "$probe" 2>/dev/null | tr -d '[:space:]') || agent_host=''
+      # 必须是 IP 或域名：只有数字/十六进制/点/冒号，且含点或冒号，避免把错误页正文当成地址。
+      case "$agent_host" in
+        *[!0-9a-fA-F:.]*|'') agent_host='' ;;
+        *.*|*:*) break ;;
+        *) agent_host='' ;;
+      esac
+    done
+  fi
+  if test -z "$agent_host"; then
+    agent_host=$(ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.*src \([0-9.]*\).*/\1/p' | head -1) || agent_host=''
+  fi
+  echo "FLOWHUB_NETDATA_AGENT_HOST=$agent_host"
+  echo "FLOWHUB_NETDATA_AGENT_PORT=$probe_port"
+  if test -n "$agent_host"; then
+    echo "Agent 地址：http://$agent_host:$probe_port"
+  else
+    echo '未能自动探测本机地址，请在接入表单填写 Agent 地址。'
+  fi
+}}
 test "$(uname -s)" = Linux || {{ echo '仅支持 Linux'; exit 1; }}
 if command -v netdata >/dev/null 2>&1 || test -e /etc/netdata/netdata.conf || test -e /opt/netdata/etc/netdata/netdata.conf; then
-  echo '发现已有 Netdata，未更改。请填写已有 Agent 地址接入。'; exit 0
+  # 已有安装：不改动任何配置（保持「未更改」语义），但仍然探测并回传地址，
+  # 否则用户装完之后依旧不知道该往接入表单里填什么。
+  echo '发现已有 Netdata，未更改配置。'
+  if curl --fail --silent --max-time 5 "http://127.0.0.1:$probe_port/api/v1/info" >/dev/null 2>&1; then
+    report_agent_address
+  else
+    echo "已有 Netdata 未在 127.0.0.1:$probe_port 响应。若监听在其他端口或仅监听本机，请按实际地址填写。"
+    echo "FLOWHUB_NETDATA_AGENT_HOST="
+    echo "FLOWHUB_NETDATA_AGENT_PORT=$probe_port"
+  fi
+  exit 0
 fi
 if command -v docker >/dev/null 2>&1 && docker container inspect netdata >/dev/null 2>&1; then
-  echo '发现已有 Netdata 容器，未更改。请复用已有实例。'; exit 0
+  # 容器同样不改动，但端口可能被映射到别处，所以只回传地址、不猜端口映射。
+  echo '发现已有 Netdata 容器，未更改。若容器映射了 19999 端口，可填本机地址接入。'
+  report_agent_address
+  exit 0
 fi
 as_root() {{ if test "$(id -u)" = 0; then "$@"; else sudo -n "$@"; fi; }}
 as_root true || {{ echo '需要 root 或免密 sudo 权限，可改在系统终端安装'; exit 1; }}
@@ -86,30 +127,8 @@ if test -z "$ready"; then
   echo '这不是安装失败：请查看 systemctl status netdata 与 journalctl -u netdata 排查服务状态。'
   exit 1
 fi
-# 探测一个 FlowHub 能用的地址。云主机的公网 IP 通常不在网卡上（NAT），所以先问外部回显服务，
-# 失败再退回本机默认路由地址。两种都拿不到时留空，由用户在接入表单里手工填写。
-agent_host=''
-if command -v curl >/dev/null; then
-  for probe in https://ifconfig.me/ip https://api.ipify.org; do
-    agent_host=$(curl --fail --silent --max-time 5 "$probe" 2>/dev/null | tr -d '[:space:]') || agent_host=''
-    # 必须是 IP 或域名：只有数字/十六进制/点/冒号，且含点或冒号，避免把错误页正文当成地址。
-    case "$agent_host" in
-      *[!0-9a-fA-F:.]*|'') agent_host='' ;;
-      *.*|*:*) break ;;
-      *) agent_host='' ;;
-    esac
-  done
-fi
-if test -z "$agent_host"; then
-  agent_host=$(ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.*src \([0-9.]*\).*/\1/p' | head -1) || agent_host=''
-fi
-echo "FLOWHUB_NETDATA_AGENT_HOST=$agent_host"
-echo "FLOWHUB_NETDATA_AGENT_PORT={port}"
-if test -n "$agent_host"; then
-  echo "Netdata 已安装并已就绪。Agent 地址：http://$agent_host:{port}"
-else
-  echo 'Netdata 已安装并已就绪。未能自动探测本机地址，请在接入表单填写 Agent 地址。'
-fi
+echo 'Netdata 已安装并已就绪。'
+report_agent_address
 echo '请确认本机防火墙与云安全组已放行 {port} 端口；历史保留受时间与容量两者限制；原始安装配置已备份。'
 "#))
 }
@@ -139,15 +158,23 @@ pub(crate) fn is_install(script:&str)->bool{script.starts_with("set -eu\n# FlowH
   assert!(public.contains("dbengine tier 0 retention time = 30d"));
   assert!(public.contains("dbengine tier 0 retention size = 2048MiB"));
   // 安装结束后要回传探测到的地址，供接入表单一键填入（FlowHub 解析这两个标记）。
+  // 端口经由 probe_port 变量输出，所以断言变量赋值与回传语句同时存在。
+  assert!(public.contains("probe_port=19999"));
   assert!(public.contains("FLOWHUB_NETDATA_AGENT_HOST="));
-  assert!(public.contains("FLOWHUB_NETDATA_AGENT_PORT=19999"));
+  assert!(public.contains("FLOWHUB_NETDATA_AGENT_PORT=$probe_port"));
   // 探测不到时必须留空并提示手填，不能让用户拿到一个假地址。
   assert!(public.contains("未能自动探测本机地址"));
   assert!(is_install(&public));
   // 端口必须跟着参数走，否则一键填入的地址会指向错误端口。
   let other=install_script(20000,"0.0.0.0",7,1024).unwrap();
-  assert!(other.contains("FLOWHUB_NETDATA_AGENT_PORT=20000"));
-  assert!(!other.contains("FLOWHUB_NETDATA_AGENT_PORT=19999"));
+  assert!(other.contains("probe_port=20000"));
+  assert!(!other.contains("probe_port=19999"));
+  // 探测逻辑只定义一次、两条路径共用：否则「已有安装」时又会不回传地址（用户实际撞到过）。
+  // 注意断言的是渲染后的脚本，所以用单个大括号。
+  assert_eq!(public.matches("report_agent_address() {").count(),1,"探测函数只应定义一次");
+  assert!(public.matches("report_agent_address\n").count()>=1,"已有安装分支与全新安装都要调用探测函数");
+  assert!(public.contains("发现已有 Netdata，未更改配置。"));
+  assert!(!public.contains("请填写已有 Agent 地址接入。"),"旧的空提示应已移除");
   // 仅本机模式必须如实写成 127.0.0.1，且不再暗示会自动建立隧道。
   let local=install_script(19999,"127.0.0.1",7,512).unwrap();
   assert!(local.contains("bind to = 127.0.0.1"));
