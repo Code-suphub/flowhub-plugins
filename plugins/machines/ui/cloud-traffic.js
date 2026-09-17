@@ -1,5 +1,5 @@
 (()=>{
- const invoke=window.FlowHubPlugin?.invoke;if(!invoke)return;
+ const invoke=window.FlowHubPlugin?.invoke||window.__TAURI__?.core?.invoke;if(!invoke)return;
  const api=(action,payload)=>invoke('machines_api',{action,payload});
  const providers={
   tencent:{name:'腾讯云 · Lighthouse',fields:['region','instanceId','secretId','secretKey','token'],required:['region','instanceId'],region:'ap-shanghai',instance:'lhins-…',help:'查询单台轻量实例的套餐余量。只读权限：lighthouse:DescribeInstancesTrafficPackages。'},
@@ -16,8 +16,14 @@
  const fields={region:'地域',instanceId:'实例 ID / 名称',secretId:'Access Key ID / SecretId',secretKey:'Access Key Secret / SecretKey',token:'临时会话 Token（可选）',veid:'VEID',apiKey:'API Key / 只读 Token',packageId:'流量包 ID',site:'华为云站点',apiToken:'API Token',cookie:'Cookie 串（浏览器）',xsrfToken:'XSRF Token（x-xsrf-token）',serverId:'Server ID（整数）',limitGB:'套餐流量 / GB（可选）'};
  const secrets=['secretId','secretKey','token','apiKey','apiToken','cookie','xsrfToken'];
  const button=document.createElement('button');button.type='button';button.textContent='云流量';document.querySelector('header .actions').prepend(button);
- const dialog=document.createElement('dialog');dialog.className='netdata-dialog';
- dialog.innerHTML=`<div class="section-head"><h2>云流量</h2><button data-close type="button">关闭</button></div><p class="netdata-note">按机器关联云服务商。凭证加密保存在本机，组件每 5 分钟更新；更换服务商需要重新保存。</p><label data-host-row>关联机器<select data-host></select></label><label data-netdata-row hidden>关联 Netdata 节点<select data-netdata></select></label><form><label>云服务商<select name="provider"></select></label><p data-provider-help class="netdata-note"></p><div class="netdata-fields" data-fields></div><label data-clear-token><input name="clearToken" type="checkbox">清除已保存的临时 Token</label><div class="actions"><button type="submit" class="primary">保存配置</button><button type="button" data-query>查询已保存配置</button></div></form><p data-status role="status"></p><section data-result></section>`;
+ const dialog=document.createElement('dialog');dialog.className='netdata-dialog traffic-dialog';
+ dialog.innerHTML=`<div class="section-head traffic-head"><div><h2>云流量</h2><p class="netdata-note">按机器关联云服务商。凭证加密保存在本机，组件每 5 分钟更新；更换服务商需要重新保存。</p></div><button data-close type="button">关闭</button></div>
+ <div class="traffic-body"><form id="trafficForm">
+  <fieldset class="traffic-group"><legend>关联目标</legend><div class="traffic-fields"><label data-host-row>机器<select data-host></select></label><label data-netdata-row hidden>Netdata 节点<select data-netdata></select></label></div></fieldset>
+  <fieldset class="traffic-group"><legend>服务商与凭证</legend><label>云服务商<select name="provider"></select></label><p data-provider-help class="netdata-note"></p><div class="traffic-fields" data-fields></div><label data-clear-token class="traffic-inline"><input name="clearToken" type="checkbox">清除已保存的临时 Token</label></fieldset>
+  <section data-result class="traffic-results"></section>
+ </form></div>
+ <footer class="traffic-footer"><p data-status role="status"></p><div class="actions"><button type="button" data-query>查询已保存配置</button><button type="submit" class="primary" form="trafficForm">保存配置</button></div></footer>`;
  document.body.append(dialog);
  const $=s=>dialog.querySelector(s),form=$('form');let busy=false;
  for(const [key,p]of Object.entries(providers)){const o=document.createElement('option');o.value=key;o.textContent=p.name;form.elements.provider.append(o);}
@@ -29,6 +35,8 @@
   row.append(input);$('[data-fields]').append(row);
  }
  function clearSecrets(){for(const k of secrets)form.elements[k].value='';form.elements.clearToken.checked=false;}
+ // netdataId is chosen from the Netdata select, not from a credential input.
+ const valueOf=k=>k==='netdataId'?$('[data-netdata]').value.trim():form.elements[k].value.trim();
  function syncProvider(){
   const p=providers[form.elements.provider.value];
   for(const k of Object.keys(fields)){const input=form.elements[k],show=p.fields.includes(k);input.closest('label').hidden=!show;input.disabled=busy||!show;input.required=show&&p.required.includes(k);}
@@ -56,42 +64,56 @@
 
   dialog.showModal();syncProvider();if(select.value)await load();else $('[data-status]').textContent='请先添加机器';});
  $('[data-close]').onclick=()=>dialog.close();dialog.addEventListener('close',clearSecrets);dialog.addEventListener('cancel',e=>{if(busy)e.preventDefault();});$('[data-host]').onchange=()=>run(load);
- form.onsubmit=e=>{e.preventDefault();run(async()=>{const p={hostId:$('[data-host]').value,provider:form.elements.provider.value};for(const k of providers[p.provider].fields){const v=k==='netdataId'?$('[data-netdata]').value.trim():form.elements[k].value.trim();p[k]=v;}p.clearToken=form.elements.clearToken.checked;await api('trafficSave',p);clearSecrets();$('[data-status]').textContent='配置已加密保存，关闭页面或重启后仍可查询';$('[data-result]').replaceChildren();});};
+  form.onsubmit=e=>{e.preventDefault();run(async()=>{const p={hostId:$('[data-host]').value,provider:form.elements.provider.value};for(const k of providers[p.provider].fields)p[k]=valueOf(k);p.clearToken=form.elements.clearToken.checked;await api('trafficSave',p);clearSecrets();$('[data-status]').textContent='配置已加密保存，关闭页面或重启后仍可查询';$('[data-result]').replaceChildren();});};
+ function node(tag,className,text){const el=document.createElement(tag);if(className)el.className=className;if(text!=null)el.textContent=text;return el;}
+ function stat(label,value,hint){const wrap=node('div'),line=node('dd',null,value);if(hint)line.append(node('span','traffic-hint',hint));wrap.append(node('dt',null,label),line);return wrap;}
+ function card(titleText,tagText,stats,note,percent){
+  const card=node('article','traffic-card'),head=node('header','traffic-card-head');
+  head.append(node('h3',null,titleText));if(tagText)head.append(node('span','traffic-tag',tagText));
+  card.append(head);
+  if(stats.length){const list=node('dl','traffic-stats');for(const row of stats)list.append(row);card.append(list);}
+  if(percent!=null&&percent>0){const meter=node('div','traffic-meter'+(percent>100?' over':percent>=80?' warn':''));const fill=node('i');fill.style.width=Math.max(0,Math.min(100,percent))+'%';meter.append(fill);card.append(meter);}
+  if(note)card.append(node('p','traffic-note',note));
+  return card;
+ }
+ function localNetCards(data,unit,n){
+  const cards=[];
+  for(const row of data.rows||[])for(const pack of row.TrafficPackageSet||[]){
+   const limitGB=pack.LimitGB||0,pct=pack.PercentUsed||0,avg=pack.DailyAverage||0,days=pack.DaysRemaining||0;
+   const stats=[stat('入站 RX',n(pack.RxBytes)+' '+unit),stat('出站 TX',n(pack.TxBytes)+' '+unit),
+    stat('双向合计',n(pack.TrafficUsed)+' '+unit,limitGB>0?pct.toFixed(1)+'% / '+limitGB+' '+unit:'未设置套餐流量')];
+   if(avg>0)stats.push(stat('当前日均',n(avg)+' '+unit+'/天','近 '+(pack.PeriodDays||30)+' 天累计口径'));
+   stats.push(stat('预计可用',limitGB<=0?'—':(avg>0?days.toFixed(1)+' 天':'—'),limitGB<=0?'先填写套餐流量':(avg>0?'按当前速率':'累计样本不足')));
+   const note=['范围：网卡计数器累计值（不含回环、容器与网桥）'];
+   if(pack.StartTime||pack.EndTime)note.push('统计周期：'+(pack.StartTime?new Date(pack.StartTime).toLocaleDateString():'—')+' → '+(pack.EndTime?new Date(pack.EndTime).toLocaleDateString():'—'));
+   cards.push(card((data.instanceName||row.InstanceId||'机器')+' 当前流量','网卡计数器 · 双向口径',stats,note.join(' · '),limitGB>0?pct:null));
+  }
+  return cards;
+ }
+ function standardCards(data,unit,n,summary,name){
+  const cards=[],shared=summary?.scope==='account'||summary?.scope?.startsWith('region:'),usage=summary?.mode==='usage';
+  for(const row of data.rows||[])for(const pack of row.TrafficPackageSet||[]){
+   const total=pack.TrafficPackageTotal,used=pack.TrafficUsed,remaining=pack.TrafficPackageRemaining,overflow=pack.TrafficOverflow;
+   const stats=usage?[stat('本月已用',n(used)+' '+unit)]:[stat('已用',n(used)+' '+unit),stat('套餐总量',n(total)+' '+unit),stat('剩余',n(remaining)+' '+unit),stat('超额',n(overflow)+' '+unit)];
+   const scope=shared?(summary.scope==='account'?'账户汇总（含多台机器，地域独立池不可互相抵扣）':'地域共享池 '+summary.scope.slice(7)):('实例 '+(row.InstanceId==='instance'?(form.elements.instanceId.value||form.elements.packageId.value):row.InstanceId));
+   const note=['范围：'+scope];
+   if(pack.EndTime)note.push('周期结束：'+new Date(pack.EndTime).toLocaleString());
+   const percent=!usage&&Number.isFinite(total)&&total>0?used/total*100:null;
+   cards.push(card(usage?('本月监控已用 '+n(used)+' '+unit):((shared?'共享剩余 ':'剩余 ')+n(remaining)+' '+unit),name+(shared?' · 共享池':' · 单实例'),stats,note.join(' · '),percent));
+  }
+  return cards;
+ }
+ function emptyCard(text){return node('p','traffic-empty',text);}
  $('[data-query]').onclick=()=>run(async()=>{
   const hostId=$('[data-host]').value,saved=await api('trafficRead',{hostId});if(!saved.configured)throw Error('请先保存配置');
   const provider=form.elements.provider.value,p=providers[provider];
-  if(provider!==(saved.provider||'tencent')||p.fields.filter(k=>!secrets.includes(k)).some(k=>form.elements[k].value.trim()!==(saved[k]||''))||secrets.some(k=>form.elements[k].value)||form.elements.clearToken.checked)throw Error('配置有未保存修改，请先保存');
+  if(provider!==(saved.provider||'tencent')||p.fields.filter(k=>!secrets.includes(k)).some(k=>valueOf(k)!==(saved[k]||''))||secrets.some(k=>form.elements[k].value)||form.elements.clearToken.checked)throw Error('配置有未保存修改，请先保存');
   $('[data-status]').textContent='正在查询云服务商…';$('[data-result]').replaceChildren();
   const data=await api('trafficQuery',{hostId}),summary=data.summary;
   const divisor=summary?.divisor||1073741824,unit=divisor===1e9?'GB':'GiB';
-  const n=v=>Number.isFinite(v)?(v/divisor).toLocaleString('zh-CN',{maximumFractionDigits:2}):'—';let count=0;
- if(data.provider==='localNet'){
-  for(const row of data.rows||[])for(const pack of row.TrafficPackageSet||[]){
-   const card=document.createElement('article');card.className='panel';
-   const heading=document.createElement('h3');heading.textContent=(data.instanceName||row.InstanceId)+' 当前流量（网卡计数器，双向口径）';card.append(heading);
-   const lines=[['入站 RX',pack.RxBytes],['出站 TX',pack.TxBytes]];
-   for(const [label,bytes] of lines){const p=document.createElement('p');p.textContent=label.padEnd(4,'　')+' '+n(bytes)+' '+unit;card.append(p);}
-   const limitGB=pack.LimitGB||0;const pct=pack.PercentUsed||0;
-   const pTotal=document.createElement('p');pTotal.textContent='双向合计'+' '.repeat(2)+n(pack.TrafficUsed)+' '+unit+(limitGB>0?' （'+pct.toFixed(1)+'% / '+limitGB+' '+unit+'）':'（未设置套餐流量）');card.append(pTotal);
-   const avg=pack.DailyAverage||0;
-   const pAvg=document.createElement('p');pAvg.textContent=avg>0?'当前日均'+' '.repeat(2)+n(avg)+' '+unit+'/天（按近 '+(pack.PeriodDays||30)+' 天累计口径）':'当前日均'+' '.repeat(4)+'暂无数据（Netdata 累计样本不足）';card.append(pAvg);
-   const days=pack.DaysRemaining||0;
-   const pDays=document.createElement('p');pDays.textContent=(avg>0&&limitGB>0)?'按此速率可再用'+days.toFixed(1)+' 天':(limitGB>0?'按此速率可再用'+'暂无数据':'按此速率可再用'+'请先填写套餐流量');card.append(pDays);
-   if(pack.EndTime){const pAt=document.createElement('p');pAt.textContent='查询时间：'+new Date(pack.EndTime).toLocaleString();card.append(pAt);}
-   $('[data-result]').append(card);count++;
-  }
- }else{
-  for(const row of data.rows||[])for(const pack of row.TrafficPackageSet||[]){
-   count++;const card=document.createElement('article');card.className='panel';const title=document.createElement('h3');
-   const shared=summary?.scope==='account'||summary?.scope?.startsWith('region:');
-   title.textContent=summary?.mode==='usage'?`本月监控已用 ${n(pack.TrafficUsed)} ${unit}`:`${shared?'共享':''}剩余 ${n(pack.TrafficPackageRemaining)} ${unit}`;
-   const detail=document.createElement('p');detail.textContent=summary?.mode==='usage'?data.note||'监控用量，不代表套餐余额':`已用 ${n(pack.TrafficUsed)} / ${n(pack.TrafficPackageTotal)} ${unit} · 超额 ${n(pack.TrafficOverflow)} ${unit}`;
-   const scope=document.createElement('p');scope.textContent=shared?(summary.scope==='account'?'范围：账户汇总（包含多台机器；地域独立池不可互相抵扣）':`范围：地域共享池 ${summary.scope.slice(7)}`):`范围：${row.InstanceId==='instance'?form.elements.instanceId.value||form.elements.packageId.value:row.InstanceId}`;
-   card.append(title,detail,scope);
-   if(pack.EndTime){const period=document.createElement('p');period.textContent='周期结束：'+new Date(pack.EndTime).toLocaleString();card.append(period);}
-   $('[data-result]').append(card);
-  }
- }
-  $('[data-status]').textContent=(count?`${p.name} 查询完成`:'暂无流量数据')+' · '+new Date(data.at).toLocaleString();
+  const n=v=>Number.isFinite(v)?(v/divisor).toLocaleString('zh-CN',{maximumFractionDigits:2}):'—';
+  const cards=data.provider==='localNet'?localNetCards(data,unit,n):standardCards(data,unit,n,summary,p.name);
+  $('[data-result]').replaceChildren(...(cards.length?cards:[emptyCard('这家服务商没有返回可用的流量数据。')]));
+  $('[data-status]').textContent=(cards.length?`${p.name} 查询完成`:'暂无流量数据')+' · '+new Date(data.at).toLocaleString();
  });
 })();

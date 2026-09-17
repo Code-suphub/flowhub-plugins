@@ -10,7 +10,9 @@
   const clone = value => structuredClone(value);
   const profiles = new Map();
   const state = {
-    config: { enabled: true, monitoring: false, interval: 60, connectionIdleSeconds: 28800, installed: {
+    config: { enabled: true, monitoring: false, interval: 60, connectionIdleSeconds: 28800, netdata: [
+      { id: 'netdata-demo', name: '演示 Netdata 节点', url: 'http://127.0.0.1:19999', networkChart: 'system.net' },
+    ], installed: {
       version: 'dev', capabilities: ['ssh:collect', 'ssh:execute', 'ssh:configure', 'ssh:terminal'],
       templates: [{ name: '系统概况（模拟）', command: 'uname -a; uptime; df -h /' }],
     }, hosts: [
@@ -28,6 +30,28 @@
   const sessions = new Map();
   const defaultProfile = alias => ({ alias, hostname: `${alias}.example.test`, user: 'demo', port: 22, identityFile: '', proxyJump: '' });
   const metric = () => ({ cpu: 23.4, memory: 48.2, disk: 36.1, load: 0.42, uptime: 172800 });
+  const GRACE = 1073741824;
+  const trafficResult = config => {
+    const at = new Date().toISOString();
+    const days = 30 * 86400000;
+    if (config.provider === 'localNet') {
+      const used = 9.37 * GRACE, limit = Number(config.limitGB) || 0, average = 14.49 * GRACE;
+      return { provider: 'localNet', at, instanceName: '演示 Netdata 节点', rows: [{ InstanceId: 'netdata-demo', TrafficPackageSet: [{
+        RxBytes: 4.81 * GRACE, TxBytes: 4.56 * GRACE, TrafficUsed: used, TrafficPackageTotal: limit * GRACE,
+        TrafficPackageRemaining: Math.max(0, limit * GRACE - used), TrafficOverflow: Math.max(0, used - limit * GRACE),
+        LimitGB: limit, PercentUsed: limit > 0 ? used / (limit * GRACE) * 100 : 0, DailyAverage: average,
+        PeriodDays: 30, DaysRemaining: limit > 0 ? Math.max(0, (limit * GRACE - used) / average) : 0,
+        StartTime: new Date(Date.now() - days).toISOString(), EndTime: at,
+      }] }] };
+    }
+    const shared = config.provider === 'linode' || config.provider === 'vultr';
+    const usage = config.provider === 'aws';
+    const total = (shared ? 2000 : 300) * GRACE, used = (shared ? 1680 : usage ? 268 : 295) * GRACE;
+    return { provider: config.provider || 'tencent', at, rows: [{ InstanceId: config.instanceId || config.serverId || config.veid || 'instance', TrafficPackageSet: [{
+      TrafficPackageTotal: total, TrafficUsed: used, TrafficPackageRemaining: Math.max(0, total - used),
+      TrafficOverflow: Math.max(0, used - total), StartTime: new Date(Date.now() - days).toISOString(), EndTime: at,
+    }] }], summary: shared ? { scope: 'account' } : usage ? { mode: 'usage', scope: 'instance' } : { scope: 'instance' } };
+  };
   async function invoke(method, args = {}) {
     if (method === 'machines_run') {
       const host = state.config.hosts.find(h => h.id === args.hostId && h.alias === args.expectedAlias);
@@ -80,6 +104,9 @@
       case 'netdataSave': state.config.netdata=(state.config.netdata||[]).filter(i=>i.id!==payload.id).concat(clone(payload));return clone(state);
       case 'netdataRemove': state.config.netdata=(state.config.netdata||[]).filter(i=>i.id!==payload.id);return clone(state);
       case 'netdataHistory': return {labels:['time','模拟指标'],data:Array.from({length:60},(_,i)=>[Math.floor(Date.now()/1000)-i*60,40+Math.sin(i/5)*15])};
+      case 'trafficRead': return clone(state.traffic?.[payload.hostId] || { configured: false });
+      case 'trafficSave': { const saved = clone(payload); delete saved.clearToken; state.traffic = state.traffic || {}; state.traffic[payload.hostId] = { ...saved, configured: true, revision: 'preview' }; return clone(state.traffic[payload.hostId]); }
+      case 'trafficQuery': return trafficResult(state.traffic?.[payload.hostId] || {});
       case 'netdataInstallPlan': throw Error('浏览器预览不安装软件，请在 FlowHub 中选择真实目标并预览安装命令。');
       case 'netdataInstall': throw Error('浏览器预览不安装软件。');
       case 'state': return clone(state);
