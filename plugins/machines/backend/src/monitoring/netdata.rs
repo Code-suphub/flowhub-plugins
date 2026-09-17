@@ -74,8 +74,10 @@ cat > "$task_dir/netdata.conf" <<'FLOWHUB_CONFIG'
 FLOWHUB_CONFIG
 as_root install -m 644 "$task_dir/netdata.conf" "$conf"
 if command -v systemctl >/dev/null; then as_root systemctl restart netdata; else as_root service netdata restart; fi
+# 只做本机自检（云主机上探测自己的公网 IP 常因 NAT 失败，不代表配置有问题）。
 curl --fail --silent --max-time 10 http://127.0.0.1:{port}/api/v1/info >/dev/null || {{ echo 'Agent 尚未就绪，请查看服务状态和安装日志'; exit 1; }}
-echo 'Netdata 已安装。请通过已配置的地址接入。历史保留受时间与容量两者限制；原始安装配置已备份。'
+echo 'Netdata 已安装。FlowHub 里「接入已有 Netdata」的 Agent 地址填 http://<本机IP>:{port}。'
+echo '请确认本机防火墙与云安全组已放行 {port} 端口；历史保留受时间与容量两者限制；原始安装配置已备份。'
 "#))
 }
 pub(crate) fn is_install(script:&str)->bool{script.starts_with("set -eu\n# FlowHub Netdata installation\n")}
@@ -88,5 +90,19 @@ pub(crate) fn is_install(script:&str)->bool{script.starts_with("set -eu\n# FlowH
     let instance=Instance{id:"test".into(),name:"Test".into(),url:format!("http://{address}"),network_chart:String::new()};assert_eq!(fetch(&instance).await.unwrap()["rows"][0]["values"]["cpu"],25.);assert_eq!(history(&instance,"system.cpu",86400).await.unwrap()["data"][0][1],25.);server.await.unwrap();
  }
  #[test]fn validate_urls_and_install_arguments(){assert!(endpoint("file:///tmp/a","api/v1/info").is_err());assert!(endpoint("https://u:p@host","api/v1/info").is_err());assert_eq!(endpoint("https://host/netdata/","api/v1/info").unwrap().path(),"/netdata/api/v1/info");assert!(install_script(19999,"0.0.0.0;id",7,1024).is_err());assert!(install_script(22,"127.0.0.1",7,1024).is_err());}
+ #[test]fn install_script_binds_the_requested_address_and_states_the_endpoint(){
+  let public=install_script(19999,"0.0.0.0",30,2048).unwrap();
+  assert!(public.contains("bind to = 0.0.0.0"));
+  assert!(public.contains("default port = 19999"));
+  assert!(public.contains("dbengine tier 0 retention time = 30d"));
+  assert!(public.contains("dbengine tier 0 retention size = 2048MiB"));
+  // 安装结束后要直接给出可粘贴的接入地址，否则用户不知道该填什么。
+  assert!(public.contains("http://<本机IP>:19999"));
+  assert!(is_install(&public));
+  // 仅本机模式必须如实写成 127.0.0.1，且不再暗示会自动建立隧道。
+  let local=install_script(19999,"127.0.0.1",7,512).unwrap();
+  assert!(local.contains("bind to = 127.0.0.1"));
+  assert!(!local.contains("SSH 转发"));
+ }
  #[test]fn normalize_real_units_and_missing_data(){let i=Instance{id:"test".into(),name:"Test".into(),url:"http://host:19999".into(),network_chart:String::new()};let all=json!({"system.cpu":{"last_updated":chrono::Utc::now().timestamp(),"dimensions":{"user":{"value":12.},"system":{"value":3.},"idle":{"value":85.}}},"system.ram":{"dimensions":{"used":{"value":20.},"free":{"value":80.}}},"system.net":{"dimensions":{"received":{"value":800.},"sent":{"value":-160.}}}});let out=normalize(&i,&all).unwrap();assert_eq!(out["rows"][0]["values"]["cpu"],15.);assert_eq!(out["rows"][0]["values"]["memory"],20.);assert_eq!(out["rows"][0]["values"]["rx"],100.);assert_eq!(out["rows"][0]["values"]["tx"],20.);assert!(out["rows"][0]["values"]["disk"].is_null());}
 }

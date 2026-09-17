@@ -652,7 +652,8 @@ pub(crate) async fn machines_api(
         },
         "netdataRemove" => rt.save(|c|{authorize(c,"ssh:configure")?;c.netdata.retain(|i|Some(i.id.as_str())!=payload["id"].as_str());Ok(())}),
         "netdataInstallPlan" | "netdataInstall" => {
-            let script=crate::monitoring::netdata::install_script(payload["port"].as_u64().unwrap_or(19999),payload["bind"].as_str().unwrap_or("127.0.0.1"),payload["days"].as_u64().unwrap_or(7),payload["disk"].as_u64().unwrap_or(1024))?;
+            // 默认与界面推荐项一致（所有网卡 · IP 直连）：127.0.0.1 只有本机可达，FlowHub 连不上。
+            let script=crate::monitoring::netdata::install_script(payload["port"].as_u64().unwrap_or(19999),payload["bind"].as_str().unwrap_or("0.0.0.0"),payload["days"].as_u64().unwrap_or(7),payload["disk"].as_u64().unwrap_or(1024))?;
             let host={let c=rt.config.lock().unwrap();authorize(&c,"ssh:execute")?;let h=c.hosts.iter().find(|h|Some(h.id.as_str())==payload["hostId"].as_str()).ok_or("请选择目标机器")?;check_operation(h,"command",&script)?;if h.bastion.is_some(){return Err("一键安装使用普通 SSH；堡垒机请在已登录的系统终端执行安装命令".into());}h.clone()};
             if action=="netdataInstallPlan"{return Ok(json!({"command":script,"hostId":host.id,"alias":host.alias,"name":host.name}));}
             if payload["expectedAlias"]!=host.alias || payload["command"]!=script{return Err("安装配置发生变化，请重新预览".into());}
