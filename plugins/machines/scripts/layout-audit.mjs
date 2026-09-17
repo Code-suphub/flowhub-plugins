@@ -205,6 +205,30 @@ ${HELPERS}
   };
 })()`;
 
+const MEASURE_DIALOG_FAMILY = `(() => {
+ ${HELPERS}
+  const widthOf = element => element ? Math.round(element.getBoundingClientRect().width) : null;
+  const shells = window.__auditDialogs || {};
+  const edit = one('#hostDialog');
+  edit.setAttribute('open', '');
+  shells.netdata.showModal();
+  shells.traffic.showModal();
+  const row = {
+    width: Math.round(document.documentElement.clientWidth),
+    available: Math.round(document.documentElement.clientWidth),
+    edit: widthOf(edit),
+    netdata: widthOf(shells.netdata),
+    traffic: widthOf(shells.traffic),
+    ratio: null
+  };
+  const max = Math.max(row.edit || 0, row.netdata || 0, row.traffic || 0);
+  row.ratio = max ? (max / row.available).toFixed(2) : null;
+  shells.netdata.close();
+  shells.traffic.close();
+  edit.removeAttribute('open');
+  return row;
+})()`;
+
 const VIEWS = [
   {
     label: '编辑机器弹窗',
@@ -283,6 +307,50 @@ const VIEWS = [
       if (row.directOutputTop !== row.bastionOutputTop) problems.push(`${row.width}px 两个终端输出框拼接方式不一致：${row.directOutputTop} vs ${row.bastionOutputTop}`);
       if (row.directInputPadding !== row.bastionInputPadding) problems.push(`${row.width}px 两个终端输入行内边距不一致：${row.directInputPadding} vs ${row.bastionInputPadding}`);
       if (row.bastionFieldBorder > 0) problems.push(`${row.width}px 堡垒机输入框仍有 ${row.bastionFieldBorder}px 边框，与直连终端不一致`);
+      return problems;
+    }
+  },
+  {
+    label: '弹窗宽度一致性',
+    // 编辑机器 / Netdata / 云流量三个弹窗都是 .netdata-dialog 家族，宽度应来自同一处，
+    // 谁单独写死一个宽度就会在宽窗口里明显比兄弟弹窗窄（云流量曾因此比另两个窄 40px）。
+    sizes: [[1400, 900], [760, 900], [660, 700], [1200, 800]],
+    // 云流量和 Netdata 的弹窗由脚本动态创建，而审计页不加载脚本，这里只放一个同样带类名的空壳：
+    // 量的是 CSS 给这个家族的宽度，与弹窗内容无关。
+    show: "for (const p of document.querySelectorAll('[role=\"tabpanel\"]')) p.hidden = p.id !== 'fleetPanel';",
+    prepare: `(() => {
+      const add = (name, className, title) => {
+        let dialog = document.querySelector('dialog.audit-' + name);
+        if (!dialog) {
+          dialog = document.createElement('dialog');
+          dialog.className = 'netdata-dialog audit-shell audit-' + name + (className ? ' ' + className : '');
+          dialog.innerHTML = '<div class="section-head"><h2>' + title + '</h2><button type="button" data-close>关闭</button></div>';
+          document.body.append(dialog);
+        }
+        return dialog;
+      };
+      window.__auditDialogs = { netdata: add('netdata', '', 'Netdata 监控'), traffic: add('traffic', 'traffic-dialog', '云流量') };
+    })()`,
+    measure: MEASURE_DIALOG_FAMILY,
+    columns: [
+      ['视口', row => `${row.width}`],
+      ['可用宽', row => `${row.available}`],
+      ['编辑机器', row => `${row.edit}`],
+      ['Netdata', row => `${row.netdata}`],
+      ['云流量', row => `${row.traffic}`],
+      ['可用宽占比', row => `${row.ratio}`]
+    ],
+    check: row => {
+      const problems = [];
+      const values = [['编辑机器', row.edit], ['Netdata', row.netdata], ['云流量', row.traffic]];
+      for (const [label, value] of values) {
+        if (value === null) { problems.push(`${row.width}px ${label}弹窗量不到宽度`); continue; }
+        if (value < Math.min(row.available * 0.94, 820) - 1) problems.push(`${row.width}px ${label}弹窗只有 ${value}px，窄于设计上限 ${Math.min(Math.round(row.available * 0.94), 820)}px`);
+      }
+      if (values.every(([, value]) => value !== null)) {
+        const spread = Math.max(...values.map(([, value]) => value)) - Math.min(...values.map(([, value]) => value));
+        if (spread > 0 && row.available * 0.94 > 820) problems.push(`${row.width}px 三个弹窗宽度不一致，相差 ${spread}px：${values.map(([label, value]) => label + ' ' + value).join(' / ')}`);
+      }
       return problems;
     }
   },
@@ -417,6 +485,7 @@ async function main() {
       for (const size of (view.sizes || WIDTHS.map(width => [width, 900]))) {
         await client.send('Emulation.setDeviceMetricsOverride', { width: size[0], height: size[1], deviceScaleFactor: 1, mobile: false });
         await client.send('Runtime.evaluate', { expression: view.show, returnByValue: true });
+        if (view.prepare) await client.send('Runtime.evaluate', { expression: view.prepare, returnByValue: true });
         await new Promise(resolve => setTimeout(resolve, 60));
         const { result } = await client.send('Runtime.evaluate', { expression: view.measure, returnByValue: true });
         rows.push(result.value);

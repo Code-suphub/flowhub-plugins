@@ -1,4 +1,6 @@
-.traffic-dialog[open]{display:flex;flex-direction:column;padding:0;overflow:hidden;width:min(780px,94vw)}
+/* 云流量与「编辑机器」「Netdata 监控」是同一族弹窗，宽度必须一致：仅覆盖布局方式，
+   宽度沿用 .netdata-dialog 的 min(820px,94vw)，不要在这里另写一个数值。 */
+.traffic-dialog[open]{display:flex;flex-direction:column;padding:0;overflow:hidden}
 .traffic-dialog .traffic-head{gap:16px;align-items:flex-start;margin:0;padding:24px 24px 18px;border-bottom:1px solid var(--line)}
 .traffic-dialog .traffic-head>div{display:grid;gap:8px;min-width:0}
 .traffic-dialog .traffic-head h2{margin:0}
