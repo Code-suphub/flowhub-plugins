@@ -1,5 +1,5 @@
 //! Plugin-owned profiles and encrypted SQLite credentials.
-use crate::ssh_profiles::Profile;
+use crate::ssh::ssh_profiles::Profile;
 use serde::{Deserialize,Serialize};
 use sha2::{Digest,Sha256};
 use std::path::{Path,PathBuf};
@@ -17,7 +17,7 @@ fn account(c:&Connection)->String {
     format!("{:x}",Sha256::digest(format!("{}\0{}\0{}\0{}",c.profile.alias,c.profile.hostname,c.profile.user,c.profile.port).as_bytes()))
 }
 pub fn validate_backup(root:&Path,c:&Connection)->Result<(),String>{
-    if c.password_auth{crate::vault::read(root,&account(c))?;}Ok(())
+    if c.password_auth{crate::data::vault::read(root,&account(c))?;}Ok(())
 }
 pub fn save(root:&Path,c:&Connection,expected:&str,password:Option<&str>)->Result<String,String>{
     static SAVE_LOCK:std::sync::Mutex<()>=std::sync::Mutex::new(());
@@ -28,11 +28,11 @@ pub fn save(root:&Path,c:&Connection,expected:&str,password:Option<&str>)->Resul
         if !c.profile.proxy_jump.is_empty(){return Err("密码认证暂不支持跳板机，请使用密钥或堡垒机会话".into());}
         if let Some(password)=password.filter(|p|!p.is_empty()) {
             if password.len()>4096 || password.contains(['\n','\r','\0']){return Err("密码格式无效".into());}
-            crate::vault::save(root,&account(c),password.as_bytes())?;
-        } else { crate::vault::read(root,&account(c)).map_err(|_|"请输入该地址和用户名的登录密码")?; }
+            crate::data::vault::save(root,&account(c),password.as_bytes())?;
+        } else { crate::data::vault::read(root,&account(c)).map_err(|_|"请输入该地址和用户名的登录密码")?; }
     }
     std::fs::create_dir_all(root.join("connections")).map_err(|e|e.to_string())?;
-    crate::storage::write_json_atomic(&path(root,&c.profile.alias),&serde_json::to_value(c).map_err(|e|e.to_string())?)?;
+    crate::data::storage::write_json_atomic(&path(root,&c.profile.alias),&serde_json::to_value(c).map_err(|e|e.to_string())?)?;
     revision(root,&c.profile.alias)
 }
 pub fn configure(process:&mut tokio::process::Command,c:&Connection,root:&Path)->Result<(),String>{
@@ -52,7 +52,7 @@ pub fn askpass()->Option<Result<(),String>> {
     let prompt=std::env::args().nth(1).unwrap_or_default().to_lowercase();
     Some((||{
         if !prompt.contains("password:") {return Err("不支持的认证提示".into());}
-        let root=std::env::var_os("FLOWHUB_CREDENTIAL_ROOT").ok_or("缺少密码存储目录")?; let password=crate::vault::read(Path::new(&root),&account)?;
+        let root=std::env::var_os("FLOWHUB_CREDENTIAL_ROOT").ok_or("缺少密码存储目录")?; let password=crate::data::vault::read(Path::new(&root),&account)?;
         use std::io::Write;std::io::stdout().write_all(&password).and_then(|_|std::io::stdout().write_all(b"\n")).map_err(|e|e.to_string())
     })())
 }

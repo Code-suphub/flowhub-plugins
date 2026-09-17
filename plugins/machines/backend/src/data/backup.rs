@@ -82,13 +82,13 @@ fn unpack(archive:&Archive,root:&Path)->Result<Value,String>{
         let db=rusqlite::Connection::open_with_flags(root.join("credentials.sqlite3"),rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(|e|e.to_string())?;
         let mut stmt=db.prepare("SELECT account FROM credentials").map_err(|_|"密码数据库格式无效")?;
         let accounts=stmt.query_map([],|row|row.get::<_,String>(0)).map_err(|e|e.to_string())?;
-        for account in accounts{crate::vault::read(root,&account.map_err(|e|e.to_string())?)?;}
+        for account in accounts{crate::data::vault::read(root,&account.map_err(|e|e.to_string())?)?;}
     }
     for name in archive.files.keys().filter(|s|s.starts_with("connections/")){
-        let c:crate::connections::Connection=serde_json::from_slice(&read_limited(&root.join(name),LIMIT)?).map_err(|_|"连接配置损坏")?;c.profile.validate()?;
-        crate::connections::validate_backup(root,&c)?;
+        let c:crate::ssh::connections::Connection=serde_json::from_slice(&read_limited(&root.join(name),LIMIT)?).map_err(|_|"连接配置损坏")?;c.profile.validate()?;
+        crate::ssh::connections::validate_backup(root,&c)?;
     }
-    crate::storage::write_json_atomic(&root.join("state.json"),&state)?;
+    crate::data::storage::write_json_atomic(&root.join("state.json"),&state)?;
     Ok(json!({"created":archive.created,"machines":state["hosts"].as_array().map_or(0,Vec::len),"files":archive.files.len(),"hasPasswords":has_db,"hasHistory":root.join("commands.sqlite3").exists()}))
 }
 
@@ -100,7 +100,7 @@ mod tests {
         let parent=std::env::temp_dir().join(format!("backup-test-{}",stamp()));let root=parent.join("machines");private_dir(&root).unwrap();
         write_new(&root.join("state.json"),br#"{"hosts":[],"monitoring":true}"#).unwrap();
         let db=rusqlite::Connection::open(root.join("commands.sqlite3")).unwrap();db.execute_batch("CREATE TABLE fixture(value TEXT);INSERT INTO fixture VALUES ('retained')").unwrap();drop(db);
-        crate::vault::save(&root,"fixture",b"fixture-secret-value").unwrap();
+        crate::data::vault::save(&root,"fixture",b"fixture-secret-value").unwrap();
         let archive=collect(&root).unwrap();let encrypted=encrypt(&archive,"fixture-backup-passphrase").unwrap();
         assert!(!encrypted.windows(20).any(|s|s==b"fixture-secret-value"));
         assert!(decrypt(&encrypted,"wrong-passphrase-here").is_err());
@@ -108,7 +108,7 @@ mod tests {
         let archive=decrypt(&encrypted,"fixture-backup-passphrase").unwrap();
         std::fs::write(root.join("state.json"),br#"{"hosts":[],"interval":120}"#).unwrap();
         let rollback=stage(&root,&archive).unwrap();assert!(root.exists());apply_pending(&root).unwrap();
-        assert!(rollback.exists());assert_eq!(crate::vault::read(&root,"fixture").unwrap(),b"fixture-secret-value");
+        assert!(rollback.exists());assert_eq!(crate::data::vault::read(&root,"fixture").unwrap(),b"fixture-secret-value");
         let state:Value=serde_json::from_slice(&std::fs::read(root.join("state.json")).unwrap()).unwrap();assert_eq!(state["monitoring"],false);
         let db=rusqlite::Connection::open(root.join("commands.sqlite3")).unwrap();assert_eq!(db.query_row("SELECT value FROM fixture",[],|row|row.get::<_,String>(0)).unwrap(),"retained");drop(db);
         // Simulate interruption after moving the original directory away.
@@ -124,7 +124,7 @@ fn stage(root:&Path,archive:&Archive)->Result<PathBuf,String>{
     private_dir(&staging)?;
     if let Err(e)=unpack(archive,&staging){let _=std::fs::remove_dir_all(&staging);return Err(e);}
     let rollback=root.with_extension(format!("before-restore-{}",stamp()));
-    crate::storage::write_json_atomic(&marker(root),&json!({"rollback":rollback}))?;Ok(rollback)
+    crate::data::storage::write_json_atomic(&marker(root),&json!({"rollback":rollback}))?;Ok(rollback)
 }
 pub fn apply_pending(root:&Path)->Result<(),String>{
     let marker=marker(root);if !marker.exists(){return Ok(());}

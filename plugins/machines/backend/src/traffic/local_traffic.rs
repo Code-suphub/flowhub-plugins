@@ -5,7 +5,6 @@
 //! the current cumulative value to the first sample in a 30-day history window.
 //! Reboots of the VM reset the counters, which manifests as daily-average noise until the
 //! next sample lands -- we surface that via the `periodDays` window and graceful fallback.
-use crate::netdata;
 use chrono::{Duration, Utc};
 use serde_json::{json, Value};
 
@@ -49,10 +48,10 @@ fn history_first_cumulative(history: &Value) -> (f64, f64) {
     (first(rx_idx), first(tx_idx))
 }
 
-pub async fn query(instance: &netdata::Instance, limit_gb: f64) -> Result<Value, String> {
+pub async fn query(instance: &crate::monitoring::netdata::Instance, limit_gb: f64) -> Result<Value, String> {
     instance.validate()?;
 
-    let metrics = netdata::fetch(instance).await?;
+    let metrics = crate::monitoring::netdata::fetch(instance).await?;
     let row = metrics["rows"]
         .get(0)
         .ok_or("Netdata 未返回任何行")?;
@@ -67,7 +66,7 @@ pub async fn query(instance: &netdata::Instance, limit_gb: f64) -> Result<Value,
         instance.network_chart.as_str()
     };
     let seconds = (DEFAULT_PERIOD_DAYS as f64 * SECONDS_PER_DAY) as u64;
-    let history = netdata::history(instance, chart, seconds).await?;
+    let history = crate::monitoring::netdata::history(instance, chart, seconds).await?;
     let (start_rx, start_tx) = history_first_cumulative(&history);
 
     // Netdata cumulative counters can briefly dip on VM reboot; clamp so a single bad

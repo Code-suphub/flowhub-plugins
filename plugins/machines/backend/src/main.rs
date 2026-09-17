@@ -1,24 +1,14 @@
 mod machines;
-mod cloud_traffic;
-mod cloud_providers;
-mod zgocloud;
-mod local_traffic;
-mod bandwagon;
 mod cli;
-mod ssh_profiles;
-mod bastion;
-mod storage;
-mod connections;
-mod vault;
-mod backup;
-mod update_cache;
-mod netdata;
-mod exporter;
+mod traffic;
+mod ssh;
+mod monitoring;
+mod data;
 use std::{path::PathBuf, sync::Arc};
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 #[derive(Clone)]
-pub(crate) struct Context { runtime: Arc<machines::Runtime>, gate:Arc<tokio::sync::RwLock<()>>, backup:Arc<backup::Manager> }
+pub(crate) struct Context { runtime: Arc<machines::Runtime>, gate:Arc<tokio::sync::RwLock<()>>, backup:Arc<crate::data::backup::Manager> }
 
 async fn choose_path(folder: bool) -> Result<Option<PathBuf>, String> {
     let script = if folder { "POSIX path of (choose folder)" } else { "POSIX path of (choose file)" };
@@ -58,7 +48,7 @@ async fn dispatch(ctx: Context, request: &Value) -> Result<Value, String> {
 }
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    if let Some(result)=connections::askpass(){return result.map_err(Into::into);}
+    if let Some(result)=crate::ssh::connections::askpass(){return result.map_err(Into::into);}
     if std::env::args().nth(1).as_deref()==Some("--cli") {
         return cli::run(&std::env::args().skip(2).collect::<Vec<_>>()).await.map_err(Into::into);
     }
@@ -71,13 +61,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             return Err("此机器仅允许查询，不允许系统终端".into());
         }
         let mut process=tokio::process::Command::new("/usr/bin/ssh");
-        if let Some(connection)=connections::load(&root,alias)? {connections::configure(&mut process,&connection,&root)?;}
+        if let Some(connection)=crate::ssh::connections::load(&root,alias)? {crate::ssh::connections::configure(&mut process,&connection,&root)?;}
         let status=process.args(&args[4..]).args(["-o","StrictHostKeyChecking=ask","--",alias]).status().await?;
         std::process::exit(status.code().unwrap_or(1));
     }
     let root = std::env::var_os("FLOWHUB_PLUGIN_DATA").map(PathBuf::from).ok_or("缺少 FLOWHUB_PLUGIN_DATA")?;
-    backup::apply_pending(&root)?;
-    let ctx = Context { runtime: Arc::new(machines::Runtime::new(root.clone())?),gate:Arc::new(tokio::sync::RwLock::new(())),backup:Arc::new(backup::Manager::new(root)) };
+    crate::data::backup::apply_pending(&root)?;
+    let ctx = Context { runtime: Arc::new(machines::Runtime::new(root.clone())?),gate:Arc::new(tokio::sync::RwLock::new(())),backup:Arc::new(crate::data::backup::Manager::new(root)) };
     cli::serve(ctx.clone(), &std::env::var_os("FLOWHUB_PLUGIN_DATA").map(PathBuf::from).unwrap()).await?;
     machines::start_monitor(&ctx);
     machines::start_cloud_traffic(&ctx);
