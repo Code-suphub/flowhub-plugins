@@ -23,7 +23,8 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-      - run: node --test scripts/release.test.mjs
+      - run: node --test scripts/*.test.mjs
+      - run: node scripts/check-plugins.mjs
       - id: plan
         run: node scripts/release.mjs plan
   build:

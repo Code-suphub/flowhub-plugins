@@ -21,11 +21,18 @@ flowhub-plugins/
       backend/                # Rust 后端源码（独立 Cargo 工程）
       ui/                     # 插件页面
       scripts/build.mjs       # cargo build --release 后复制到 bin/
-      tests/                  # 插件测试
+      dev/                    # 本地预览（可选）：vite.config.mjs 或独立静态服务
+      tests/                  # 自动化测试与手工冒烟脚本
+      docs/                   # 插件自身的说明（可选，简单插件只用 README.md）
       bin/                    # 本地构建产物，不提交
 ```
 
-CI 与发布脚本依赖这套约定：每个插件都要有 `backend/Cargo.toml`、`ui/`、`package-lock.json` 以及 `build`、`test` 两个 npm 脚本，并保持 `flowhub-plugin.json`、`package.json`、`backend/Cargo.toml` 三处版本一致。
+约定：`scripts/` 只放构建脚本，预览放 `dev/`，测试与冒烟放 `tests/`，其余说明优先写进 `README.md`。`node scripts/check-plugins.mjs` 会逐项校验下列要求，并拦下 schema 1 清单、`.codex-plugin/` 脚手架等历史残留：
+
+- 清单 `schema` 为 2，`id` 与目录名一致，`version` 为 `x.y.z`，且与 `package.json`、`backend/Cargo.toml` 三处一致；
+- `ui` 指向存在的 HTML 页面，`widget.card/editor/detail` 若声明也必须是存在的 HTML 页面；
+- `executable` 是插件目录内的相对路径（禁止绝对路径与 `..`）；
+- 存在 `README.md`、`package-lock.json`、`backend/Cargo.toml`，以及 `build`、`test` 两个 npm 脚本。
 
 ## 在仓库根目录开发
 
@@ -33,10 +40,11 @@ CI 与发布脚本依赖这套约定：每个插件都要有 `backend/Cargo.toml
 npm run install:machines      # 等价于 npm ci --prefix plugins/machines
 npm run dev:machines          # 仅 machines、docker 提供 dev 预览
 npm run build                 # 依次构建全部插件
-npm test                      # 依次测试全部插件
+npm run check                 # 校验插件目录约定
+npm test                      # 先校验约定，再依次测试全部插件
 ```
 
-`build`、`test` 由 `scripts/run-all.mjs` 遍历 `plugins/*/flowhub-plugin.json` 执行，并跳过没有对应脚本的插件；也可以进入单个插件目录直接运行 `npm run build`、`npm test`。每个插件独立维护依赖锁文件。
+`build`、`test` 由 `scripts/run-all.mjs` 遍历 `plugins/*/flowhub-plugin.json` 执行，并跳过没有对应脚本的插件；也可以进入单个插件目录直接运行 `npm run build`、`npm test`。每个插件独立维护依赖锁文件。CI 在 `plan` 阶段就会跑 `check-plugins`，缺文件或版本不一致不会拖到打标签发布时才暴露。
 
 FlowHub 从本地目录安装时，选择 **`plugins/<插件 ID>`**，不是仓库根目录。发布插件时只打包该目录的 `flowhub-plugin.json`、`ui/` 和 `bin/`。
 
