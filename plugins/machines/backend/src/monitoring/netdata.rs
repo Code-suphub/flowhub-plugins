@@ -143,6 +143,20 @@ if test -z "$ready"; then
   exit 1
 fi
 echo 'Netdata 已安装并已就绪。'
+# 校验监听地址是否真的生效：只测 127.0.0.1 无法区分「绑定所有网卡」和「只绑定本机」，
+# 而后者会让 FlowHub 永远连不上，是这套流程里最容易踩空的一步。
+if test "{bind}" = "0.0.0.0"; then
+  listening=$( (ss -ltn 2>/dev/null || netstat -ltn 2>/dev/null) | grep -c ":${{probe_port}} " || true)
+  wildcard=$( (ss -ltn 2>/dev/null || netstat -ltn 2>/dev/null) | grep -E "0\.0\.0\.0:${{probe_port}} |\*:${{probe_port}} |\[::\]:${{probe_port}} " | head -1 || true)
+  if test -n "$wildcard"; then
+    echo "监听检查：端口 $probe_port 已在所有网卡监听。"
+  elif test "$listening" != "0"; then
+    echo "监听检查：端口 $probe_port 已监听，但没有绑定到所有网卡。"
+    echo "配置里写的是 bind to = 0.0.0.0；请确认 $conf 生效并重启 netdata。"
+  else
+    echo "监听检查：没有看到端口 $probe_port 的监听项，请检查 $conf 与 systemctl status netdata。"
+  fi
+fi
 report_agent_address
 echo '请确认本机防火墙与云安全组已放行 {port} 端口；历史保留受时间与容量两者限制；原始安装配置已备份。'
 "#))
@@ -165,6 +179,21 @@ pub(crate) fn is_install(script:&str)->bool{script.starts_with("set -eu\n# FlowH
   // 超时措辞不能让人以为安装本身失败了。
   assert!(script.contains("这不是安装失败"));
   assert!(script.contains("journalctl -u netdata"));
+ }
+ #[test]fn install_script_verifies_the_bind_actually_took_effect(){
+  // 只探测 127.0.0.1 无法区分「绑定所有网卡」与「只绑定本机」，而后者会让 FlowHub
+  // 永远连不上。绑定 0.0.0.0 时必须检查监听项里是否出现通配地址。
+  let public=install_script(19999,"0.0.0.0",7,1024).unwrap();
+  assert!(public.contains("监听检查：端口 $probe_port 已在所有网卡监听"));
+  assert!(public.contains("已监听，但没有绑定到所有网卡"),"应能识别「只监听本机」");
+  assert!(public.contains(r"0\.0\.0\.0:${probe_port}"),"应匹配 IPv4 通配监听");
+  assert!(public.contains(r"\[::\]:${probe_port}"),"应匹配 IPv6 通配监听");
+  assert!(public.contains("ss -ltn 2>/dev/null || netstat -ltn"),"缺少 ss 时应退回 netstat");
+  // 仅本机模式不做这项检查（本来就只监听本机），避免误报。检查体仍在脚本里，
+  // 但它被 `if test "127.0.0.1" = "0.0.0.0"` 包住，运行时不会执行。
+  let local=install_script(19999,"127.0.0.1",7,1024).unwrap();
+  assert!(local.contains(r#"if test "127.0.0.1" = "0.0.0.0"; then"#),"仅本机模式不应执行通配监听检查");
+  assert!(public.contains(r#"if test "0.0.0.0" = "0.0.0.0"; then"#),"绑定所有网卡时应执行该检查");
  }
  #[test]fn install_script_binds_the_requested_address_and_states_the_endpoint(){
   let public=install_script(19999,"0.0.0.0",30,2048).unwrap();
