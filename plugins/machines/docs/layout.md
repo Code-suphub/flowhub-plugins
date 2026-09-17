@@ -16,6 +16,20 @@ npm test                                 # cargo + node --test + 上面两项
 
 没有 Chrome 时两个浏览器工具都会跳过（不失败）；用 `CHROME_PATH` 指定其它浏览器。
 
+## 真实预览复核
+
+几何度量用的是"真实 CSS + 合成 DOM"，要看**真实渲染与真实数据**时走插件自带的预览：
+
+```sh
+npm run dev -- --port 5183        # 启动 ui/ 的 vite 预览（dev/machines-preview.js 提供模拟数据）
+# 浏览器打开 http://127.0.0.1:5183/machines.html ，或在 FlowHub 里用
+# plugin-canvas.html?preview=http://127.0.0.1:5183/ 加载
+```
+
+2026-09-17 用 headless Chrome 依次在 1400/600/380px 复核过：预览横幅与 2 台模拟机器
+正常渲染（概况合计 2），概况栏 4/2/1 列随宽度切换，380px 横向滚到最右仍能看到机型列，
+直连与堡垒机两个终端外壳都在，无 JS 异常与控制台错误。
+
 ## 强制约束
 
 - **面板内边距**只有 `--panel-pad` 一个来源，表格的负边距与首末列内边距都跟着它走：
