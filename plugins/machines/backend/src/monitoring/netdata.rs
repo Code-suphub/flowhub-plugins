@@ -159,7 +159,10 @@ echo 'Netdata 已安装并已就绪。'
 # 校验监听地址是否真的生效：只测 127.0.0.1 无法区分「绑定所有网卡」和「只绑定本机」，
 # 而后者会让 FlowHub 永远连不上。发现没生效就直接修，而不是丢一句提示让用户自己改。
 is_wildcard_listening() {{
-  (ss -ltn 2>/dev/null || netstat -ltn 2>/dev/null) | grep -E "(^|[[:space:]])(0\.0\.0\.0|\*|\[::\]):${{probe_port}}[[:space:]]" >/dev/null 2>&1
+  # 端口后面可能是空格，也可能是行尾：只匹配 "[[:space:]]" 会在 `ss -ltn` 输出被截断或
+  # netstat 格式差异时漏判，把已经正确的绑定误报成未生效（进而触发无谓的自动修正）。
+  (ss -ltn 2>/dev/null || netstat -ltn 2>/dev/null) \
+    | grep -E "(^|[[:space:]])(0\.0\.0\.0|\*|\[::\]):${{probe_port}}([[:space:]]|$)" >/dev/null 2>&1
 }}
 if test "{bind}" = "0.0.0.0"; then
   if is_wildcard_listening; then
@@ -248,6 +251,9 @@ pub(crate) fn is_install(script:&str)->bool{script.starts_with("set -eu\n# FlowH
   let public=install_script(19999,"0.0.0.0",7,1024).unwrap();
   assert!(public.contains("监听检查：端口 $probe_port 已在所有网卡监听"));
   assert!(public.contains(r"0\.0\.0\.0|\*|\[::\]"),"应匹配 IPv4/IPv6 通配监听");
+  // 端口后必须同时接受空白与行尾：只匹配空白时，`ss` 输出被截断或 netstat 格式不同就会
+  // 漏判，把已经绑定所有网卡的机器误报成未生效（用户实际遇到过这次误报）。
+  assert!(public.contains(r"([[:space:]]|$)"),"通配判定必须接受行尾，避免漏判");
   assert!(public.contains("ss -ltn 2>/dev/null || netstat -ltn"),"缺少 ss 时应退回 netstat");
   // 仅本机模式不做这项检查，避免误报（检查体被 if test 包住，运行时不执行）。
   let local=install_script(19999,"127.0.0.1",7,1024).unwrap();
