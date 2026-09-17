@@ -4,10 +4,8 @@
 .help-trigger{display:grid;place-items:center;width:22px;height:22px;min-height:0;padding:0;border-radius:50%;font-size:12px;color:var(--muted);background:transparent}
 .help-content{position:absolute;right:0;top:calc(100% + 8px);z-index:45;width:min(320px,65vw);padding:14px;background:#243329;border:1px solid #4a6151;border-radius:8px;box-shadow:0 8px 26px #0006;font-size:12px;line-height:1.8;font-weight:400;color:var(--ink);white-space:normal}
 .help-content::before{content:"";position:absolute;top:-9px;left:0;right:0;height:9px}
-.connection-help-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;color:var(--muted);font-size:12px}
-.connection-options-body .filter-bar{margin-bottom:0}
+.connection-help-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;color:var(--muted);font-size:12px}.connection-options-body .filter-bar{margin-bottom:0}
 .command-shortcut{text-align:right}
-#bastionWorkbench .help-content{left:0;right:auto}
 .workbench-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:18px}
 .workbench-head h2{margin:0}
 .workbench-targets{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:18px}
@@ -85,19 +83,20 @@
 #bastionWorkbench>label{display:grid;gap:8px;margin-bottom:12px}
 .identity-input{display:flex;align-items:center;gap:8px;min-width:0}.identity-input input{flex:1;min-width:0}.identity-input button{flex:none}
 .host-save-actions{width:100%;justify-content:flex-end;padding-top:12px;border-top:1px solid var(--line)}
-.discovery-heading{display:flex;align-items:center;gap:10px}
+.discovery-heading{display:flex;align-items:center;gap:10px}.discovery-heading .help-content{left:0;right:auto}
 #discoveryHelpText::before{content:"";position:absolute;top:-9px;left:0;right:0;height:9px}
 .discovery-help{position:relative;display:inline-flex}
 #discoveryHelpButton{display:grid;place-items:center;width:24px;height:24px;padding:0;border-radius:50%;color:var(--muted);font-size:12px}
-#discoveryHelpText{position:absolute;left:0;top:calc(100% + 8px);z-index:40;width:min(330px,65vw);padding:14px;background:#243329;border:1px solid #4a6151;border-radius:8px;box-shadow:0 8px 26px #0006;font-size:12px;line-height:1.8;color:var(--ink)}
+.help-content,.select-menu{--popup-max:calc(100vw - 24px)}#discoveryHelpText{position:absolute;left:0;top:calc(100% + 8px);z-index:40;width:min(330px,65vw);padding:14px;background:#243329;border:1px solid #4a6151;border-radius:8px;box-shadow:0 8px 26px #0006;font-size:12px;line-height:1.8;color:var(--ink)}
 #sshDiscovery>.section-head{margin-bottom:12px}
 .discovery-meta{display:flex;flex-wrap:wrap;gap:8px 20px;padding:10px 0 14px;border-bottom:1px solid var(--line);color:var(--muted);font-size:11px;line-height:1.6}
 .discovery-path{display:flex;gap:8px;min-width:0;max-width:100%}
 .discovery-path code{font-size:11px;overflow-wrap:anywhere;min-width:0}
-@media(max-width:600px){#discoveryHelpText{left:auto;right:-70px;width:min(320px,75vw)}}
+/* 帮助气泡：宽屏贴着触发按钮，窄屏贴住可视区两侧，避免每个气泡各写一套定位。 */
+@media(max-width:760px){.help-content,#discoveryHelpText{position:fixed;left:12px;right:12px;bottom:12px;top:auto;width:auto;max-width:none}}
 .console-toolbar{display:flex;align-items:center;gap:14px;background:#0b110e;border:1px solid var(--line);padding:10px 14px;border-radius:8px 8px 0 0;color:var(--muted);font:11px Menlo,monospace}
 .console-toolbar button{margin-left:auto;padding:5px 9px;font:12px -apple-system,sans-serif}
-.console-output-area{background:#0b110e;min-height:240px;max-height:480px;overflow:auto;border:1px solid var(--line);border-top:0;padding:16px;border-radius:0 0 8px 8px}
+.console-output-area{background:#0b110e;min-height:240px;max-height:480px;overflow:auto;border:1px solid var(--line);padding:16px;border-radius:8px}.console-toolbar+.console-output-area{border-top:0;border-radius:0 0 8px 8px}
 .console-empty{font:12px/2 Menlo,monospace;color:var(--muted)}
 .console-job{padding:12px 0;border-bottom:1px solid var(--line)}
 .console-job:first-child{padding-top:0}.console-job:last-child{border:0}

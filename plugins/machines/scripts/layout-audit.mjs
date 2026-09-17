@@ -66,17 +66,47 @@ async function fixture() {
   return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">${styles}</head>${body}</html>`;
 }
 
-const MEASURE = `(() => {
+const HELPERS = `
   const one = (selector) => document.querySelector(selector);
   const contentLeft = (element) => {
     const box = element && element.getBoundingClientRect();
     if (!box) return null;
-    return box.left + parseFloat(getComputedStyle(element).paddingLeft || '0');
+    const style = getComputedStyle(element);
+    return Math.round((box.left + (parseFloat(style.borderLeftWidth) || 0) + parseFloat(style.paddingLeft || '0')) * 10) / 10;
   };
   const height = (selector) => {
-    const box = one(selector) && one(selector).getBoundingClientRect();
+    const element = one(selector);
+    const box = element && element.getBoundingClientRect();
     return box ? Math.round(box.height * 10) / 10 : null;
   };
+  // 元素往上数有几层带可见边框的容器：卡片套卡片会在这里露出来。
+  const borderDepth = (element) => {
+    if (!element) return null;
+    let count = (parseFloat(getComputedStyle(element).borderTopWidth) || 0) > 0 ? 1 : 0;
+    for (let node = element.parentElement; node && node !== document.body; node = node.parentElement) {
+      const style = getComputedStyle(node);
+      if (style.display === 'none') continue;
+      const widths = ['Top', 'Right', 'Bottom', 'Left'].map(side => parseFloat(style['border' + side + 'Width']) || 0);
+      if (widths.some(width => width > 0)) count += 1;
+    }
+    return count;
+  };
+  const tooltips = (selectors) => selectors.map(selector => {
+    const element = one(selector);
+    if (!element) return null;
+    const wasHidden = element.hidden;
+    element.hidden = false;
+    const box = element.getBoundingClientRect();
+    const viewport = document.documentElement.clientWidth;
+    const overflow = Math.round(Math.max(0, -box.left) + Math.max(0, box.right - viewport));
+    const side = box.left < 0 ? 'left' : box.right > viewport ? 'right' : 'inside';
+    element.hidden = wasHidden;
+    return { selector, overflow, side };
+  }).filter(Boolean);
+`;
+
+const MEASURE_FLEET = `(() => {
+${HELPERS}
   const wrap = one('.table-wrap');
   const table = wrap && wrap.querySelector('table');
   const firstCell = one('#hostRows tr:first-child td:first-child');
@@ -100,8 +130,7 @@ const MEASURE = `(() => {
       const wrapBox = wrap.getBoundingClientRect();
       const machineBox = machineCell.getBoundingClientRect();
       const actionsBox = actions && actions.getBoundingClientRect();
-      const stickyRight = machineBox.right;
-      const visible = actionsBox ? Math.max(0, Math.round(Math.min(actionsBox.right, wrapBox.right) - Math.max(actionsBox.left, stickyRight))) : null;
+      const visible = actionsBox ? Math.max(0, Math.round(Math.min(actionsBox.right, wrapBox.right) - Math.max(actionsBox.left, machineBox.right))) : null;
       wrap.scrollLeft = before;
       return {
         machineColumnVisibleAtRight: machineBox.right > wrapBox.left + 1,
@@ -113,11 +142,117 @@ const MEASURE = `(() => {
     overviewColumns: getComputedStyle(overview).gridTemplateColumns.split(' ').filter(Boolean).length,
     overviewMinColumn: columns.length ? Math.round(Math.min(...columns.map((element) => element.getBoundingClientRect().width))) : null,
     controlHeights: { filter: height('#filter'), group: height('#group'), collect: height('#collectSelected'), interval: height('#interval'), addHost: height('#addHost') },
-    mastheadGap: masthead ? getComputedStyle(masthead).gap : null,
-    mastheadWrap: masthead ? getComputedStyle(masthead).flexWrap : null,
-    actionsWidth: actions ? Math.round(actions.getBoundingClientRect().width) : null
+    mastheadGap: masthead ? getComputedStyle(masthead).gap : null
   };
 })()`;
+
+const MEASURE_COMMAND = `(() => {
+${HELPERS}
+  const bastion = one('#bastionWorkbench');
+  bastion.hidden = false;
+  const result = {
+    width: Math.round(document.documentElement.clientWidth),
+    pageOverflow: Math.round(document.documentElement.scrollWidth - document.documentElement.clientWidth),
+    directDepth: borderDepth(one('#directCommandPanel')),
+    bastionDepth: borderDepth(bastion),
+    workbenchLeft: contentLeft(one('.command-workspace')),
+    composerLeft: contentLeft(one('#directCommandPanel .composer-tools')),
+    terminalLeft: contentLeft(one('#directCommandPanel .terminal-shell')),
+    bastionHeadLeft: contentLeft(one('#bastionWorkbench > .section-head')),
+    directTerminalHeight: Math.round((one('#consoleOutput').getBoundingClientRect().height)),
+    bastionOutputTopBorder: parseFloat(getComputedStyle(one('#bastionOutput')).borderTopWidth) || 0,
+    bastionOutputRadius: parseFloat(getComputedStyle(one('#bastionOutput')).borderTopLeftRadius) || 0,
+    tooltips: tooltips(['#commandHelp', '#connectionHelp', '#bastionHelp']).filter(tip => tip.overflow > 0).map(tip => tip.selector + ':' + tip.side + tip.overflow).join(' ') || 'ok'
+  };
+  bastion.hidden = true;
+  return result;
+})()`;
+
+const MEASURE_DISCOVERY = `(() => {
+${HELPERS}
+  return {
+    width: Math.round(document.documentElement.clientWidth),
+    pageOverflow: Math.round(document.documentElement.scrollWidth - document.documentElement.clientWidth),
+    tooltips: tooltips(['#discoveryHelpText']).filter(tip => tip.overflow > 0).map(tip => tip.selector + ':' + tip.side + tip.overflow).join(' ') || 'ok',
+    rowsScrolls: (() => { const rows = one('#discoveryRows'); return rows ? rows.scrollHeight > rows.clientHeight : null; })()
+  };
+})()`;
+
+const VIEWS = [
+  {
+    label: '机器列表',
+    show: "document.querySelector('#fleetPanel').hidden=false;document.querySelector('#commandPanel').hidden=true;document.querySelector('#discoveryPanel').hidden=true;",
+    measure: MEASURE_FLEET,
+    columns: [
+      ['宽度', row => `${row.width}`], ['页溢出', row => `${row.pageOverflow}`], ['表宽', row => `${row.tableWidth}`],
+      ['表溢出', row => `${row.tableOverflow}`], ['首列偏差', row => `${row.firstColumnDelta}`],
+      ['滚到底见机器名', row => `${row.machineColumnVisibleAtRight === null ? '—' : row.machineColumnVisibleAtRight ? '是' : '否'}(${row.actionsVisibleAtRight}/${row.actionsWidthAtRight})`],
+      ['概况行×列', row => `${row.overviewRows}×${row.overviewColumns}`], ['概况最小列', row => `${row.overviewMinColumn}`],
+      ['控件高度', row => Object.entries(row.controlHeights).filter(([, value]) => value).map(([key, value]) => `${key}:${value}`).join(' ')],
+      ['masthead gap', row => `${row.mastheadGap}`]
+    ],
+    check: row => {
+      const problems = [];
+      if (row.pageOverflow > 0) problems.push(`${row.width}px 页面横向溢出 ${row.pageOverflow}px`);
+      if (row.firstColumnDelta !== null && Math.abs(row.firstColumnDelta) > 1) problems.push(`${row.width}px 表格首列与面板文字错位 ${row.firstColumnDelta}px`);
+      if (row.tableOverflow > 0 && row.machineColumnVisibleAtRight === false) problems.push(`${row.width}px 横向滚动后机器名不可见`);
+      if (row.actionsVisibleAtRight !== null && row.actionsWidthAtRight !== null && row.actionsVisibleAtRight < row.actionsWidthAtRight - 1) {
+        problems.push(`${row.width}px 横向滚动后操作列被固定列遮住 ${row.actionsWidthAtRight - row.actionsVisibleAtRight}px`);
+      }
+      if (row.width <= 600 && row.overviewRows < 2) problems.push(`${row.width}px 概况栏仍未换行（${row.overviewColumns} 列一行）`);
+      if (row.mastheadGap !== 'normal') problems.push(`${row.width}px 页面头部 gap 被外部样式表改写为 ${row.mastheadGap}`);
+      const heights = [...new Set(Object.values(row.controlHeights).filter(Boolean))];
+      if (heights.length > 1 && row.width > 600) problems.push(`${row.width}px 工具栏控件高度不一致：${heights.join(' / ')}`);
+      return problems;
+    }
+  },
+  {
+    label: '命令工作台',
+    show: "document.querySelector('#fleetPanel').hidden=true;document.querySelector('#commandPanel').hidden=false;document.querySelector('#discoveryPanel').hidden=true;",
+    measure: MEASURE_COMMAND,
+    columns: [
+      ['宽度', row => `${row.width}`], ['页溢出', row => `${row.pageOverflow}`],
+      ['容器层数 直连/堡垒', row => `${row.directDepth}/${row.bastionDepth}`],
+      ['内容左边界 工作台/输入/终端/堡垒', row => `${row.workbenchLeft}/${row.composerLeft}/${row.terminalLeft}/${row.bastionHeadLeft}`],
+      ['终端高度', row => `${row.directTerminalHeight}`],
+      ['堡垒输出框 上边框/圆角', row => `${row.bastionOutputTopBorder}/${row.bastionOutputRadius}`],
+      ['气泡出界', row => `${row.tooltips}`]
+    ],
+    check: row => {
+      const problems = [];
+      if (row.pageOverflow > 0) problems.push(`${row.width}px 命令工作台横向溢出 ${row.pageOverflow}px`);
+      if (row.directDepth > 1) problems.push(`${row.width}px 直连区嵌套了 ${row.directDepth} 层带边框容器`);
+      if (row.bastionDepth > 1) problems.push(`${row.width}px 堡垒机区嵌套了 ${row.bastionDepth} 层带边框容器`);
+      const lefts = [row.composerLeft, row.terminalLeft, row.bastionHeadLeft].filter(value => value !== null);
+      if (lefts.length && Math.max(...lefts) - Math.min(...lefts) > 1) problems.push(`${row.width}px 命令工作台各段左边界不一致：${lefts.join(' / ')}`);
+      if (row.tooltips !== 'ok') problems.push(`${row.width}px 帮助气泡超出视口：${row.tooltips}`);
+      if (!(row.bastionOutputTopBorder > 0) || !(row.bastionOutputRadius > 0)) {
+        problems.push(`${row.width}px 堡垒机输出框缺少上边框或圆角（${row.bastionOutputTopBorder}/${row.bastionOutputRadius}）`);
+      }
+      return problems;
+    }
+  },
+  {
+    label: 'SSH 导入',
+    show: "document.querySelector('#fleetPanel').hidden=true;document.querySelector('#commandPanel').hidden=true;document.querySelector('#discoveryPanel').hidden=false;",
+    measure: MEASURE_DISCOVERY,
+    columns: [
+      ['宽度', row => `${row.width}`], ['页溢出', row => `${row.pageOverflow}`],
+      ['气泡出界', row => `${row.tooltips}`], ['候选列表可滚动', row => `${row.rowsScrolls}`]
+    ],
+    check: row => {
+      const problems = [];
+      if (row.pageOverflow > 0) problems.push(`${row.width}px SSH 导入横向溢出 ${row.pageOverflow}px`);
+      if (row.tooltips !== 'ok') problems.push(`${row.width}px 帮助气泡超出视口：${row.tooltips}`);
+      return problems;
+    }
+  }
+];
+
+function table(lines, head) {
+  const widths = head.map((_, column) => Math.max(...lines.map(line => String(line[column]).length)));
+  for (const line of [head, ...lines]) console.log(line.map((cell, column) => String(cell).padEnd(widths[column])).join('  '));
+}
 
 function serve(bodies) {
   const server = createServer(async (request, response) => {
@@ -221,41 +356,29 @@ async function main() {
     await client.send('Page.navigate', { url: `http://127.0.0.1:${pagePort}/__audit.html` });
     await loadedPromise;
 
-    const results = [];
-    for (const width of WIDTHS) {
-      await client.send('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: false });
-      await new Promise(resolve => setTimeout(resolve, 60));
-      const { result } = await client.send('Runtime.evaluate', { expression: MEASURE, returnByValue: true });
-      results.push(result.value);
-    }
-
+    const report = [];
     const failures = [];
-    for (const row of results) {
-      if (row.pageOverflow > 0) failures.push(`${row.width}px 页面横向溢出 ${row.pageOverflow}px`);
-      if (row.firstColumnDelta !== null && Math.abs(row.firstColumnDelta) > 1) failures.push(`${row.width}px 表格首列与面板文字错位 ${row.firstColumnDelta}px`);
-      if (row.tableOverflow > 0 && row.machineColumnVisibleAtRight === false) failures.push(`${row.width}px 横向滚动后机器名不可见`);
-      if (row.actionsVisibleAtRight !== null && row.actionsWidthAtRight !== null && row.actionsVisibleAtRight < row.actionsWidthAtRight - 1) {
-        failures.push(`${row.width}px 横向滚动后操作列被固定列遮住 ${row.actionsWidthAtRight - row.actionsVisibleAtRight}px`);
+    for (const view of VIEWS) {
+      const rows = [];
+      for (const width of WIDTHS) {
+        await client.send('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: false });
+        await client.send('Runtime.evaluate', { expression: view.show, returnByValue: true });
+        await new Promise(resolve => setTimeout(resolve, 60));
+        const { result } = await client.send('Runtime.evaluate', { expression: view.measure, returnByValue: true });
+        rows.push(result.value);
+        failures.push(...view.check(result.value).map(problem => `[${view.label}] ${problem}`));
       }
-      if (row.width <= 600 && row.overviewRows < 2) failures.push(`${row.width}px 概况栏仍未换行（${row.overviewColumns} 列一行）`);
-      const heights = [...new Set(Object.values(row.controlHeights).filter(Boolean))];
-      if (heights.length > 1 && row.width > 600) failures.push(`${row.width}px 工具栏控件高度不一致：${heights.join(' / ')}`);
+      report.push({ label: view.label, columns: view.columns, rows });
     }
 
     if (jsonOnly) {
-      console.log(JSON.stringify({ results, failures }, null, 2));
+      console.log(JSON.stringify({ report, failures }, null, 2));
     } else {
-      const head = ['宽度', '页溢出', '表宽', '表溢出', '首列偏差', '滚到底见机器名', '概况行×列', '概况最小列', '控件高度', 'masthead gap'];
-      const rows = results.map(row => [
-        `${row.width}`, `${row.pageOverflow}`, `${row.tableWidth}`, `${row.tableOverflow}`, `${row.firstColumnDelta}`,
-        `${row.machineColumnVisibleAtRight === null ? '—' : row.machineColumnVisibleAtRight ? '是' : '否'}${row.actionsVisibleAtRight !== null ? `(${row.actionsVisibleAtRight}/${row.actionsWidthAtRight})` : ''}`,
-        `${row.overviewRows}×${row.overviewColumns}`, `${row.overviewMinColumn}`,
-        Object.entries(row.controlHeights).filter(([, value]) => value).map(([key, value]) => `${key}:${value}`).join(' '),
-        `${row.mastheadGap}${row.mastheadWrap === 'wrap' ? ' wrap' : ''}`
-      ]);
-      const widths = head.map((_, column) => Math.max(...[head, ...rows].map(line => [...line][column].length)));
-      for (const line of [head, ...rows]) console.log(line.map((cell, column) => String(cell).padEnd(widths[column])).join('  '));
-      console.log(failures.length ? `\n${failures.length} 处不符合预期：\n- ${failures.join('\n- ')}` : '\n所有断点符合预期');
+      for (const view of report) {
+        console.log(`\n== ${view.label} ==`);
+        table(view.rows.map(row => view.columns.map(([, get]) => get(row))), view.columns.map(([label]) => label));
+      }
+      console.log(failures.length ? `\n${failures.length} 处不符合预期：\n- ${failures.join('\n- ')}` : '\n所有视图的所有断点符合预期');
     }
     if (check && failures.length) process.exitCode = 1;
   } finally {
