@@ -74,9 +74,19 @@ cat > "$task_dir/netdata.conf" <<'FLOWHUB_CONFIG'
 FLOWHUB_CONFIG
 as_root install -m 644 "$task_dir/netdata.conf" "$conf"
 if command -v systemctl >/dev/null; then as_root systemctl restart netdata; else as_root service netdata restart; fi
-# 只做本机自检（云主机上探测自己的公网 IP 常因 NAT 失败，不代表配置有问题）。
-curl --fail --silent --max-time 10 http://127.0.0.1:{port}/api/v1/info >/dev/null || {{ echo 'Agent 尚未就绪，请查看服务状态和安装日志'; exit 1; }}
-echo 'Netdata 已安装。FlowHub 里「接入已有 Netdata」的 Agent 地址填 http://<本机IP>:{port}。'
+# 首次安装要初始化 dbengine 并加载插件，几秒内不会响应；只探测一次会把「装好了但还没起来」
+# 误报成安装失败，所以这里重试约 60 秒。只探测本机（云主机上探测自己的公网 IP 常因 NAT 失败）。
+ready=''
+for _ in $(seq 1 30); do
+  if curl --fail --silent --max-time 3 http://127.0.0.1:{port}/api/v1/info >/dev/null 2>&1; then ready=1; break; fi
+  sleep 2
+done
+if test -z "$ready"; then
+  echo 'Netdata 已安装，但 Agent 在 60 秒内没有响应。'
+  echo '这不是安装失败：请查看 systemctl status netdata 与 journalctl -u netdata 排查服务状态。'
+  exit 1
+fi
+echo 'Netdata 已安装并已就绪。FlowHub 里「接入已有 Netdata」的 Agent 地址填 http://<本机IP>:{port}。'
 echo '请确认本机防火墙与云安全组已放行 {port} 端口；历史保留受时间与容量两者限制；原始安装配置已备份。'
 "#))
 }
@@ -90,6 +100,15 @@ pub(crate) fn is_install(script:&str)->bool{script.starts_with("set -eu\n# FlowH
     let instance=Instance{id:"test".into(),name:"Test".into(),url:format!("http://{address}"),network_chart:String::new()};assert_eq!(fetch(&instance).await.unwrap()["rows"][0]["values"]["cpu"],25.);assert_eq!(history(&instance,"system.cpu",86400).await.unwrap()["data"][0][1],25.);server.await.unwrap();
  }
  #[test]fn validate_urls_and_install_arguments(){assert!(endpoint("file:///tmp/a","api/v1/info").is_err());assert!(endpoint("https://u:p@host","api/v1/info").is_err());assert_eq!(endpoint("https://host/netdata/","api/v1/info").unwrap().path(),"/netdata/api/v1/info");assert!(install_script(19999,"0.0.0.0;id",7,1024).is_err());assert!(install_script(22,"127.0.0.1",7,1024).is_err());}
+ #[test]fn install_script_retries_the_readiness_probe_instead_of_failing_once(){
+  let script=install_script(19999,"0.0.0.0",7,1024).unwrap();
+  // 首次启动要初始化 dbengine，单次探测会把「装好了但还没起来」误报成安装失败。
+  assert!(script.contains("for _ in $(seq 1 30)"),"自检必须重试");
+  assert!(!script.contains("--max-time 10 http://127.0.0.1:19999/api/v1/info >/dev/null ||"));
+  // 超时措辞不能让人以为安装本身失败了。
+  assert!(script.contains("这不是安装失败"));
+  assert!(script.contains("journalctl -u netdata"));
+ }
  #[test]fn install_script_binds_the_requested_address_and_states_the_endpoint(){
   let public=install_script(19999,"0.0.0.0",30,2048).unwrap();
   assert!(public.contains("bind to = 0.0.0.0"));
