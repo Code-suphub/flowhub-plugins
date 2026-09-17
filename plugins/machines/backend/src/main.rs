@@ -1,5 +1,9 @@
 mod machines;
-mod tencent;
+mod cloud_traffic;
+mod cloud_providers;
+mod zgocloud;
+mod local_traffic;
+mod bandwagon;
 mod cli;
 mod ssh_profiles;
 mod bastion;
@@ -76,7 +80,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ctx = Context { runtime: Arc::new(machines::Runtime::new(root.clone())?),gate:Arc::new(tokio::sync::RwLock::new(())),backup:Arc::new(backup::Manager::new(root)) };
     cli::serve(ctx.clone(), &std::env::var_os("FLOWHUB_PLUGIN_DATA").map(PathBuf::from).unwrap()).await?;
     machines::start_monitor(&ctx);
-    machines::start_tencent(&ctx);
+    machines::start_cloud_traffic(&ctx);
     let out = Arc::new(tokio::sync::Mutex::new(tokio::io::stdout()));
     let mut lines = tokio::io::BufReader::new(tokio::io::stdin()).lines();
     while let Some(line) = lines.next_line().await? {

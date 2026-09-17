@@ -8,9 +8,13 @@
   }
   function traffic(value,now=Date.now()){
     const stale=!value?.at||!Number.isFinite(Date.parse(value.at))||now-Date.parse(value.at)>900000;
-    if(!value||value.error||stale||!Number.isFinite(value.remaining)||!Number.isFinite(value.total)||value.total<=0)return '<div class="traffic-metric">剩余流量 —<small>'+(!value?'请先配置并查询腾讯云流量':value.error?'查询失败 / 暂无有效套餐':stale?'流量数据已过期':'暂无数据')+'</small></div>';
-    const fmt=n=>(n/1073741824).toLocaleString('zh-CN',{maximumFractionDigits:0});
-    return '<div class="traffic-metric" title="剩余流量 / 套餐总量"><b>'+fmt(value.remaining)+'/'+fmt(value.total)+' GB</b></div>';
+    const divisor=Number.isFinite(value?.divisor)&&value.divisor>0?value.divisor:1073741824;
+    const fmt=n=>(n/divisor).toLocaleString('zh-CN',{maximumFractionDigits:0});
+    if(value&&!value.error&&!stale&&value.mode==='usage'&&Number.isFinite(value.used)&&value.used>=0)return '<div class="traffic-metric" title="本月监控用量，不代表账单或套餐余额"><b>已用 '+fmt(value.used)+' GB</b></div>';
+    if(!value||value.error||stale||!Number.isFinite(value.remaining)||!Number.isFinite(value.total)||value.total<=0)return '<div class="traffic-metric">剩余流量 —<small>'+(!value?'请先配置并查询云流量':value.error?'查询失败 / 暂无有效套餐':stale?'流量数据已过期':'暂无数据')+'</small></div>';
+
+    const shared=value.scope==='account'||value.scope?.startsWith('region:');
+    return '<div class="traffic-metric" title="'+(shared?'共享流量池：剩余 / 总量':'剩余流量 / 套餐总量')+'"><b>'+(shared?'共享 ':'')+fmt(value.remaining)+'/'+fmt(value.total)+' GB</b></div>';
   }
   const api={flag,expiry,traffic};if(typeof module!=='undefined')module.exports=api;else root.MachineMetadata=api;
 })(globalThis);

@@ -5,3 +5,12 @@ test('countdown handles future, expired and exact expiry',()=>{assert.equal(expi
 
 const {traffic}=require('../ui/widget-metadata.js');
 test('traffic distinguishes exhausted quota from missing and stale data',()=>{const at='2026-09-13T00:00:00Z',now=Date.parse(at);assert.match(traffic({remaining:0,total:1073741824,at},now),/0\/1 GB/);assert.match(traffic(null,now),/请先配置/);assert.match(traffic({remaining:9,total:10,at},now+900001),/已过期/);assert.match(traffic({error:'<script>'},now),/查询失败/);assert.doesNotMatch(traffic({error:'<script>'},now),/<script>/);});
+
+test('cloud usage and shared quota cannot be confused with instance balance',()=>{
+ const at='2026-09-13T00:00:00Z',now=Date.parse(at);
+ assert.match(traffic({mode:'usage',used:2e9,divisor:1e9,at},now),/已用 2 GB/);
+ assert.doesNotMatch(traffic({mode:'usage',used:2e9,divisor:1e9,at},now),/2\//);
+ assert.match(traffic({scope:'account',remaining:9e9,total:10e9,divisor:1e9,at},now),/共享 9\/10 GB/);
+ assert.match(traffic({scope:'region:us-east',remaining:0,total:1e9,divisor:1e9,at},now),/共享 0\/1 GB/);
+ assert.match(traffic({mode:'usage',used:2e9,at},now+900001),/已过期/);
+});

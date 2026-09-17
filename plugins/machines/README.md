@@ -63,5 +63,40 @@ stdin/stdout 每行一条 JSON：
 
 多个请求可并发，通过 id 配对。错误响应使用 error 字段。stdout 只输出协议，诊断写 stderr。页面只通过 plugin-bridge.js 请求当前插件进程，不能直接调用宿主 Tauri 命令。
 
-### 腾讯云轻量实例流量
-机器管理顶部“腾讯云流量”中选择已纳管机器，填写地域、lhins- 实例 ID 与 API 凭证，点击“保存配置”。凭证和关联参数以机器 ID 隔离，使用现有 AES-256-GCM SQLite 凭据库保存并随机器插件加密备份；密钥不回显，编辑留空保留，可显式清除临时 Token。查询读取已保存的配置，存在未保存修改时先提示保存。组件编辑中可勾选“剩余流量（腾讯云）”。插件启动及每 5 分钟查询已保存的关联配置，也可手动查询；超过 15 分钟的数据标为过期，不显示旧余额。所需权限仅 lighthouse:DescribeInstancesTrafficPackages。
+## 云流量
+
+机器管理 → 云流量 → 选择机器与云服务商 → 保存配置 → 查询已保存配置。
+凭证使用现有加密凭据库，按机器隔离；密钥不回显，留空保留。切换服务商需重新填写凭证。旧腾讯云配置原位兼容，原腾讯云 API 动作保留。
+组件编辑可选择“剩余流量（云服务商）”。插件运行时每 5 分钟查询；超过 15 分钟的数据不显示为当前余额。需要机器的 `ssh:configure` 权限，实际查询独立于 SSH 连接。
+
+| 云服务商 / 产品 | 当前支持 | 配置与只读权限 |
+| --- | --- | --- |
+| 腾讯云 Lighthouse | 单实例套餐余额 | SecretId/SecretKey、地域、lhins- ID；`lighthouse:DescribeInstancesTrafficPackages` |
+| 搬瓦工 KiwiVM | 单实例套餐余额及重置日期 | 每实例 VEID/API Key；`getServiceInfo` |
+| 阿里云轻量 | 本月单实例套餐余额 | AK/SK、地域、轻量实例 ID；`swas-open:ListInstancesTrafficPackages` |
+| 华为云 Flexus L | 指定流量包余额 | AK/SK、中国/国际站、流量包 ID；资源包查询权限 |
+| Linode / Akamai | 账户或指定地域共享池 | Token：`account:read_only`；可选地域 ID |
+| Vultr | 本月至今账户共享池 | API Key 可读取 `/v2/account/bandwidth`，允许客户端 IP |
+| AWS Lightsail | 本月 UTC 入站＋出站监控用量 | AK/SK、地域、实例名称；`lightsail:GetInstanceMetricData` |
+| ZgoCloud (VirtFusion · API Token) | 当前周期套餐余量 | Bearer Token + 整数 serverId；`GET /api/v1/servers/{id}/traffic` |
+| ZgoCloud (VirtFusion · Session Cookie) | 当前周期累计（限额手动） | 浏览器 Cookie + XSRF Token + 整数 serverId；`GET /server/{id}/resource/traffic.json` |
+| 网卡计数器（本地 Netdata） | 累计 rx/tx + 日均 + 剩余天数（限额手动） | 复用 FlowHub 已接入的 Netdata 节点；30 天 `system.net` 累计差 / 30 算日均；`GET netdata/api/v1/allmetrics` + `api/v1/data` |
+
+- 套餐显示“295/300 GB”，共享池显示“共享 295/300 GB”，仅监控显示“已用 5 GB”。沿用组件的紧凑 GB 标签；详情按原 API 数值尺度区分 GB/GiB。
+- Linode 地域独立池不能互相抵扣；账户汇总不代表单台机器专属余量。Vultr 使用已累计额度，不用月底预测额度。
+- AWS 监控可能延迟或缺失，不作为账单或套餐余额；不计算虚构的剩余量。
+- 华为云填写的是流量包 ID，不是服务器 ID。接口仅接受有效周期内、计量单位为 GB 的资源包。
+- 搬瓦工通过固定 HTTPS POST 请求，密钥不在 URL 中。按 `monthly_data_multiplier` 同时换算总量和已用量；实际倍率需用真实账单核对。
+- ZgoCloud 提供两种接入：API Token 走 Bearer（接口自带 limit/blocks），Session Cookie 走浏览器 session（接口只给累计，limitGB 由配置项手动填）。两路都把响应统一归一为 `rows[].TrafficPackageSet`，UI 同一套展示。Cookie 会过期，过期需重新从浏览器抓取；服务器重启或会话失效也会让 Cookie 失效。
+- 网卡计数器走的是 FlowHub 已接入的 Netdata 节点（无需额外鉴权，HTTP 即可），按 30 天窗口的累计差值算日均和剩余天数。VM 重启会让 Netdata 计数器归零，期间日均会显示"暂无数据"或偏低。limitGB 必须手动填。Netdata 累计样本不足 1 天时同样不计算日均。
+- 腾讯云、阿里云及 AWS 支持临时会话 Token；过期需更新，可显式清除。没有密钥时不生成演示余额。
+- 本轮新增厂商尚未使用真实用户凭证联调。已做响应解析、签名向量、配置持久化及交互验证；配置后需与控制台核对一轮。
+- 这不是所有云产品的账单查询：ECS/EIP、EC2、DigitalOcean 等不能复用上述轻量套餐接口。尚未提供它们的权威套餐余额适配，不能由 SSH 网卡计数推导。
+
+### 官方接口参考
+
+- [阿里云套餐查询](https://help.aliyun.com/zh/simple-application-server/developer-reference/api-swas-open-2020-06-01-listinstancestrafficpackages/)、[地域端点](https://help.aliyun.com/zh/simple-application-server/developer-reference/api-swas-open-2020-06-01-endpoint)、[ACS3 签名](https://help.aliyun.com/zh/sdk/product-overview/v3-request-structure-and-signature)
+- [华为云 Flexus L 流量包](https://support.huaweicloud.com/intl/zh-cn/api-flexusl/query_traffic_0001.html)、[官方签名实现](https://github.com/huaweicloud/huaweicloud-sdk-go-v3/blob/master/core/auth/signer/signer.go)
+- [Linode 账户用量](https://techdocs.akamai.com/linode-api/reference/get-transfer)
+- [Vultr 账户流量](https://docs.vultr.com/reference/vultr-cli/account/bandwidth)、[官方返回模型](https://github.com/vultr/govultr/blob/master/account.go)
+- [AWS Lightsail 指标](https://docs.aws.amazon.com/lightsail/2016-11-28/api-reference/API_GetInstanceMetricData.html)、[流量池口径](https://docs.aws.amazon.com/lightsail/latest/userguide/amazon-lightsail-faq-data-transfer-allowance.html)

@@ -356,7 +356,7 @@ pub(crate) struct Runtime {
     history_store: machine_history::Store,
     metrics: Mutex<HashMap<String, Value>>,
     netdata_cache: Mutex<HashMap<String,Value>>,
-    tencent_cache: Mutex<HashMap<String,Value>>,
+    traffic_cache: Mutex<HashMap<String,Value>>,
     slots: Semaphore,
 }
 impl Runtime {
@@ -416,7 +416,7 @@ impl Runtime {
             history: Mutex::new(Vec::new()),
             metrics: Mutex::new(HashMap::new()),
             netdata_cache: Mutex::new(HashMap::new()),
-            tencent_cache: Mutex::new(HashMap::new()),
+            traffic_cache: Mutex::new(HashMap::new()),
             slots: Semaphore::new(4),
         })
     }
@@ -437,7 +437,7 @@ impl Runtime {
         let mut status=status_summary(&snapshot, chrono::Utc::now().timestamp_millis());
         let instances=self.config.lock().unwrap().netdata.clone();let cache=self.netdata_cache.lock().unwrap();
         for instance in instances { if let Some(data)=cache.get(&instance.id){if let Some(rows)=data["rows"].as_array(){status["rows"].as_array_mut().unwrap().extend(rows.iter().cloned());}} }
-        let traffic=self.tencent_cache.lock().unwrap();
+        let traffic=self.traffic_cache.lock().unwrap();
         for row in status["rows"].as_array_mut().unwrap() {
             if let Some(value)=row["id"].as_str().and_then(|id|traffic.get(id)){row["traffic"]=value.clone();}
             let summary=if row["status"]=="healthy" {let v=&row["values"];let value=|key:&str|v[key].as_f64().map(|n|format!("{n:.0}%")).unwrap_or("—".into());format!("CPU {} / 内存 {} / 磁盘 {}",value("cpu"),value("memory"),value("disk"))}else {match row["status"].as_str(){Some("error")=>"异常",Some("stale")=>"已过期",_=>"未采集"}.into()};
@@ -621,13 +621,18 @@ pub(crate) async fn machines_api(
 ) -> Result<Value, String> {
     let rt = app.runtime.clone();
     match action.as_str() {
-        "tencentRead" | "tencentSave" | "tencentQuery" => {
-            let host=payload["hostId"].as_str().ok_or("请选择机器")?;
-            {let c=rt.config.lock().unwrap();authorize(&c,"ssh:configure")?;if !c.hosts.iter().any(|h|h.id==host){return Err("机器不存在".into());}}
+        "trafficRead" | "trafficSave" | "trafficQuery" | "tencentRead" | "tencentSave" | "tencentQuery" => {
+            let provider=payload["provider"].as_str().unwrap_or("tencent");
+            let key={
+                let c=rt.config.lock().unwrap();
+                authorize(&c,"ssh:configure")?;
+                if provider=="localNet"{let id=payload["netdataId"].as_str().ok_or("请先选择 Netdata 节点")?;if !c.netdata.iter().any(|i|i.id==id){return Err("Netdata 节点不存在".into());}format!("localnet:{id}")}
+                else{let host=payload["hostId"].as_str().ok_or("请选择机器")?;if !c.hosts.iter().any(|h|h.id==host){return Err("机器不存在".into());}host.to_string()}
+            };
             let root=rt.path.parent().ok_or("数据目录不存在")?;
-            match action.as_str(){"tencentRead"=>Ok(crate::tencent::read(root,host)),"tencentSave"=>{let result=crate::tencent::save(root,host,&payload)?;rt.tencent_cache.lock().unwrap().remove(host);Ok(result)},_=>{
-                let before=crate::tencent::read(root,host);let result=crate::tencent::query(root,host).await;
-                if before==crate::tencent::read(root,host){let value=match &result{Ok(data)=>crate::tencent::summary(data),Err(e)=>json!({"error":e})};rt.tencent_cache.lock().unwrap().insert(host.into(),value);}
+            match action.as_str(){"trafficRead"|"tencentRead"=>Ok(crate::cloud_traffic::read(root,&key)),"trafficSave"|"tencentSave"=>{let result=crate::cloud_traffic::save(root,&key,&payload)?;rt.traffic_cache.lock().unwrap().remove(&key);Ok(result)},_=>{
+                let before=crate::cloud_traffic::read(root,&key);let result=crate::cloud_traffic::query(root,&key).await;
+                if before==crate::cloud_traffic::read(root,&key){let value=match &result{Ok(data)=>crate::cloud_traffic::summary(data),Err(e)=>json!({"error":e})};rt.traffic_cache.lock().unwrap().insert(key.clone(),value);}
                 result
             }}
         },
@@ -2022,12 +2027,12 @@ mod tests {
 }
 
 /// Cloud package usage is independent of SSH health and sampled at low frequency.
-pub(crate) fn start_tencent(app:&Context){
+pub(crate) fn start_cloud_traffic(app:&Context){
  let app=app.clone();tokio::spawn(async move{loop{
   {let _guard=app.gate.read().await;
    if !app.backup.pending_restore(){
     let hosts={let c=app.runtime.config.lock().unwrap();if authorize(&c,"ssh:configure").is_ok(){c.hosts.iter().map(|h|h.id.clone()).collect::<Vec<_>>()}else{vec![]}};
-    for host in hosts {let root=app.runtime.path.parent().unwrap();if crate::tencent::read(root,&host)["configured"]==true{let _=machines_api(app.clone(),"tencentQuery".into(),json!({"hostId":host})).await;}}
+    for host in hosts {let root=app.runtime.path.parent().unwrap();if crate::cloud_traffic::read(root,&host)["configured"]==true{let _=machines_api(app.clone(),"trafficQuery".into(),json!({"hostId":host})).await;}}
    }
   }
   tokio::time::sleep(Duration::from_secs(300)).await;
