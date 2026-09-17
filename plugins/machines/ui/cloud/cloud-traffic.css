@@ -1,6 +1,8 @@
-/* 云流量与「编辑机器」「Netdata 监控」是同一族弹窗，宽度必须一致：仅覆盖布局方式，
-   宽度沿用 .netdata-dialog 的 min(820px,94vw)，不要在这里另写一个数值。 */
-.traffic-dialog[open]{display:flex;flex-direction:column;padding:0;overflow:hidden}
+/* 云流量与「编辑机器」「Netdata 监控」是同一族弹窗：宽度与高度都必须与它们一致。
+   宽度沿用 .netdata-dialog 的 min(820px,94vw)；高度上 .netdata-dialog 只有 max-height:88vh，
+   于是本弹窗会按内容长度“长一半就停”，在矮 iframe 里正文被压到一半并出现滚动条。
+   这里补上与 .host-dialog 相同的高度约束：撑满可用高度，正文区独立滚动。 */
+.traffic-dialog[open]{display:flex;flex-direction:column;height:min(calc(100vh - 24px),920px);max-height:calc(100vh - 24px);padding:0;overflow:hidden}
 .traffic-dialog .traffic-head{gap:16px;align-items:flex-start;margin:0;padding:24px 24px 18px;border-bottom:1px solid var(--line)}
 .traffic-dialog .traffic-head>div{display:grid;gap:8px;min-width:0}
 .traffic-dialog .traffic-head h2{margin:0}
@@ -37,8 +39,13 @@
 .traffic-dialog .traffic-meter.over i{background:var(--bad)}
 .traffic-dialog .traffic-note{margin:14px 0 0;color:var(--muted);font-size:11px;line-height:1.7}
 .traffic-dialog .traffic-empty{margin:0;color:var(--muted);font-size:12px}
+/* 与 .host-dialog 一致：插件页常被嵌在较矮的 iframe 里，矮窗口压缩弹窗自身留白，把高度让给正文。 */
+@media(max-height:700px){
+ .traffic-dialog .traffic-head{padding:16px 20px 12px}
+ .traffic-dialog .traffic-body{padding:14px 20px 16px}
+ .traffic-dialog .traffic-footer{padding:10px 20px}
+}
 @media(max-width:640px){
- .traffic-dialog[open]{width:min(100vw,94vw)}
  .traffic-dialog .traffic-footer{flex-wrap:wrap}
  .traffic-dialog .traffic-footer .actions{width:100%}
  .traffic-dialog .traffic-footer .actions button{flex:1}

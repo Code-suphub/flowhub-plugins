@@ -207,27 +207,34 @@ ${HELPERS}
 
 const MEASURE_DIALOG_FAMILY = `(() => {
  ${HELPERS}
-  const widthOf = element => element ? Math.round(element.getBoundingClientRect().width) : null;
+  const box = element => element ? element.getBoundingClientRect() : null;
+  const sizeOf = element => { const rect = box(element); return rect ? { w: Math.round(rect.width), h: Math.round(rect.height) } : null; };
   const shells = window.__auditDialogs || {};
   const edit = one('#hostDialog');
   edit.setAttribute('open', '');
   shells.netdata.showModal();
   shells.traffic.showModal();
-  const row = {
+  const measure = element => { const rect = sizeOf(element); return rect ? rect.w + 'x' + rect.h : null; };
+  const rows = {
     width: Math.round(document.documentElement.clientWidth),
-    available: Math.round(document.documentElement.clientWidth),
-    edit: widthOf(edit),
-    netdata: widthOf(shells.netdata),
-    traffic: widthOf(shells.traffic),
-    ratio: null
+    height: Math.round(document.documentElement.clientHeight),
+    edit: measure(edit),
+    netdata: measure(shells.netdata),
+    traffic: measure(shells.traffic)
   };
-  const max = Math.max(row.edit || 0, row.netdata || 0, row.traffic || 0);
-  row.ratio = max ? (max / row.available).toFixed(2) : null;
+  // 「编辑机器」用 height:min(calc(100vh - 24px),920px) 撑满可用高度，同族弹窗必须一起等高。
+  const expected = Math.round(Math.min(document.documentElement.clientHeight - 24, 920));
+  rows.expected = expected;
   shells.netdata.close();
   shells.traffic.close();
   edit.removeAttribute('open');
-  return row;
+  return rows;
 })()`;
+
+/** '820x776' → 820 */
+const widthPart = value => Number(String(value).split('x')[0]);
+/** '820x776' → 776 */
+const heightPart = value => Number(String(value).split('x')[1]);
 
 const VIEWS = [
   {
@@ -311,12 +318,15 @@ const VIEWS = [
     }
   },
   {
-    label: '弹窗宽度一致性',
-    // 编辑机器 / Netdata / 云流量三个弹窗都是 .netdata-dialog 家族，宽度应来自同一处，
-    // 谁单独写死一个宽度就会在宽窗口里明显比兄弟弹窗窄（云流量曾因此比另两个窄 40px）。
-    sizes: [[1400, 900], [760, 900], [660, 700], [1200, 800]],
+    label: '弹窗尺寸一致性',
+    // 编辑机器 / Netdata / 云流量是同一族弹窗，宽高都应来自同一套约束：
+    //  - 宽度：.netdata-dialog 的 min(820px,94vw)。谁单独写死一个更小的值，宽窗口下就会比兄弟弹窗窄
+    //    （云流量曾单独写 780px，比另两个窄 40px）。
+    //  - 高度：撑满 min(calc(100vh - 24px),920px)。.netdata-dialog 只有 max-height:88vh，没有 height，
+    //    于是会按内容长度“长一半就停”（云流量曾只有 480px，而编辑机器 522px，正文被压到 314px 并出现滚动条）。
+    sizes: [[1400, 900], [760, 900], [660, 700], [1200, 800], [718, 546]],
     // 云流量和 Netdata 的弹窗由脚本动态创建，而审计页不加载脚本，这里只放一个同样带类名的空壳：
-    // 量的是 CSS 给这个家族的宽度，与弹窗内容无关。
+    // 量的是 CSS 给这个家族的宽高，与弹窗内容无关。
     show: "for (const p of document.querySelectorAll('[role=\"tabpanel\"]')) p.hidden = p.id !== 'fleetPanel';",
     prepare: `(() => {
       const add = (name, className, title) => {
@@ -333,23 +343,33 @@ const VIEWS = [
     })()`,
     measure: MEASURE_DIALOG_FAMILY,
     columns: [
-      ['视口', row => `${row.width}`],
-      ['可用宽', row => `${row.available}`],
+      ['视口', row => `${row.width}x${row.height}`],
+      ['应达高度', row => `${row.expected}`],
       ['编辑机器', row => `${row.edit}`],
       ['Netdata', row => `${row.netdata}`],
-      ['云流量', row => `${row.traffic}`],
-      ['可用宽占比', row => `${row.ratio}`]
+      ['云流量', row => `${row.traffic}`]
     ],
     check: row => {
       const problems = [];
       const values = [['编辑机器', row.edit], ['Netdata', row.netdata], ['云流量', row.traffic]];
+      const limit = Math.min(Math.round(row.width * 0.94), 820);
       for (const [label, value] of values) {
-        if (value === null) { problems.push(`${row.width}px ${label}弹窗量不到宽度`); continue; }
-        if (value < Math.min(row.available * 0.94, 820) - 1) problems.push(`${row.width}px ${label}弹窗只有 ${value}px，窄于设计上限 ${Math.min(Math.round(row.available * 0.94), 820)}px`);
+        if (value === null) { problems.push(`${row.width}px ${label}弹窗量不到尺寸`); continue; }
+        const width = widthPart(value);
+        const height = heightPart(value);
+        if (width < Math.min(row.width * 0.94, 820) - 1) problems.push(`${row.width}px ${label}弹窗只有 ${width}px 宽，窄于设计上限 ${limit}px`);
+        // Netdata 面板内容是自适应的，只约束宽度；云流量与编辑机器都用满可用高度。
+        if (label !== 'Netdata' && height < row.expected - 1) problems.push(`${row.width}x${row.height} ${label}弹窗只有 ${height}px 高，未撑满可用高度 ${row.expected}px`);
       }
-      if (values.every(([, value]) => value !== null)) {
-        const spread = Math.max(...values.map(([, value]) => value)) - Math.min(...values.map(([, value]) => value));
-        if (spread > 0 && row.available * 0.94 > 820) problems.push(`${row.width}px 三个弹窗宽度不一致，相差 ${spread}px：${values.map(([label, value]) => label + ' ' + value).join(' / ')}`);
+      const widths = values.map(([, value]) => widthPart(value));
+      if (widths.every(Number.isFinite)) {
+        const spread = Math.max(...widths) - Math.min(...widths);
+        if (spread > 0 && row.width * 0.94 > 820) problems.push(`${row.width}px 三个弹窗宽度不一致，相差 ${spread}px：${values.map(([label, value]) => label + ' ' + value).join(' / ')}`);
+      }
+      const editable = values.filter(([label]) => label !== 'Netdata').map(([, value]) => heightPart(value));
+      if (editable.every(Number.isFinite)) {
+        const spread = Math.max(...editable) - Math.min(...editable);
+        if (spread > 1) problems.push(`${row.width}x${row.height} 编辑机器与云流量高度不一致，相差 ${spread}px：${values.map(([label, value]) => label + ' ' + value).join(' / ')}`);
       }
       return problems;
     }
