@@ -1,6 +1,5 @@
 (() => {
   const invoke=window.FlowHubPlugin?.invoke||window.__TAURI__?.core?.invoke;
-  const button=document.createElement('button');button.textContent='Netdata 监控';button.type='button';document.querySelector('header .actions').prepend(button);
   const dialog=document.createElement('dialog');dialog.className='netdata-dialog';dialog.innerHTML=`<div class="section-head"><h2>Netdata 监控</h2><button type="button" data-dismiss>关闭</button></div>
   <p class="netdata-note">每台机器连接自己的 Agent，历史数据保留在远端，关闭 FlowHub 后仍继续采集。</p><div data-instances></div>
   <form data-connect><h3>接入已有 Netdata</h3><div class="netdata-fields"><label>机器名称<input name="name" required maxlength="40" placeholder="生产服务器"></label><label>Agent 地址<input name="url" required type="url" placeholder="http://机器地址:19999"></label></div><label>网速指标<select name="network"><option value="system.net">所有物理网卡 · system.net</option></select></label><div class="actions"><button type="button" data-test>测试并发现指标</button><button type="submit">保存节点</button><button type="button" data-reset>清空</button></div></form>
@@ -12,7 +11,13 @@
   function option(value,label){const el=document.createElement('option');el.value=value;el.textContent=label;return el;}
   function setCharts(list){charts=list;const old=form.elements.network.value;form.elements.network.replaceChildren(option('system.net','所有物理网卡 · system.net'));for(const c of list.filter(c=>c.id.startsWith('net.')))form.elements.network.append(option(c.id,c.id));if([...form.elements.network.options].some(o=>o.value===old))form.elements.network.value=old;$('[data-chart]').replaceChildren(...list.map(c=>option(c.id,`${c.id} · ${c.units||''}`)));if(list.some(c=>c.id==='system.cpu'))$('[data-chart]').value='system.cpu';}
   async function refresh(){const data=await api('state');instances=data.config.netdata||[];const root=$('[data-instances]');root.replaceChildren();for(const instance of instances){const row=document.createElement('div');row.className='netdata-instance';const text=document.createElement('span');text.textContent=instance.name;const edit=document.createElement('button');edit.textContent='编辑';edit.onclick=()=>{editId=instance.id;form.elements.name.value=instance.name;form.elements.url.value=instance.url;setCharts([]);if(instance.networkChart&&instance.networkChart!=='system.net')form.elements.network.append(option(instance.networkChart,instance.networkChart));form.elements.network.value=instance.networkChart||'system.net';};const history=document.createElement('button');history.textContent='历史曲线';history.onclick=()=>run(async()=>{status.textContent='读取指标…';const result=await api('netdataTest',instance);setCharts(result.charts);historyId=instance.id;$('[data-history]').hidden=false;await query();});const remove=document.createElement('button');remove.textContent='移除接入';remove.onclick=()=>run(async()=>{await api('netdataRemove',{id:instance.id});await refresh();if(historyId===instance.id){historyId=null;$('[data-history]').hidden=true;}status.textContent='已移除接入，远端 Agent 未更改';});row.append(text,edit,history,remove);root.append(row);}install.elements.host.replaceChildren();for(const h of (data.config.hosts||[]).filter(h=>!h.bastion&&!h.readOnly))install.elements.host.append(option(h.id,h.name+' · '+h.alias));}
-  button.onclick=()=>{dialog.showModal();status.textContent=invoke?'':'请在 FlowHub 中配置；浏览器预览不会连接或安装。';if(invoke)run(refresh);};$('[data-dismiss]').onclick=()=>dialog.close();
+  async function open(hostId,hostName){
+   dialog.showModal();status.textContent=invoke?'':'请在 FlowHub 中配置；浏览器预览不会连接或安装。';
+   if(!invoke)return;
+   await run(async()=>{await refresh();if(hostName)form.elements.name.value=hostName;
+    if(hostId&&[...install.elements.host.options].some(o=>o.value===hostId))install.elements.host.value=hostId;});
+  }
+  window.FlowHubNetdata={open};
   const instance=()=>({id:editId||crypto.randomUUID(),name:form.elements.name.value.trim(),url:form.elements.url.value.trim(),networkChart:form.elements.network.value});
   $('[data-reset]').onclick=()=>{editId=null;form.reset();setCharts([]);};
   $('[data-test]').onclick=()=>{if(!invoke||!form.reportValidity())return;run(async()=>{status.textContent='正在连接…';const data=await api('netdataTest',instance());setCharts(data.charts);status.textContent=`连接成功，发现 ${data.charts.length} 项指标，可选择具体网卡。`;});};

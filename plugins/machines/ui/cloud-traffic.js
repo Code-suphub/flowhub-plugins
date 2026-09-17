@@ -15,11 +15,10 @@
  };
  const fields={region:'地域',instanceId:'实例 ID / 名称',secretId:'Access Key ID / SecretId',secretKey:'Access Key Secret / SecretKey',token:'临时会话 Token（可选）',veid:'VEID',apiKey:'API Key / 只读 Token',packageId:'流量包 ID',site:'华为云站点',apiToken:'API Token',cookie:'Cookie 串（浏览器）',xsrfToken:'XSRF Token（x-xsrf-token）',serverId:'Server ID（整数）',limitGB:'套餐流量 / GB（可选）'};
  const secrets=['secretId','secretKey','token','apiKey','apiToken','cookie','xsrfToken'];
- const button=document.createElement('button');button.type='button';button.textContent='云流量';document.querySelector('header .actions').prepend(button);
  const dialog=document.createElement('dialog');dialog.className='netdata-dialog traffic-dialog';
  dialog.innerHTML=`<div class="section-head traffic-head"><div><h2>云流量</h2><p class="netdata-note">按机器关联云服务商。凭证加密保存在本机，组件每 5 分钟更新；更换服务商需要重新保存。</p></div><button data-close type="button">关闭</button></div>
  <div class="traffic-body"><form id="trafficForm">
-  <fieldset class="traffic-group"><legend>关联目标</legend><div class="traffic-fields"><label data-host-row>机器<select data-host></select></label><label data-netdata-row hidden>Netdata 节点<select data-netdata></select></label></div></fieldset>
+  <fieldset class="traffic-group"><legend>关联目标</legend><p class="traffic-target" data-target hidden></p><div class="traffic-fields"><label data-host-row>机器<select data-host></select></label><label data-netdata-row hidden>Netdata 节点<select data-netdata></select></label></div></fieldset>
   <fieldset class="traffic-group"><legend>服务商与凭证</legend><label>云服务商<select name="provider"></select></label><p data-provider-help class="netdata-note"></p><div class="traffic-fields" data-fields></div><label data-clear-token class="traffic-inline"><input name="clearToken" type="checkbox">清除已保存的临时 Token</label></fieldset>
   <section data-result class="traffic-results"></section>
  </form></div>
@@ -45,7 +44,7 @@
   form.elements.serverId.placeholder=p.serverIdHint||'';
   $('[data-clear-token]').hidden=!p.fields.includes('token');form.elements.clearToken.disabled=busy||!p.fields.includes('token');
   $('[data-provider-help]').textContent=p.help;
-  $('[data-host-row]').hidden=!!p.hideHost;
+  $('[data-host-row]').hidden=fixedHost||!!p.hideHost;
   $('[data-netdata-row]').hidden=!p.hideHost;
   $('[data-host]').disabled=busy||!!p.hideHost;
   $('[data-netdata]').disabled=busy||!!p.hideHost;
@@ -55,14 +54,25 @@
  async function load(){clearSecrets();$('[data-result]').replaceChildren();const v=await api('trafficRead',{hostId:$('[data-host]').value});form.elements.provider.value=providers[v.provider]?v.provider:'tencent';for(const k of Object.keys(fields).filter(k=>!secrets.includes(k)))form.elements[k].value=v[k]||(k==='site'?'cn':'');syncProvider();
   if(v.netdataId){const n=$('[data-netdata]');for(const o of n.options)if(o.value===v.netdataId){n.value=v.netdataId;break;}}
   $('[data-status]').textContent=v.configured?'已保存 · 密钥留空保留，可直接查询':'尚未配置，请填写后保存';}
- button.onclick=()=>run(async()=>{const s=await api('state',{});const select=$('[data-host]');select.replaceChildren();for(const h of s.config.hosts){const o=document.createElement('option');o.value=h.id;o.textContent=h.name;select.append(o);}
-  const netSel=$('[data-netdata]');netSel.replaceChildren();
-  const netList=s.config.netdata||[];
-  if(netList.length===0){const o=document.createElement('option');o.value='';o.textContent='（请先去机器管理接入 Netdata 节点）';netSel.append(o);netSel.disabled=true;}
-  else{for(const i of netList){const o=document.createElement('option');o.value=i.id;o.textContent=i.name+' · '+i.url;netSel.append(o);}}
-  if(netSel.disabled&&!busy)$('[data-status]').textContent='还没有接入 Netdata 节点。请去机器管理接入至少一个后再来配置';
-
-  dialog.showModal();syncProvider();if(select.value)await load();else $('[data-status]').textContent='请先添加机器';});
+ let fixedHost=false;
+ async function open(hostId,hostName){
+  dialog.showModal();syncProvider();
+  return run(async()=>{
+   const s=await api('state',{});
+   const select=$('[data-host]');select.replaceChildren();
+   for(const h of (s.config.hosts||[]).filter(h=>!hostId||h.id===hostId)){const o=document.createElement('option');o.value=h.id;o.textContent=h.name;select.append(o);}
+   fixedHost=!!hostId;if(fixedHost)select.value=hostId;
+   const target=$('[data-target]');target.hidden=!fixedHost;
+   target.textContent='机器：'+(hostName||select.selectedOptions[0]?.textContent||'未选择');
+   const netSel=$('[data-netdata]');netSel.replaceChildren();netSel.disabled=false;
+   const netList=s.config.netdata||[];
+   if(netList.length===0){const o=document.createElement('option');o.value='';o.textContent='（先在机器编辑里接入 Netdata 节点）';netSel.append(o);netSel.disabled=true;$('[data-status]').textContent='还没有接入 Netdata 节点，选择本地网卡计数器前请先接入一个。';}
+   else for(const i of netList){const o=document.createElement('option');o.value=i.id;o.textContent=i.name+' · '+i.url;netSel.append(o);}
+   syncProvider();
+   if(select.value)await load();else $('[data-status]').textContent='请先保存机器';
+  });
+ }
+ window.FlowHubCloudTraffic={open};
  $('[data-close]').onclick=()=>dialog.close();dialog.addEventListener('close',clearSecrets);dialog.addEventListener('cancel',e=>{if(busy)e.preventDefault();});$('[data-host]').onchange=()=>run(load);
   form.onsubmit=e=>{e.preventDefault();run(async()=>{const p={hostId:$('[data-host]').value,provider:form.elements.provider.value};for(const k of providers[p.provider].fields)p[k]=valueOf(k);p.clearToken=form.elements.clearToken.checked;await api('trafficSave',p);clearSecrets();$('[data-status]').textContent='配置已加密保存，关闭页面或重启后仍可查询';$('[data-result]').replaceChildren();});};
  function node(tag,className,text){const el=document.createElement(tag);if(className)el.className=className;if(text!=null)el.textContent=text;return el;}

@@ -126,7 +126,7 @@
       const values = status === "success" ? metric.values : null;
       const pct = k => values ? `${Number(values[k]).toFixed(1)}<small>%</small>` : "—";
       const disabled = readonly || !c.enabled ? "disabled" : "";
-      return `<tr><td><input type="checkbox" data-select="${esc(h.id)}" ${selection.has(h.id) ? "checked" : ""} aria-label="选择 ${esc(h.name)}"></td><td><strong>${esc(h.name)}${h.readOnly ? ' · 仅查询' : ''}</strong><small>${esc(h.alias)}${h.group ? " / " + esc(h.group) : ""}</small></td><td><span class="status ${esc(status)}" title="${esc(metric?.error || "")}">${labels[status] || esc(status)}</span><small>${metric ? new Date(metric.at).toLocaleTimeString() : ""}</small></td><td>${pct("cpu")}</td><td>${pct("memory")}</td><td>${pct("disk")}</td><td>${values ? `${Number(values.load).toFixed(2)}<small>${Math.floor(values.uptime / 86400)} 天 ${Math.floor(values.uptime % 86400 / 3600)} 时</small>` : "—"}</td><td><div class="host-actions"><button data-host-action="collect" data-id="${esc(h.id)}" ${disabled}>采集</button><button data-host-action="collections" data-id="${esc(h.id)}">采集记录</button><button data-host-action="command" data-id="${esc(h.id)}" ${disabled}>命令</button><button data-host-action="terminal" data-id="${esc(h.id)}" ${h.readOnly ? 'disabled title="仅查询机器不允许系统终端"' : disabled}>系统终端</button><button data-host-action="copy" data-id="${esc(h.id)}" ${disabled}>复制</button><button data-host-action="edit" data-id="${esc(h.id)}" ${disabled}>编辑</button><button data-host-action="delete" data-id="${esc(h.id)}" ${disabled} aria-label="删除 ${esc(h.name)}">×</button></div></td></tr>`;
+      return `<tr><td><input type="checkbox" data-select="${esc(h.id)}" ${selection.has(h.id) ? "checked" : ""} aria-label="选择 ${esc(h.name)}"></td><td><strong>${esc(h.name)}${h.readOnly ? ' · 仅查询' : ''}</strong><small>${esc(h.alias)}${h.group ? " / " + esc(h.group) : ""}</small></td><td><span class="status ${esc(status)}" title="${esc(metric?.error || "")}">${labels[status] || esc(status)}</span><small>${metric ? new Date(metric.at).toLocaleTimeString() : ""}</small></td><td>${pct("cpu")}</td><td>${pct("memory")}</td><td>${pct("disk")}</td><td>${values ? `${Number(values.load).toFixed(2)}<small>${Math.floor(values.uptime / 86400)} 天 ${Math.floor(values.uptime % 86400 / 3600)} 时</small>` : "—"}</td><td><div class="host-actions"><button data-host-action="collect" data-id="${esc(h.id)}" ${disabled}>采集</button><button data-host-action="edit" data-id="${esc(h.id)}" ${disabled}>编辑</button><button data-host-action="more" data-id="${esc(h.id)}" aria-haspopup="menu" aria-expanded="false">更多</button></div></td></tr>`;
     }).join("");
     if (hostMarkup !== lastHosts) { $("#hostRows").innerHTML = hostMarkup; lastHosts = hostMarkup; }
     $("#empty").hidden = hosts.length > 0;
@@ -294,6 +294,9 @@
     $("#sshStatus").textContent = '可直接沿用本机 SSH 配置；修改下方连接信息后，点击底部保存一并写入。';
     $("#hostCountry").value = host?.countryCode || ""; const expiry=host?.expiresAt; $("#hostExpires").value=Number.isFinite(expiry)?new Date(expiry-new Date(expiry).getTimezoneOffset()*60000).toISOString().slice(0,16):"";
     $("#hostForm").hidden = false; $("#hostId").value = host?.id || ""; $("#hostName").value = host?.name || ""; $("#hostAlias").value = host?.alias || ""; $("#hostGroup").value = host?.group || ""; $("#hostName").focus();
+    const savedHostId = host?.id || "";
+    $("#hostCloudTraffic").disabled = !savedHostId; $("#hostNetdata").disabled = !savedHostId;
+    $("#hostMonitorNote").textContent = savedHostId ? "云流量按机器保存凭证；Netdata 接入后可读远端历史。" : "先保存机器，再配置云流量与 Netdata。";
     sshBaseline = sshSignature();
     const groups = [...new Set(state.config.hosts.map(h => h.group).filter(Boolean))];
     $('#groupChoice').innerHTML = '<option value="">未分组</option>' + groups.map(g => `<option value="${esc(g)}">${esc(g)}</option>`).join('') + '<option value="__new">＋ 新建分组</option>';
@@ -359,6 +362,8 @@
     if (value === '__new') $('#hostGroup').focus();
   };
   $("#cancelHost").onclick = () => { sshEditVersion++; $('#sshPassword').value=''; $("#hostForm").hidden = true; };
+  $("#hostCloudTraffic").onclick = () => { const id = $("#hostId").value; if (id) window.FlowHubCloudTraffic?.open(id, $("#hostName").value.trim() || id); };
+  $("#hostNetdata").onclick = () => { const id = $("#hostId").value; if (id) window.FlowHubNetdata?.open(id, $("#hostName").value.trim() || id); };
   function sshDraft() {
     return { alias: $("#hostAlias").value.trim(), hostname: $("#sshHostname").value.trim(), user: $("#sshUser").value.trim(), port: Number($("#sshPort").value), identityFile: $("#sshIdentity").value.trim(), proxyJump: $("#sshJump").value.trim() };
   }
@@ -421,12 +426,10 @@
     } catch (error) { throw new Error(`${savedSsh ? 'SSH 配置已写入，但机器清单保存失败，请重试。' : ''}${error}`); }
     finally { $('#hostForm').inert = false; }
   }); };
-  $("#hostRows").onclick = e => {
-    const button = e.target.closest("[data-host-action]"); if (!button) return;
-    const h = state.config.hosts.find(h => h.id === button.dataset.id); if (!h) return;
-    if (button.dataset.hostAction === 'collections') { collectionHost = h; lastCollections = ''; renderCollections(); $('#collectionDialog').showModal(); return; }
-    if (button.dataset.hostAction === "edit") { edit(h); return; }
-    if (button.dataset.hostAction === 'copy') {
+  function runHostAction(h, action) {
+    if (action === "collections") { collectionHost = h; lastCollections = ""; renderCollections(); $("#collectionDialog").showModal(); return; }
+    if (action === "edit") { edit(h); return; }
+    if (action === "copy") {
       operate(async () => {
         await edit(h);
         if (!h.bastion && sshEditStatus !== 'ready') throw Error('原配置加载失败，请重试后复制');
@@ -436,13 +439,58 @@
         message('已复制到新增表单，请填写新的目标机器。已保存密码不会复制。');
       }); return;
     }
-    if (button.dataset.hostAction === 'command') { selection = new Set([h.id]); renderHosts(); window.FlowHubMachineTabs?.show('command', true); return; }
+    if (action === "command") { selection = new Set([h.id]); renderHosts(); window.FlowHubMachineTabs?.show('command', true); return; }
     operate(async () => {
-      if (button.dataset.hostAction === "collect") submit([h], "collect");
-      if (button.dataset.hostAction === "terminal") await api(h.bastion ? 'bastionTerminal' : "terminal", { hostId: h.id });
-      if (button.dataset.hostAction === "delete" && await confirmAction('移除机器', `确定从清单移除“${h.name}”？不会删除远端数据。`, '确认移除')) await api("hosts", { hosts: state.config.hosts.filter(x => x.id !== h.id) });
+      if (action === "collect") submit([h], "collect");
+      if (action === "terminal") await api(h.bastion ? 'bastionTerminal' : "terminal", { hostId: h.id });
+      if (action === "delete" && await confirmAction('移除机器', `确定从清单移除“${h.name}”？不会删除远端数据。`, '确认移除')) await api("hosts", { hosts: state.config.hosts.filter(x => x.id !== h.id) });
     });
+  }
+  const hostMenu = $("#hostMenu");
+  function closeHostMenu() {
+    if (hostMenu.hidden) return;
+    hostMenu.hidden = true; hostMenu.replaceChildren(); delete hostMenu.dataset.id;
+    document.querySelectorAll('[data-host-action="more"]').forEach(b => b.setAttribute("aria-expanded", "false"));
+  }
+  function openHostMenu(button, h) {
+    const canOperate = !readonly && state.config.enabled;
+    const items = [
+      { action: "collections", label: "采集记录" },
+      { action: "command", label: "命令", disabled: !canOperate },
+      { action: "terminal", label: "系统终端", disabled: !canOperate || h.readOnly },
+      { action: "copy", label: "复制", disabled: !canOperate },
+      { action: "delete", label: "移除机器", disabled: !canOperate },
+    ];
+    hostMenu.replaceChildren(...items.map(item => {
+      const el = document.createElement("button");
+      el.type = "button"; el.setAttribute("role", "menuitem");
+      el.dataset.hostAction = item.action; el.dataset.id = h.id;
+      el.textContent = item.label; el.disabled = !!item.disabled;
+      return el;
+    }));
+    hostMenu.dataset.id = h.id; hostMenu.hidden = false;
+    button.setAttribute("aria-expanded", "true");
+    const rect = button.getBoundingClientRect(); const box = hostMenu.getBoundingClientRect();
+    const flip = rect.bottom + box.height + 8 > innerHeight;
+    hostMenu.style.left = Math.max(8, Math.min(innerWidth - box.width - 8, rect.right - box.width)) + "px";
+    hostMenu.style.top = Math.max(8, Math.min(innerHeight - box.height - 8, flip ? rect.top - box.height - 6 : rect.bottom + 6)) + "px";
+    hostMenu.querySelector("button:not(:disabled)")?.focus();
+  }
+  $("#hostRows").onclick = e => {
+    const button = e.target.closest("[data-host-action]"); if (!button) return;
+    const h = state.config.hosts.find(x => x.id === button.dataset.id); if (!h) return;
+    if (button.dataset.hostAction === "more") { hostMenu.hidden ? openHostMenu(button, h) : closeHostMenu(); return; }
+    runHostAction(h, button.dataset.hostAction);
   };
+  hostMenu.onclick = e => {
+    const item = e.target.closest("[data-host-action]"); if (!item) return;
+    const h = state.config.hosts.find(x => x.id === hostMenu.dataset.id); closeHostMenu();
+    if (h) runHostAction(h, item.dataset.hostAction);
+  };
+  document.addEventListener?.("click", e => { if (!hostMenu.hidden && !e.target.closest("#hostMenu") && !e.target.closest('[data-host-action="more"]')) closeHostMenu(); });
+  document.addEventListener?.("keydown", e => { if (e.key === "Escape") closeHostMenu(); });
+  window.addEventListener?.("resize", closeHostMenu);
+  window.addEventListener?.("scroll", closeHostMenu, true);
   $("#collectSelected").onclick = () => submit(chosen(), "collect");
   function updateBastionOutput(text, forceFollow = false) {
     const output = $('#bastionOutput');
