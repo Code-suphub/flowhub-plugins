@@ -2,15 +2,22 @@
   "name": "flowhub-plugins",
   "private": true,
   "scripts": {
-    "install:machines": "npm --prefix plugins/machines ci",
-    "dev": "npm run dev:machines --",
+    "dev": "npm --prefix plugins/machines run dev --",
     "dev:machines": "npm --prefix plugins/machines run dev --",
-    "build": "npm run build:machines",
-    "build:machines": "npm --prefix plugins/machines run build",
-    "test": "npm run test:machines",
-    "test:machines": "npm --prefix plugins/machines test",
     "dev:docker": "npm --prefix plugins/docker run dev",
+    "install:machines": "npm --prefix plugins/machines ci",
+    "install:docker": "npm --prefix plugins/docker ci",
+    "install:social-hub": "npm --prefix plugins/social-hub ci",
+    "install:twofa": "npm --prefix plugins/twofa ci",
+    "build": "node scripts/run-all.mjs build",
+    "test": "node scripts/run-all.mjs test",
+    "build:machines": "npm --prefix plugins/machines run build",
     "build:docker": "npm --prefix plugins/docker run build",
-    "test:docker": "npm --prefix plugins/docker test"
+    "build:social-hub": "npm --prefix plugins/social-hub run build",
+    "build:twofa": "npm --prefix plugins/twofa run build",
+    "test:machines": "npm --prefix plugins/machines test",
+    "test:docker": "npm --prefix plugins/docker test",
+    "test:social-hub": "npm --prefix plugins/social-hub test",
+    "test:twofa": "npm --prefix plugins/twofa test"
   }
 }

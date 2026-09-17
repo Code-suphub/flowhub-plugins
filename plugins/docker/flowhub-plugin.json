@@ -3,15 +3,15 @@
   "id": "docker",
   "name": "Docker 管理",
   "version": "0.1.0",
+  "description": "本机容器与 Compose 项目、资源状态、日志及启停操作",
+  "ui": "ui/index.html",
+  "executable": "bin/flowhub-docker",
+  "permissions": ["native-process"],
   "statusSurface": true,
   "widget": {
     "interactive": true,
     "card": "widget-card.html",
     "editor": "widget-editor.html",
     "detail": "widget-detail.html"
-  },
-  "ui": "ui/index.html",
-  "executable": "bin/flowhub-docker",
-  "permissions": ["native-process"],
-  "description": "本机容器与 Compose 项目、资源状态、日志及启停操作"
+  }
 }
