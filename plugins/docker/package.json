@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "build": "node scripts/build.mjs",
-    "test": "cargo test --manifest-path backend/Cargo.toml && node --check ui/app-shell.js && node --check ui/app.js && node --check ui/widget.js && node --check ui/widget-bridge.js && node --check ui/widget-editor.js && node --test tests/*.test.cjs",
+    "test": "cargo test --manifest-path backend/Cargo.toml && node --check ui/app-shell.js && node --check ui/app.js && node --check ui/widget/widget.js && node --check ui/widget/widget-bridge.js && node --check ui/widget/widget-editor.js && node --test tests/*.test.cjs",
     "dev": "node dev/preview.mjs"
   }
 }

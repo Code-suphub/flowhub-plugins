@@ -2,10 +2,12 @@
 
 组件页面与机器后端一起打包发布：
 
-- `ui/widget-card.*`：卡片、仪表、网速和底部状态。
-- `ui/widget-editor.*`：机器选择、显示指标配置。
-- `ui/widget-detail.*`：历史曲线概览、点击放大和时间范围。设置入口复用 `machines.html?widgetSettings=1` 的完整机器编辑表单，通过 `widget-settings-bridge.js` 连接插件设置接口；无需另行维护缩减版表单。
-- `ui/widget-bridge.js`：宿主消息通信；插件后端 `widget_api` 允许历史读取及有限的机器信息设置。
+- `ui/widget-card.html` + `ui/widget/widget-card.*`：卡片、仪表、网速和底部状态。
+- `ui/widget-editor.html` + `ui/widget/widget-editor.*`：机器选择、显示指标配置。
+- `ui/widget-detail.html` + `ui/widget/widget-detail.*`：历史曲线概览、点击放大和时间范围。设置入口复用 `machines.html?widgetSettings=1` 的完整机器编辑表单，通过 `ui/widget/widget-settings-bridge.js` 连接插件设置接口；无需另行维护缩减版表单。
+- `ui/widget/widget-bridge.js`：宿主消息通信；插件后端 `widget_api` 允许历史读取及有限的机器信息设置。
+
+入口页与 `widget-*.html` 固定放在 `ui/` 根目录：`flowhub-plugin.json` 的 `ui` 取文件名，宿主按 `<id>/<文件名>` 加载；`widget-preview.json` 也留在根目录，宿主预览按 `<previewBase>/widget-preview.json` 取用。
 
 FlowHub 只提供通用容器和布局。修改以上页面不再需要修改或重建宿主；首次使用需要安装支持 manifest `widget` 的宿主版本。`flowhub-plugin.json` 声明三个页面的入口，发布脚本自动把 UI 目录包含在插件产物中。
 

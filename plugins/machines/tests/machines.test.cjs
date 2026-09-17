@@ -226,7 +226,7 @@ test('SSH import scans, connects and adopts only on explicit user actions', asyn
   };
   const window = { FlowHubMachines: M };
   const context = vm.createContext({ window, document: { body: { classList: { contains: () => false, add() {}, toggle() {} } }, querySelector: element }, crypto: { randomUUID: () => 'new-id' } });
-  vm.runInContext(fs.readFileSync(path.join(__dirname, '../ui/ssh-discovery.js'), 'utf8'), context);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '../ui/ssh/ssh-discovery.js'), 'utf8'), context);
   const update = () => window.FlowHubSshDiscovery.update(config, api, update);
   update(); await new Promise(resolve => setImmediate(resolve)); update();
   assert.deepEqual(calls, []);

@@ -1,6 +1,6 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
-const {view}=require('../ui/widget-model.js');
+const {view}=require('../ui/widget/widget-model.js');
 const snapshot={rows:[{project:'app',state:'running',status:'error'},{project:'app',state:'running',status:'healthy'},{project:'',state:'exited',status:'unknown'}]};
 test('project filtering, unhealthy running count and stopped state remain distinct',()=>{
   const v=view(snapshot,{project:'app',onlyIssues:true});assert.equal(v.running,2);assert.equal(v.issues,1);assert.equal(v.stopped,0);assert.equal(v.visible.length,1);
