@@ -159,9 +159,15 @@ ${HELPERS}
     composerLeft: contentLeft(one('#directCommandPanel .composer-tools')),
     terminalLeft: contentLeft(one('#directCommandPanel .terminal-shell')),
     bastionHeadLeft: contentLeft(one('#bastionWorkbench > .section-head')),
-    directTerminalHeight: Math.round((one('#consoleOutput').getBoundingClientRect().height)),
-    bastionOutputTopBorder: parseFloat(getComputedStyle(one('#bastionOutput')).borderTopWidth) || 0,
-    bastionOutputRadius: parseFloat(getComputedStyle(one('#bastionOutput')).borderTopLeftRadius) || 0,
+    directTerminalHeight: Math.round(one('#consoleOutput').getBoundingClientRect().height),
+    // 两个终端应当是同一种外壳：圆角/底色/上下拼接、输入行内边距、输入框边框
+    directShell: (() => { const style = getComputedStyle(one('#directCommandPanel .terminal-shell')); return style.borderTopLeftRadius + '/' + style.backgroundColor + '/' + style.borderTopWidth; })(),
+    bastionShell: (() => { const style = getComputedStyle(one('#bastionWorkbench .terminal-shell')); return style.borderTopLeftRadius + '/' + style.backgroundColor + '/' + style.borderTopWidth; })(),
+    directOutputTop: parseFloat(getComputedStyle(one('#consoleOutput')).borderTopWidth) || 0,
+    bastionOutputTop: parseFloat(getComputedStyle(one('#bastionOutput')).borderTopWidth) || 0,
+    directInputPadding: getComputedStyle(one('#directCommandPanel .terminal-input')).padding,
+    bastionInputPadding: getComputedStyle(one('#bastionWorkbench .terminal-input')).padding,
+    bastionFieldBorder: parseFloat(getComputedStyle(one('#bastionInput')).borderTopWidth) || 0,
     tooltips: tooltips(['#commandHelp', '#connectionHelp', '#bastionHelp']).filter(tip => tip.overflow > 0).map(tip => tip.selector + ':' + tip.side + tip.overflow).join(' ') || 'ok'
   };
   bastion.hidden = true;
@@ -215,7 +221,9 @@ const VIEWS = [
       ['容器层数 直连/堡垒', row => `${row.directDepth}/${row.bastionDepth}`],
       ['内容左边界 工作台/输入/终端/堡垒', row => `${row.workbenchLeft}/${row.composerLeft}/${row.terminalLeft}/${row.bastionHeadLeft}`],
       ['终端高度', row => `${row.directTerminalHeight}`],
-      ['堡垒输出框 上边框/圆角', row => `${row.bastionOutputTopBorder}/${row.bastionOutputRadius}`],
+      ['终端外壳 直连vs堡垒', row => `${row.directShell} | ${row.bastionShell}`],
+      ['输出框上边框 直连/堡垒', row => `${row.directOutputTop}/${row.bastionOutputTop}`],
+      ['输入行内边距 直连/堡垒', row => `${row.directInputPadding} | ${row.bastionInputPadding}`],
       ['气泡出界', row => `${row.tooltips}`]
     ],
     check: row => {
@@ -226,9 +234,10 @@ const VIEWS = [
       const lefts = [row.composerLeft, row.terminalLeft, row.bastionHeadLeft].filter(value => value !== null);
       if (lefts.length && Math.max(...lefts) - Math.min(...lefts) > 1) problems.push(`${row.width}px 命令工作台各段左边界不一致：${lefts.join(' / ')}`);
       if (row.tooltips !== 'ok') problems.push(`${row.width}px 帮助气泡超出视口：${row.tooltips}`);
-      if (!(row.bastionOutputTopBorder > 0) || !(row.bastionOutputRadius > 0)) {
-        problems.push(`${row.width}px 堡垒机输出框缺少上边框或圆角（${row.bastionOutputTopBorder}/${row.bastionOutputRadius}）`);
-      }
+      if (row.directShell !== row.bastionShell) problems.push(`${row.width}px 两个终端外壳不一致：${row.directShell} vs ${row.bastionShell}`);
+      if (row.directOutputTop !== row.bastionOutputTop) problems.push(`${row.width}px 两个终端输出框拼接方式不一致：${row.directOutputTop} vs ${row.bastionOutputTop}`);
+      if (row.directInputPadding !== row.bastionInputPadding) problems.push(`${row.width}px 两个终端输入行内边距不一致：${row.directInputPadding} vs ${row.bastionInputPadding}`);
+      if (row.bastionFieldBorder > 0) problems.push(`${row.width}px 堡垒机输入框仍有 ${row.bastionFieldBorder}px 边框，与直连终端不一致`);
       return problems;
     }
   },

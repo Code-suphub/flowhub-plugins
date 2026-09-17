@@ -79,7 +79,7 @@
 #templateEditor{max-height:85vh;overflow:auto}
 #templateEditor>.actions{margin-top:18px}
 #templateError{color:var(--bad)}
-#bastionOutput{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.65 Menlo,monospace;margin:16px 0;color:var(--ink)}
+.console-toolbar #bastionState{margin-left:auto}#bastionOutput{white-space:pre-wrap;overflow-wrap:anywhere;font:13px/1.65 Menlo,monospace;margin:0;color:var(--ink)}
 #bastionWorkbench>label{display:grid;gap:8px;margin-bottom:12px}
 .identity-input{display:flex;align-items:center;gap:8px;min-width:0}.identity-input input{flex:1;min-width:0}.identity-input button{flex:none}
 .host-save-actions{width:100%;justify-content:flex-end;padding-top:12px;border-top:1px solid var(--line)}
