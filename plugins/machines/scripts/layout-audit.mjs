@@ -184,7 +184,52 @@ ${HELPERS}
   };
 })()`;
 
+const MEASURE_DIALOG = `(() => {
+${HELPERS}
+  const dialog = one('#hostDialog');
+  dialog.setAttribute('open', '');
+  const direct = one('#directSshFields'), bastion = one('#bastionFields');
+  if (direct) direct.hidden = false;
+  if (bastion) bastion.hidden = true;
+  const body = one('#hostDialog .host-dialog-body');
+  return {
+    width: Math.round(document.documentElement.clientWidth),
+    height: Math.round(document.documentElement.clientHeight),
+    pageOverflow: Math.round(document.documentElement.scrollWidth - document.documentElement.clientWidth),
+    dialogHeight: Math.round(dialog.getBoundingClientRect().height),
+    dialogWidth: Math.round(dialog.getBoundingClientRect().width),
+    bodyHeight: body ? Math.round(body.getBoundingClientRect().height) : null,
+    headHeight: Math.round(one('#hostDialog .host-dialog-head').getBoundingClientRect().height),
+    footHeight: Math.round(one('#hostDialog .host-dialog-foot').getBoundingClientRect().height),
+    formHeight: Math.round(one('#hostForm').getBoundingClientRect().height)
+  };
+})()`;
+
 const VIEWS = [
+  {
+    label: '编辑机器弹窗',
+    sizes: [[980, 560], [980, 600], [900, 520], [1200, 800]],
+    show: "for (const p of document.querySelectorAll('[role=\"tabpanel\"]')) p.hidden = p.id !== 'fleetPanel';",
+    measure: MEASURE_DIALOG,
+    columns: [
+      ['视口', row => `${row.width}x${row.height}`],
+      ['弹窗高/宽', row => `${row.dialogHeight}/${row.dialogWidth}`],
+      ['内容区高', row => `${row.bodyHeight}`],
+      ['头/底', row => `${row.headHeight}/${row.footHeight}`],
+      ['表单高', row => `${row.formHeight}`],
+      ['页溢出', row => `${row.pageOverflow}`]
+    ],
+    check: row => {
+      const problems = [];
+      const expected = Math.min(row.height - 24, 920);
+      if (row.dialogHeight < expected - 1) problems.push(`${row.width}x${row.height} 弹窗只用了 ${row.dialogHeight}px，可用高度 ${expected}px`);
+      if (row.bodyHeight !== null && row.bodyHeight < (row.height >= 520 ? 320 : 260)) {
+        problems.push(`${row.width}x${row.height} 弹窗内容区只剩 ${row.bodyHeight}px`);
+      }
+      if (row.pageOverflow > 0) problems.push(`${row.width}x${row.height} 弹窗撑出横向溢出 ${row.pageOverflow}px`);
+      return problems;
+    }
+  },
   {
     label: '机器列表',
     show: "document.querySelector('#fleetPanel').hidden=false;document.querySelector('#commandPanel').hidden=true;document.querySelector('#discoveryPanel').hidden=true;",
@@ -369,8 +414,8 @@ async function main() {
     const failures = [];
     for (const view of VIEWS) {
       const rows = [];
-      for (const width of WIDTHS) {
-        await client.send('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: false });
+      for (const size of (view.sizes || WIDTHS.map(width => [width, 900]))) {
+        await client.send('Emulation.setDeviceMetricsOverride', { width: size[0], height: size[1], deviceScaleFactor: 1, mobile: false });
         await client.send('Runtime.evaluate', { expression: view.show, returnByValue: true });
         await new Promise(resolve => setTimeout(resolve, 60));
         const { result } = await client.send('Runtime.evaluate', { expression: view.measure, returnByValue: true });
