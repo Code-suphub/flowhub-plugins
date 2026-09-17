@@ -5,8 +5,10 @@
   "scripts": {
     "dev": "vite --config vite.config.mjs",
     "build": "node scripts/build.mjs",
-    "test": "cargo test --manifest-path backend/Cargo.toml && node --test tests/*.test.cjs && node scripts/layout-audit.mjs --check",
-    "layout": "node scripts/layout-audit.mjs"
+    "test": "cargo test --manifest-path backend/Cargo.toml && node --test tests/*.test.cjs && node scripts/layout-audit.mjs --check && node scripts/preview-fingerprint.mjs",
+    "layout": "node scripts/layout-audit.mjs",
+    "fingerprint": "node scripts/preview-fingerprint.mjs --write",
+    "prune-css": "node scripts/prune-dead-css.mjs"
   },
   "devDependencies": { "vite": "^6.4.1" }
 }
