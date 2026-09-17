@@ -18,6 +18,31 @@ function cargoVersion(file) {
   return match?.[1];
 }
 
+// 页面里拼错的 src/href 只会表现为白屏，普通测试覆盖不到，所以在约定校验里逐页
+// 解析本地引用并断言目标存在（http/data/锚点/绝对路径与 .. 跳过）。
+function checkUiAssets(directory, fail) {
+  const uiRoot = path.join(directory, 'ui');
+  if (!fs.existsSync(uiRoot)) return;
+  const htmlFiles = [];
+  (function walk(current) {
+    for (const entry of fs.readdirSync(current, {withFileTypes: true})) {
+      const target = path.join(current, entry.name);
+      if (entry.isDirectory()) walk(target);
+      else if (entry.name.endsWith('.html')) htmlFiles.push(target);
+    }
+  })(uiRoot);
+  for (const file of htmlFiles) {
+    const html = fs.readFileSync(file, 'utf8');
+    for (const match of html.matchAll(/(?:src|href)="([^"]+)"/g)) {
+      const reference = match[1];
+      if (/^(https?:|#|data:|\.\.|\/)/.test(reference)) continue;
+      if (!fs.existsSync(path.join(path.dirname(file), reference))) {
+        fail(`${path.relative(directory, file)} 引用了不存在的资源：${reference}`);
+      }
+    }
+  }
+}
+
 // 校验每个插件是否符合 CI 与发布脚本依赖的约定。发现的问题全部返回，
 // 不在这里抛错，便于测试直接断言具体条目。
 export function checkPlugins(root) {
@@ -103,6 +128,8 @@ export function checkPlugins(root) {
       if (entry === '.codex-plugin') fail('残留 Codex 脚手架 .codex-plugin/，与 FlowHub schema 2 无关');
       if (/^legacy-.*\.json$/.test(entry)) fail(`残留 schema 1 文件 ${entry}`);
     }
+
+    checkUiAssets(directory, fail);
   }
   return {ids, errors};
 }

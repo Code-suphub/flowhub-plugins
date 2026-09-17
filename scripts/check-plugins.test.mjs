@@ -107,6 +107,19 @@ test('scaffold and schema 1 leftovers are rejected', (t) => {
   assert.ok(errors.some(error => error.includes('legacy-package.json')));
 });
 
+test('ui pages must resolve their local asset references', (t) => {
+  const broken = validPlugin();
+  broken['ui/index.html'] = '<link rel="stylesheet" href="style.css"><script src="missing.js"></script>\n';
+  broken['ui/style.css'] = 'body{}\n';
+  const brokenErrors = checkPlugins(fixtureRoot(t, {demo: broken})).errors;
+  assert.ok(brokenErrors.some(error => error.includes('missing.js')), brokenErrors.join(' | '));
+
+  const nested = validPlugin();
+  nested['ui/index.html'] = '<script src="shared/app.js"></script><a href="https://example.test">x</a>\n';
+  nested['ui/shared/app.js'] = '// app\n';
+  assert.deepEqual(checkPlugins(fixtureRoot(t, {demo: nested})).errors, []);
+});
+
 test('an empty plugins directory is a failure', (t) => {
   const root = fixtureRoot(t, {});
   assert.ok(checkPlugins(root).errors.some(error => error.includes('没有找到任何插件')));
