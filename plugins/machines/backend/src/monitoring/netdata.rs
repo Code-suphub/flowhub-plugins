@@ -60,19 +60,32 @@ detect_agent_port() {{
 # 回传一个 FlowHub 可用的地址，供接入表单一键填入。地址是「这台机器的 IP + Agent 端口」，
 # 与「本机能否连上」无关——已有安装时也要回填，用户不该因为探测不到就被要求手填。
 # 云主机的公网 IP 通常不在网卡上（NAT），所以先问外部回显服务，失败再退回本机默认路由地址。
+# 优先 IPv4：很多云主机的 IPv6 是临时地址、随时会变，且安全组通常只放行了 IPv4。
+# IPv6 必须写成 [addr] 形式，否则端口会与最后一个 hextet 混在一起成为非法 URL。
 # 这个函数在「已有安装」和「全新安装」两条路径上都会调用。
 report_agent_address() {{
   agent_host=''
   if command -v curl >/dev/null; then
-    for probe in https://ifconfig.me/ip https://api.ipify.org; do
-      agent_host=$(curl --fail --silent --max-time 5 "$probe" 2>/dev/null | tr -d '[:space:]') || agent_host=''
-      # 必须是 IP 或域名：只有数字/十六进制/点/冒号，且含点或冒号，避免把错误页正文当成地址。
-      case "$agent_host" in
-        *[!0-9a-fA-F:.]*|'') agent_host='' ;;
-        *.*|*:*) break ;;
-        *) agent_host='' ;;
+    # 先要 IPv4；v4.ifconfig.me / api.ipify.org 默认走 IPv4，取到才是稳定的公网地址。
+    for probe in https://v4.ifconfig.me/ip https://api.ipify.org https://ifconfig.me/ip; do
+      candidate=$(curl --fail --silent --max-time 5 "$probe" 2>/dev/null | tr -d '[:space:]') || candidate=''
+      case "$candidate" in
+        *[!0-9a-fA-F:.]*|'') continue ;;
+        *:*) continue ;;   # 这一轮拿到 IPv6，继续找 IPv4
+        *.*) agent_host="$candidate"; break ;;
       esac
     done
+    # 实在只有 IPv6 才用它，并补上方括号使其成为合法 URL。
+    if test -z "$agent_host"; then
+      for probe in https://ifconfig.me/ip https://api64.ipify.org; do
+        candidate=$(curl --fail --silent --max-time 5 "$probe" 2>/dev/null | tr -d '[:space:]') || candidate=''
+        case "$candidate" in
+          *[!0-9a-fA-F:.]*|'') continue ;;
+          *:*) agent_host="[$candidate]"; break ;;
+          *.*) agent_host="$candidate"; break ;;
+        esac
+      done
+    fi
   fi
   if test -z "$agent_host"; then
     agent_host=$(ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.*src \([0-9.]*\).*/\1/p' | head -1) || agent_host=''
@@ -179,6 +192,22 @@ pub(crate) fn is_install(script:&str)->bool{script.starts_with("set -eu\n# FlowH
   // 超时措辞不能让人以为安装本身失败了。
   assert!(script.contains("这不是安装失败"));
   assert!(script.contains("journalctl -u netdata"));
+ }
+ #[test]fn install_script_prefers_ipv4_and_brackets_ipv6(){
+  let script=install_script(19999,"0.0.0.0",7,1024).unwrap();
+  // IPv4 必须优先：云主机的 IPv6 常是临时地址、随时变化，安全组通常也只放行 IPv4。
+  assert!(script.contains("https://v4.ifconfig.me/ip"),"应先向 IPv4 回显服务取地址");
+  let v4_at=script.find("v4.ifconfig.me").unwrap();
+  let v6_at=script.find("api64.ipify.org").unwrap();
+  assert!(v4_at<v6_at,"IPv4 探测必须排在 IPv6 之前");
+  // IPv6 必须补方括号：http://2402:...:19999 会被 url crate 判为 invalid port number，
+  // 这类地址回填给用户等于给了个用不了的地址（用户实际遇到）。
+  assert!(script.contains(r#"agent_host="[$candidate]""#),"IPv6 必须写成 [addr]");
+  // 只有 v4 的候选集里不应用 IPv6，避免又回退到临时地址。
+  let v4_loop=&script[v4_at..script.find("实在只有 IPv6").unwrap()];
+  assert!(v4_loop.contains("*:*) continue"),"第一轮应跳过 IPv6 结果");
+  // 回显服务返回垃圾时的形状校验仍然保留。
+  assert!(script.contains("*[!0-9a-fA-F:.]*|'') continue"));
  }
  #[test]fn install_script_verifies_the_bind_actually_took_effect(){
   // 只探测 127.0.0.1 无法区分「绑定所有网卡」与「只绑定本机」，而后者会让 FlowHub

@@ -37,5 +37,8 @@ if(!job){missing=0;continue;}missing=0;status.textContent=`安装任务：${job.
   // 回传了端口但地址为空：只有「机器自己也不知道自己的 IP」这一种情况（无外网、无默认路由）。
   // 这时给出明确的拼装方式，而不是静默结束。
   if(port&&!host){hint.hidden=false;hint.textContent=`未能自动探测到机器 IP（Agent 端口 ${port}）。请在 Agent 地址里填写 http://<机器IP>:${port}，并确认 Agent 已监听所有网卡、防火墙与云安全组已放行。`;return;}
-  if(!host||!port)return;const url=`http://${host}:${port}`;hint.hidden=false;hint.textContent=`已探测到 Agent 地址 ${url}（安装任务 ${job.id}）。云主机若是 NAT，这个地址可能是内网 IP，请确认后再保存。`;use.hidden=false;use.onclick=()=>{form.elements.url.value=url;const target=document.querySelector('#hostName');if(target&&!form.elements.name.value.trim())form.elements.name.value=(target.value||'').trim();hint.textContent=`已填入 ${url}，请点「测试并发现指标」验证后保存。`;use.hidden=true;};}
+  // 兜底：IPv6 不带方括号时 http://2402:...:19999 是非法 URL（端口与末段 hextet 混淆），
+  // 后端已保证补括号，这里再挡一次，避免把用不了的地址填进表单。
+  const normalized=host.includes(':')&&!host.startsWith('[')?`[${host}]`:host;
+  if(!host||!port)return;const url=`http://${normalized}:${port}`;hint.hidden=false;hint.textContent=`已探测到 Agent 地址 ${url}（安装任务 ${job.id}）。云主机若是 NAT，这个地址可能是内网 IP，请确认后再保存。`;use.hidden=false;use.onclick=()=>{form.elements.url.value=url;const target=document.querySelector('#hostName');if(target&&!form.elements.name.value.trim())form.elements.name.value=(target.value||'').trim();hint.textContent=`已填入 ${url}，请点「测试并发现指标」验证后保存。`;use.hidden=true;};}
 })();
