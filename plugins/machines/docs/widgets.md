@@ -16,3 +16,5 @@ FlowHub 只提供通用容器和布局。修改以上页面不再需要修改或
 `widget_api` 历史请求示例：`{action:"history",row:"机器 ID",metric:"cpu",seconds:86400}`。数据来自插件本地 SQLite，不通过宿主解释指标。`settings` 读取名称、分组、地区和到期时间，`saveSettings` 只允许修改这四项，并用 `expected` 比对原值防止覆盖其他页面的修改；不提供命令执行或 SSH 配置修改。
 
 运行 `npm run dev:machines -- --port 5182` 后，以 FlowHub 预览页 `plugin-canvas.html?preview=http://127.0.0.1:5182/` 验证；模拟状态存放在 `ui/widget-preview.json`。浏览器预览不连接真实机器。
+
+早期卡片布局方案对比见 [machine-widget-layouts.html](machine-widget-layouts.html)（静态设计稿，四种方案示意，未接入运行时）。
