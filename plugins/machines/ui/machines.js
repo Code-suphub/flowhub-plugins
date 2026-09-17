@@ -293,7 +293,7 @@
     $("#sshPort").value = "22";
     $("#sshStatus").textContent = '可直接沿用本机 SSH 配置；修改下方连接信息后，点击底部保存一并写入。';
     $("#hostCountry").value = host?.countryCode || ""; const expiry=host?.expiresAt; $("#hostExpires").value=Number.isFinite(expiry)?new Date(expiry-new Date(expiry).getTimezoneOffset()*60000).toISOString().slice(0,16):"";
-    $("#hostForm").hidden = false; $("#hostId").value = host?.id || ""; $("#hostName").value = host?.name || ""; $("#hostAlias").value = host?.alias || ""; $("#hostGroup").value = host?.group || ""; $("#hostName").focus();
+    if (!$('#hostDialog').open) $('#hostDialog').showModal(); $('#hostDialogTitle').textContent = host ? '编辑机器' : '添加机器'; $("#hostId").value = host?.id || ""; $("#hostName").value = host?.name || ""; $("#hostAlias").value = host?.alias || ""; $("#hostGroup").value = host?.group || ""; $("#hostName").focus();
     const savedHostId = host?.id || "";
     $("#hostCloudTraffic").disabled = !savedHostId; $("#hostNetdata").disabled = !savedHostId;
     $("#hostMonitorNote").textContent = savedHostId ? "云流量按机器保存凭证；Netdata 接入后可读远端历史。" : "先保存机器，再配置云流量与 Netdata。";
@@ -327,7 +327,7 @@
     $('#retrySshLoad').hidden = true; $('#sshStatus').textContent = '正在加载这台机器的 SSH 配置…';
     try {
       const result = await api('sshRead', { alias });
-      if (version !== sshEditVersion || $('#hostForm').hidden) return;
+      if (version !== sshEditVersion || !$('#hostDialog').open) return;
       const p = result.profile;
       $('#sshHostname').value = p.hostname; $('#sshUser').value = p.user; $('#sshPort').value = p.port;
       $('#sshJump').value = p.proxyJump; $('#sshIdentity').value = p.identityFile;
@@ -335,7 +335,7 @@
       sshRevision = result.revision; sshLoadedAlias = alias; sshBaseline = sshSignature();
       sshEditStatus = 'ready'; $('#sshStatus').textContent = '已加载连接配置。未修改的字段继续沿用现有 SSH 配置。';
     } catch (error) {
-      if (version !== sshEditVersion || $('#hostForm').hidden) return;
+      if (version !== sshEditVersion || !$('#hostDialog').open) return;
       sshEditStatus = 'error'; $('#sshStatus').textContent = `配置加载失败：${error}。请重试后保存。`;
       $('#retrySshLoad').hidden = false;
     } finally {
@@ -361,7 +361,10 @@
     $('#hostGroup').value = value === '__new' ? '' : value;
     if (value === '__new') $('#hostGroup').focus();
   };
-  $("#cancelHost").onclick = () => { sshEditVersion++; $('#sshPassword').value=''; $("#hostForm").hidden = true; };
+  $("#cancelHost").onclick = () => { sshEditVersion++; $('#sshPassword').value=''; $('#hostDialog').close(); };
+  $("#closeHost").onclick = $("#cancelHost").onclick;
+  $('#hostDialog').addEventListener('cancel', () => { sshEditVersion++; $('#sshPassword').value=''; });
+  $('#hostDialog').addEventListener('close', () => { $('#hostForm').inert = false; });
   $("#hostCloudTraffic").onclick = () => { const id = $("#hostId").value; if (id) window.FlowHubCloudTraffic?.open(id, $("#hostName").value.trim() || id); };
   $("#hostNetdata").onclick = () => { const id = $("#hostId").value; if (id) window.FlowHubNetdata?.open(id, $("#hostName").value.trim() || id); };
   function sshDraft() {
@@ -422,7 +425,7 @@
         const result = await api('sshSave', { profile, revision: sshRevision,passwordAuth:$('#sshAuth').value==='password',password:$('#sshPassword').value || null }); sshRevision = result.revision; $('#sshPassword').value='';
         sshBaseline = sshSignature(profile); savedSsh = true;
       }
-      await api("hosts", { hosts }); $('#sshPassword').value=''; $("#hostForm").hidden = true; if(window.machineSettingsReady)await edit(h); message(h.bastion ? '堡垒机配置已保存到插件。' : savedSsh ? '机器连接配置已保存到插件。' : '机器已保存。');
+      await api("hosts", { hosts }); $('#sshPassword').value=''; $("#hostDialog").close(); if(window.machineSettingsReady)await edit(h); message(h.bastion ? '堡垒机配置已保存到插件。' : savedSsh ? '机器连接配置已保存到插件。' : '机器已保存。');
     } catch (error) { throw new Error(`${savedSsh ? 'SSH 配置已写入，但机器清单保存失败，请重试。' : ''}${error}`); }
     finally { $('#hostForm').inert = false; }
   }); };

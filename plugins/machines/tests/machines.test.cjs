@@ -7,7 +7,7 @@ const M = require('../ui/machines-model.js');
 
 test('host save leaves inherited SSH untouched and writes edited profiles before the host list', async () => {
   const elements = new Map();
-  const element = key => { if (!elements.has(key)) elements.set(key, { value: '', innerHTML: '', options: [{ value: '60' }], classList: { toggle() {} }, addEventListener() {}, focus() {} }); return elements.get(key); };
+  const element = key => { if (!elements.has(key)) elements.set(key, { value: '', innerHTML: '', options: [{ value: '60' }], classList: { toggle() {} }, addEventListener() {}, focus() {}, open: false, showModal() { this.open = true; }, close() { this.open = false; } }); return elements.get(key); };
   const state = { config: { hosts: [], enabled: true, interval: 60, installed: { capabilities: ['ssh:configure'], templates: [] } }, active: [], history: [], metrics: {} };
   const calls = []; let rejectSave = false;
   const window = { FlowHubMachines: M, __TAURI__: { core: { invoke: async (_, { action, payload }) => {
@@ -31,12 +31,12 @@ test('host save leaves inherited SSH untouched and writes edited profiles before
   element('#sshUser').value = 'root';
   calls.length = 0; rejectSave = true;
   element('#hostForm').onsubmit({ preventDefault() {} }); await settle();
-  assert(!calls.some(c => c.action === 'hosts')); assert.equal(element('#hostForm').hidden, false);
+  assert(!calls.some(c => c.action === 'hosts')); assert.equal(element('#hostDialog').open, true);
   rejectSave = false; calls.length = 0;
   element('#hostForm').onsubmit({ preventDefault() {} }); await settle();
   assert.deepEqual(calls.map(c => c.action), ['sshSave', 'hosts', 'state']);
   assert.equal(calls[0].payload.profile.hostname, 'example.test');
-  assert.equal(element('#hostForm').hidden, true);
+  assert.equal(element('#hostDialog').open, false);
   calls.length = 0;
   element('#addHost').onclick(); element('#hostConnectionType').value = 'bastion';
   element('#hostName').value = 'Gateway'; element('#hostAlias').value = 'vm-01';
@@ -49,7 +49,7 @@ test('host save leaves inherited SSH untouched and writes edited profiles before
 
 test('editing loads SSH configuration and blocks failed or stale loads from saving', async () => {
   const elements = new Map();
-  const element = key => { if (!elements.has(key)) elements.set(key, { value: '', innerHTML: '', options: [], classList: { toggle() {} }, addEventListener() {}, focus() {} }); return elements.get(key); };
+  const element = key => { if (!elements.has(key)) elements.set(key, { value: '', innerHTML: '', options: [], classList: { toggle() {} }, addEventListener() {}, focus() {}, open: false, showModal() { this.open = true; }, close() { this.open = false; } }); return elements.get(key); };
   const host = { id: 'one', name: 'One', alias: 'one', group: '' };
   const state = { config: { hosts: [host], enabled: true, interval: 60, installed: { capabilities: ['ssh:configure'], templates: [] } }, active: [], history: [], metrics: {} };
   let resolveRead, rejectRead; const calls = [];
