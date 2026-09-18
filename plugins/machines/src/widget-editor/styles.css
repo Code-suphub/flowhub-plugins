@@ -1,3 +1,6 @@
+@import "tailwindcss";
+@source "../../../common/src/react";
+
 :root {
   color-scheme: dark;
   --widget-accent: #f7a454;

@@ -159,8 +159,9 @@ export function App() {
 
   return (
     <main className="widget-editor" aria-busy={!editorState.initialized}>
-      <Field label={EDITOR_LABELS.machine}>
+      <Field label={EDITOR_LABELS.machine} htmlFor="machine-row">
         <Select
+          id="machine-row"
           value={editorState.row}
           options={machineOptions}
           onChange={selectRow}

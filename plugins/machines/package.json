@@ -5,10 +5,25 @@
   "scripts": {
     "dev": "vite --config vite.config.mjs",
     "build": "node scripts/build.mjs",
-    "test": "cargo test --manifest-path backend/Cargo.toml && node --test tests/*.test.cjs && node scripts/layout-audit.mjs --check && node scripts/preview-fingerprint.mjs",
+    "build:react": "vite build --config vite.react.config.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "cargo test --manifest-path backend/Cargo.toml && npm run typecheck && node --test tests/*.test.cjs && node scripts/layout-audit.mjs --check && node scripts/preview-fingerprint.mjs",
     "layout": "node scripts/layout-audit.mjs",
     "fingerprint": "node scripts/preview-fingerprint.mjs --write",
     "prune-css": "node scripts/prune-dead-css.mjs"
   },
-  "devDependencies": { "vite": "^6.4.1" }
+  "dependencies": {
+    "@flowhub/plugin-common": "file:../common",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "4.3.3",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "4.7.0",
+    "tailwindcss": "4.3.3",
+    "typescript": "5.9.3",
+    "vite": "6.4.3"
+  }
 }

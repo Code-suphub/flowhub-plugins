@@ -5,7 +5,12 @@
   "type": "module",
   "exports": {
     ".": "./ui/flowhub-common.js",
+    "./react": "./src/react/index.ts",
     "./styles.css": "./ui/flowhub-common.css"
+  },
+  "peerDependencies": {
+    "react": ">=19",
+    "react-dom": ">=19"
   },
   "scripts": {
     "check": "node --check ui/flowhub-common.js"
