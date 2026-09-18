@@ -125,8 +125,25 @@ as_root true || {{ echo '需要 root 或免密 sudo 权限，可改在系统终�
 command -v curl >/dev/null || {{ echo '请先安装 curl'; exit 1; }}
 task_dir=$(mktemp -d)
 trap 'rm -rf "$task_dir"' EXIT
-curl --fail --location --proto '=https' --tlsv1.2 https://get.netdata.cloud/kickstart.sh -o "$task_dir/kickstart.sh"
-as_root env DISABLE_TELEMETRY=1 sh "$task_dir/kickstart.sh" --non-interactive --release-channel stable --no-updates
+# 这两步原本没有任何超时：网络不通、源不可达或 apt 等待锁时，任务会一直挂到后端
+# 600 秒的整体上限才被杀掉，用户只看到界面上一动不动地走时间。这里加超时并输出进度，
+# 让失败变快、也让用户知道卡在哪一步。
+echo '正在下载 Netdata 官方安装脚本…'
+if ! curl --fail --location --proto '=https' --tlsv1.2 --connect-timeout 15 --max-time 60 https://get.netdata.cloud/kickstart.sh -o "$task_dir/kickstart.sh"; then
+  echo '下载安装脚本失败：请确认机器能访问 get.netdata.cloud（代理或防火墙可能拦截）。'
+  exit 1
+fi
+echo '正在执行官方安装脚本（下载并安装软件包，可能需要几分钟）…'
+# kickstart 的上限必须留出后面几步的余量：后端对安装任务的整体上限是 600 秒，
+# 脚本自身各步上限之和必须小于它，否则会被后端先杀掉，用户看到的是「卡住 10 分钟」
+# 而不是这里给出的明确失败原因。当前预算：60+300+60+45+30 = 495 秒。
+if ! as_root env DISABLE_TELEMETRY=1 timeout 300 sh "$task_dir/kickstart.sh" --non-interactive --release-channel stable --no-updates; then
+  echo '安装脚本未成功完成（超时或返回错误）。'
+  echo '常见原因：apt 源不可达、磁盘空间不足、或 apt/dpkg 锁被其他进程占用。'
+  echo '请查看 apt 输出与 journalctl，或改在系统终端手工执行安装。'
+  exit 1
+fi
+echo '软件包安装完成，正在写入配置…'
 conf=/etc/netdata/netdata.conf
 if test -d /opt/netdata/etc/netdata; then conf=/opt/netdata/etc/netdata/netdata.conf; fi
 if test -f "$conf"; then as_root cp "$conf" "$conf.flowhub-original"; fi
@@ -259,6 +276,27 @@ pub(crate) fn is_install(script:&str)->bool{script.starts_with("set -eu\n# FlowH
   let local=install_script(19999,"127.0.0.1",7,1024).unwrap();
   assert!(local.contains(r#"if test "127.0.0.1" = "0.0.0.0"; then"#),"仅本机模式不应执行通配监听检查");
   assert!(public.contains(r#"if test "0.0.0.0" = "0.0.0.0"; then"#),"绑定所有网卡时应执行该检查");
+ }
+ #[test]fn install_script_bounds_every_network_step_within_the_backend_limit(){
+  let script=install_script(19999,"0.0.0.0",7,1024).unwrap();
+  // 下载与包安装原本没有任何超时：网络不可达时任务会一直挂着，直到后端 600 秒的整体
+  // 上限把它杀掉——用户只看到界面走时间，拿不到失败原因（实际遇到过卡到 6 分钟）。
+  assert!(script.contains("--connect-timeout 15 --max-time 60"),"下载安装脚本必须有超时");
+  assert!(script.contains("timeout 300 sh \"$task_dir/kickstart.sh\""),"kickstart 必须有超时");
+  // 脚本各步上限之和必须小于后端 600 秒，否则会被后端先杀掉，
+  // 脚本里那些明确的失败原因根本来不及打印。
+  let budget = 60   // 下载
+    + 300          // kickstart
+    + 60           // 就绪重试 30×2s
+    + 45           // 监听修正 + 重试 15×2s
+    + 30;          // 地址探测 5 个候选 × 5s
+  assert!(budget < 600, "脚本自身超时预算 {budget}s 必须小于后端 600s 上限");
+  // 每个外部探测都要有 --max-time，避免 DNS/TLS 阶段长时间阻塞。
+  assert!(script.contains("--max-time 5"),"外部回显探测必须有超时");
+  assert!(script.contains("--max-time 3"),"就绪探测必须有超时");
+  // 关键步骤要有进度输出，失败时能看出卡在哪。
+  assert!(script.contains("正在下载 Netdata 官方安装脚本"));
+  assert!(script.contains("正在执行官方安装脚本"));
  }
  #[test]fn install_script_repairs_a_bind_that_did_not_take_effect(){
   let script=install_script(19999,"0.0.0.0",7,1024).unwrap();
