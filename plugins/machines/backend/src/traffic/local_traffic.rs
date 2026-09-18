@@ -1,82 +1,82 @@
-//! Local VM traffic from a Netdata agent's cumulative rx/tx counters.
+//! Local VM traffic from a Netdata agent's rx/tx rate series.
 //!
-//! `current total` comes from Netdata's `system.net` (or configured chart) `received` / `sent`
-//! dimensions, which are absolute byte counters. `daily average` is computed by comparing
-//! the current cumulative value to the first sample in a 30-day history window.
-//! Reboots of the VM reset the counters, which manifests as daily-average noise until the
-//! next sample lands -- we surface that via the `periodDays` window and graceful fallback.
-use chrono::{Duration, Utc};
+//! Netdata exposes network charts as kilobits/second, so the monthly total is
+//! calculated by integrating the history from the start of the current month.
+use chrono::{DateTime, Datelike, FixedOffset, TimeZone, Utc};
 use serde_json::{json, Value};
 
 const GIB: f64 = 1_073_741_824.0;
 const SECONDS_PER_DAY: f64 = 86_400.0;
-const DEFAULT_PERIOD_DAYS: i64 = 30;
+const SHANGHAI_OFFSET_SECONDS: i32 = 8 * 60 * 60;
+const MAX_MONTH_SECONDS: u64 = 31 * 86_400;
 
-fn positive(v: &Value, key: &str) -> Result<f64, String> {
-    v[key]
-        .as_f64()
-        .filter(|n| n.is_finite() && *n >= 0.)
-        .ok_or_else(|| format!("响应缺少有效数值：{key}"))
+fn dimension_index(history: &Value, wanted: &[&str]) -> Option<usize> {
+    history["labels"].as_array()?.iter().enumerate().find_map(|(i, label)| {
+        let name = label.as_str()?.to_ascii_lowercase().replace(['_', '-'], "");
+        wanted.iter().any(|candidate| name == candidate.to_ascii_lowercase().replace(['_', '-'], "")).then_some(i)
+    })
 }
 
-/// Pull the first non-null cumulative value for `received` / `sent` from a Netdata
-/// `/api/v1/data` response. Netdata labels typically look like `["time", "received", "sent"]`,
-/// but custom `network_chart` may differ -- fall back to positional indices 1/2.
-fn history_first_cumulative(history: &Value) -> (f64, f64) {
-    let mut rx_idx = 1usize;
-    let mut tx_idx = 2usize;
-    if let Some(labels) = history["labels"].as_array() {
-        for (i, label) in labels.iter().enumerate() {
-            if let Some(name) = label.as_str() {
-                let lower = name.to_ascii_lowercase();
-                if lower == "received" || lower == "rx" {
-                    rx_idx = i;
-                } else if lower == "sent" || lower == "tx" {
-                    tx_idx = i;
-                }
-            }
-        }
+/// Integrate Netdata's network rate series. Netdata's network charts are rates
+/// in kilobits/s, even when the dimensions are exposed as InOctets/OutOctets.
+/// The API returns rows `[timestamp, rx, tx]`, not one array per dimension.
+fn history_bytes(history: &Value, start: f64, end: f64) -> Result<(f64, f64), String> {
+    let rx_idx = dimension_index(history, &["received", "rx", "inoctets", "in"])
+        .ok_or("Netdata 历史数据缺少接收流量维度")?;
+    let tx_idx = dimension_index(history, &["sent", "tx", "outoctets", "out"])
+        .ok_or("Netdata 历史数据缺少发送流量维度")?;
+    let mut rows = history["data"].as_array().cloned().unwrap_or_default();
+    rows.sort_by(|a,b| a[0].as_f64().partial_cmp(&b[0].as_f64()).unwrap_or(std::cmp::Ordering::Equal));
+    let mut total_rx = 0.0;
+    let mut total_tx = 0.0;
+    for pair in rows.windows(2) {
+        let t0 = pair[0][0].as_f64();
+        let t1 = pair[1][0].as_f64();
+        let (a, b) = match (t0, t1) {
+            (Some(a), Some(b)) if b > a && b-a <= 86_400.0 => (a, b),
+            _ => continue,
+        };
+        let left = a.max(start);
+        let right = b.min(end);
+        if right <= left { continue; }
+        let rate = |row: &Value, index: usize| row[index].as_f64().filter(|v| v.is_finite()).map(|v| v.abs());
+        let interpolate = |index: usize, at: f64| -> Option<f64> {
+            let first = rate(&pair[0], index)?;
+            let last = rate(&pair[1], index)?;
+            Some(first + (last-first) * (at-a) / (b-a))
+        };
+        if let (Some(first), Some(last)) = (interpolate(rx_idx, left), interpolate(rx_idx, right)) { total_rx += (first+last)/2.0 * 1000.0/8.0 * (right-left); }
+        if let (Some(first), Some(last)) = (interpolate(tx_idx, left), interpolate(tx_idx, right)) { total_tx += (first+last)/2.0 * 1000.0/8.0 * (right-left); }
     }
-    let first = |dim: usize| -> f64 {
-        history["data"]
-            .as_array()
-            .and_then(|arr| arr.get(dim))
-            .and_then(|v| v.as_array())
-            .and_then(|arr| arr.iter().find_map(|v| v.as_f64()))
-            .unwrap_or(0.0)
-    };
-    (first(rx_idx), first(tx_idx))
+    if total_rx == 0.0 && total_tx == 0.0 && rows.len() < 2 { return Err("Netdata 历史数据不足，暂时无法计算流量".into()); }
+    Ok((total_rx, total_tx))
+}
+
+fn current_month_window(now: DateTime<Utc>) -> (i64, u64, f64, DateTime<FixedOffset>) {
+    let offset = FixedOffset::east_opt(SHANGHAI_OFFSET_SECONDS).unwrap();
+    let local_now = now.with_timezone(&offset);
+    let start_local = offset.with_ymd_and_hms(local_now.year(), local_now.month(), 1, 0, 0, 0).single().unwrap();
+    let start_utc = start_local.with_timezone(&Utc);
+    let elapsed = (now-start_utc).num_seconds().max(1) as u64;
+    (start_utc.timestamp(), elapsed, elapsed as f64 / SECONDS_PER_DAY, start_local)
 }
 
 pub async fn query(instance: &crate::monitoring::netdata::Instance, limit_gb: f64) -> Result<Value, String> {
     instance.validate()?;
-
-    let metrics = crate::monitoring::netdata::fetch(instance).await?;
-    let row = metrics["rows"]
-        .get(0)
-        .ok_or("Netdata 未返回任何行")?;
-    let values = row["values"].as_object().ok_or("Netdata 行缺少 values")?;
-    let rx = positive(values.get("rx").ok_or("缺少 rx 字段")?, "rx")?;
-    let tx = positive(values.get("tx").ok_or("缺少 tx 字段")?, "tx")?;
-    let total = rx + tx;
 
     let chart = if instance.network_chart.is_empty() {
         "system.net"
     } else {
         instance.network_chart.as_str()
     };
-    let seconds = (DEFAULT_PERIOD_DAYS as f64 * SECONDS_PER_DAY) as u64;
-    let history = crate::monitoring::netdata::history(instance, chart, seconds).await?;
-    let (start_rx, start_tx) = history_first_cumulative(&history);
-
-    // Netdata cumulative counters can briefly dip on VM reboot; clamp so a single bad
-    // sample doesn't produce a negative period.
-    let period_rx = (rx - start_rx).max(0.0);
-    let period_tx = (tx - start_tx).max(0.0);
-    let period_total = period_rx + period_tx;
-    let period_days = DEFAULT_PERIOD_DAYS as f64;
-    let daily_avg = if period_total > 0.0 {
-        period_total / period_days
+    let now = Utc::now();
+    let (month_start, elapsed_seconds, period_days, month_start_local) = current_month_window(now);
+    let history_seconds = elapsed_seconds.max(3_600).min(MAX_MONTH_SECONDS);
+    let history = crate::monitoring::netdata::history(instance, chart, history_seconds).await?;
+    let (period_rx, period_tx) = history_bytes(&history, month_start as f64, now.timestamp() as f64)?;
+    let total = period_rx + period_tx;
+    let daily_avg = if total > 0.0 {
+        total / period_days
     } else {
         0.0
     };
@@ -95,7 +95,6 @@ pub async fn query(instance: &crate::monitoring::netdata::Instance, limit_gb: f6
         0.0
     };
 
-    let now = Utc::now();
     Ok(json!({
         "provider": "localNet",
         "instanceName": instance.name,
@@ -108,10 +107,10 @@ pub async fn query(instance: &crate::monitoring::netdata::Instance, limit_gb: f6
                 "TrafficUsed": total,
                 "TrafficPackageRemaining": remaining,
                 "TrafficOverflow": overflow,
-                "StartTime": (now - Duration::days(DEFAULT_PERIOD_DAYS)).to_rfc3339(),
+                "StartTime": month_start_local.to_rfc3339(),
                 "EndTime": now.to_rfc3339(),
-                "RxBytes": rx,
-                "TxBytes": tx,
+                "RxBytes": period_rx,
+                "TxBytes": period_tx,
                 "DailyAverage": daily_avg,
                 "DaysRemaining": days_remaining,
                 "PeriodDays": period_days,
@@ -128,56 +127,46 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn history_first_cumulative_uses_label_indices_when_present() {
+    fn history_bytes_integrates_rows_and_aliases_dimensions() {
+        let data = json!({
+            "labels": ["time", "InOctets", "OutOctets"],
+            "data": [
+                [1000, 8.0, 16.0],
+                [1010, 8.0, 16.0],
+            ]
+        });
+        let (rx, tx) = history_bytes(&data, 1000.0, 1010.0).unwrap();
+        assert_eq!(rx, 10_000.0);
+        assert_eq!(tx, 20_000.0);
+    }
+
+    #[test]
+    fn history_bytes_accepts_received_sent_labels() {
         let data = json!({
             "labels": ["time", "received", "sent"],
             "data": [
-                [1000, 2000, 3000],
-                [50_000.0, 60_000.0, 70_000.0],
-                [10_000.0, 11_000.0, 12_000.0],
+                [1000, 42.0, 7.0],
+                [1010, 43.0, 8.0],
             ]
         });
-        let (rx, tx) = history_first_cumulative(&data);
-        assert_eq!(rx, 50_000.0);
-        assert_eq!(tx, 10_000.0);
+        let (rx, tx) = history_bytes(&data, 1000.0, 1010.0).unwrap();
+        assert_eq!(rx, 53_125.0);
+        assert_eq!(tx, 9_375.0);
     }
 
     #[test]
-    fn history_first_cumulative_falls_back_to_positional_indices() {
-        let data = json!({
-            "labels": ["time", "rx_bytes", "tx_bytes"],
-            "data": [
-                [1000, 2000],
-                [42.0, 43.0],
-                [7.0, 8.0],
-            ]
-        });
-        let (rx, tx) = history_first_cumulative(&data);
-        // Labels mention "rx" / "tx" so the lower-case match wins and finds the right index.
-        assert_eq!(rx, 42.0);
-        assert_eq!(tx, 7.0);
-    }
-
-    #[test]
-    fn history_first_cumulative_skips_null_entries() {
+    fn history_bytes_skips_null_samples() {
         let data = json!({
             "labels": ["time", "received", "sent"],
             "data": [
-                [1000, 2000],
-                [Value::Null, 60_000.0],
-                [null, 11_000.0],
+                [1000, null, 60_000.0],
+                [1010, 11_000.0, 12_000.0],
+                [1020, 13_000.0, 14_000.0],
             ]
         });
-        let (rx, tx) = history_first_cumulative(&data);
-        assert_eq!(rx, 60_000.0);
-        assert_eq!(tx, 11_000.0);
-    }
-
-    #[test]
-    fn history_first_cumulative_returns_zero_on_empty_or_missing_data() {
-        let (rx, tx) = history_first_cumulative(&json!({}));
-        assert_eq!(rx, 0.0);
-        assert_eq!(tx, 0.0);
+        let (rx, tx) = history_bytes(&data, 1000.0, 1020.0).unwrap();
+        assert_eq!(rx, 15_000_000.0);
+        assert_eq!(tx, 61_250_000.0);
     }
 
     #[test]
@@ -211,4 +200,15 @@ mod tests {
         };
         assert_eq!(days, 0.0);
     }
+
+    #[test]
+    fn month_window_starts_at_shanghai_month_boundary() {
+        let now = Utc.with_ymd_and_hms(2026, 9, 18, 8, 0, 0).unwrap();
+        let (start, seconds, days, local) = current_month_window(now);
+        assert_eq!(local.to_rfc3339(), "2026-09-01T00:00:00+08:00");
+        assert_eq!(start, Utc.with_ymd_and_hms(2026, 8, 31, 16, 0, 0).unwrap().timestamp());
+        assert_eq!(seconds, 17 * 86_400 + 16 * 3_600);
+        assert_eq!(days, 17.0 + 16.0 / 24.0);
+    }
+
 }

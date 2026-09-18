@@ -92,7 +92,7 @@
    const limitGB=pack.LimitGB||0,pct=pack.PercentUsed||0,avg=pack.DailyAverage||0,days=pack.DaysRemaining||0;
    const stats=[stat('入站 RX',n(pack.RxBytes)+' '+unit),stat('出站 TX',n(pack.TxBytes)+' '+unit),
     stat('双向合计',n(pack.TrafficUsed)+' '+unit,limitGB>0?pct.toFixed(1)+'% / '+limitGB+' '+unit:'未设置套餐流量')];
-   if(avg>0)stats.push(stat('当前日均',n(avg)+' '+unit+'/天','近 '+(pack.PeriodDays||30)+' 天累计口径'));
+   if(avg>0)stats.push(stat('当前日均',n(avg)+' '+unit+'/天','本月累计口径（已 '+(pack.PeriodDays||0).toFixed(1)+' 天）'));
    stats.push(stat('预计可用',limitGB<=0?'—':(avg>0?days.toFixed(1)+' 天':'—'),limitGB<=0?'先填写套餐流量':(avg>0?'按当前速率':'累计样本不足')));
    const note=['范围：网卡计数器累计值（不含回环、容器与网桥）'];
    if(pack.StartTime||pack.EndTime)note.push('统计周期：'+(pack.StartTime?new Date(pack.StartTime).toLocaleDateString():'—')+' → '+(pack.EndTime?new Date(pack.EndTime).toLocaleDateString():'—'));

@@ -522,13 +522,14 @@ fn valid_alias(s: &str) -> bool {
         && s.bytes()
             .all(|c| c.is_ascii_alphanumeric() || b"._:-".contains(&c))
 }
-fn validate_command(s: &str) -> Result<(), String> {
-    if s.trim().is_empty() || s.len() > 8192 || s.contains('\0') {
-        Err("命令不能为空、包含 NUL 或超过 8192 字节".into())
+fn validate_command_with_limit(s: &str, limit: usize) -> Result<(), String> {
+    if s.trim().is_empty() || s.len() > limit || s.contains('\0') {
+        Err(format!("命令不能为空、包含 NUL 或超过 {limit} 字节"))
     } else {
         Ok(())
     }
 }
+fn validate_command(s: &str) -> Result<(), String> { validate_command_with_limit(s, 8192) }
 fn validate_hosts(hosts: &[Host]) -> Result<(), String> {
     let mut ids = HashSet::new();
     if hosts.len() > 500 {
@@ -645,11 +646,21 @@ pub(crate) async fn machines_api(
             let key={
                 let c=rt.config.lock().unwrap();
                 authorize(&c,"ssh:configure")?;
-                if provider=="localNet"{let id=payload["netdataId"].as_str().ok_or("请先选择 Netdata 节点")?;if !c.netdata.iter().any(|i|i.id==id){return Err("Netdata 节点不存在".into());}format!("localnet:{id}")}
-                else{let host=payload["hostId"].as_str().ok_or("请选择机器")?;if !c.hosts.iter().any(|h|h.id==host){return Err("机器不存在".into());}host.to_string()}
+                if provider=="localNet"{let id=payload["netdataId"].as_str().ok_or("请先选择 Netdata 节点")?;if !c.netdata.iter().any(|i|i.id==id){return Err("Netdata 节点不存在".into());}}
+                let host=payload["hostId"].as_str().ok_or("请选择机器")?;if !c.hosts.iter().any(|h|h.id==host){return Err("机器不存在".into());}host.to_string()
             };
             let root=rt.path.parent().ok_or("数据目录不存在")?;
-            match action.as_str(){"trafficRead"|"tencentRead"=>Ok(crate::traffic::cloud_traffic::read(root,&key)),"trafficSave"|"tencentSave"=>{let result=crate::traffic::cloud_traffic::save(root,&key,&payload)?;rt.traffic_cache.lock().unwrap().remove(&key);Ok(result)},_=>{
+            match action.as_str(){"trafficRead"|"tencentRead"=>{
+                let saved=crate::traffic::cloud_traffic::read(root,&key);
+                if saved["configured"]==true||action!="trafficRead"{Ok(saved)}else{
+                    // 兼容早期版本按 Netdata ID 保存的 localNet 配置，并迁移到机器 ID。
+                    let legacy=rt.config.lock().unwrap().netdata.iter().find_map(|instance|{let value=crate::traffic::cloud_traffic::read(root,&format!("localnet:{}",instance.id));(value["configured"]==true).then_some(value)});
+                    if let Some(value)=legacy{let migrated=crate::traffic::cloud_traffic::save(root,&key,&json!({"provider":"localNet","netdataId":value["netdataId"],"limitGB":value["limitGB"],"clearToken":false}))?;Ok(migrated)}else{Ok(saved)}
+                }
+            },"trafficSave"|"tencentSave"=>{let result=crate::traffic::cloud_traffic::save(root,&key,&payload)?;rt.traffic_cache.lock().unwrap().remove(&key);
+                // 本地 Netdata 不依赖云厂商接口，保存后立即查询一次，避免桌面卡片要等 5 分钟轮询。
+                if payload["provider"]=="localNet"{let queried=crate::traffic::cloud_traffic::query(root,&key).await;let value=match queried{Ok(data)=>crate::traffic::cloud_traffic::summary(&data),Err(e)=>json!({"error":e,"at":chrono::Utc::now().to_rfc3339()})};rt.traffic_cache.lock().unwrap().insert(key.clone(),value);}
+                Ok(result)},_=>{
                 let before=crate::traffic::cloud_traffic::read(root,&key);let result=crate::traffic::cloud_traffic::query(root,&key).await;
                 if before==crate::traffic::cloud_traffic::read(root,&key){let value=match &result{Ok(data)=>crate::traffic::cloud_traffic::summary(data),Err(e)=>json!({"error":e})};rt.traffic_cache.lock().unwrap().insert(key.clone(),value);}
                 result
@@ -673,12 +684,34 @@ pub(crate) async fn machines_api(
         "netdataInstallPlan" | "netdataInstall" => {
             // 默认与界面推荐项一致（所有网卡 · IP 直连）：127.0.0.1 只有本机可达，FlowHub 连不上。
             let script=crate::monitoring::netdata::install_script(payload["port"].as_u64().unwrap_or(19999),payload["bind"].as_str().unwrap_or("0.0.0.0"),payload["days"].as_u64().unwrap_or(7),payload["disk"].as_u64().unwrap_or(1024))?;
+            // 这是插件生成的受限安装脚本，不是用户自由命令；保留 NUL 校验，但允许
+            // 脚本携带必要的超时、回滚和诊断逻辑，避免在真正入队时被普通命令上限拒绝。
+            validate_command_with_limit(&script, 16384)?;
             let host={let c=rt.config.lock().unwrap();authorize(&c,"ssh:execute")?;let h=c.hosts.iter().find(|h|Some(h.id.as_str())==payload["hostId"].as_str()).ok_or("请选择目标机器")?;check_operation(h,"command",&script)?;if h.bastion.is_some(){return Err("一键安装使用普通 SSH；堡垒机请在已登录的系统终端执行安装命令".into());}h.clone()};
             if action=="netdataInstallPlan"{return Ok(json!({"command":script,"hostId":host.id,"alias":host.alias,"name":host.name}));}
             if payload["expectedAlias"]!=host.alias || payload["command"]!=script{return Err("安装配置发生变化，请重新预览".into());}
             let id=format!("netdata-{}",chrono::Utc::now().timestamp_nanos_opt().unwrap());let task_id=id.clone();
-            tokio::spawn(async move{let _guard=app.gate.read().await;if !app.backup.pending_restore(){let _=machines_run(app.clone(),host.id,host.alias,task_id,"command".into(),Some(script)).await;}});
-            Ok(json!({"id":id}))
+            let task_app=app.clone();
+            let task_error=Arc::new(Mutex::new(None::<String>));
+            let task_error_writer=task_error.clone();
+            // machines_api 由 dispatch/CLI 调用时已经持有 gate 的读锁；这里不能再次
+            // 等待同一把锁，否则在有写锁排队时任务永远不会进入 execute 的 queued 阶段。
+            tokio::spawn(async move{
+                if task_app.backup.pending_restore(){*task_error_writer.lock().unwrap()=Some("插件正在等待恢复，请先重新加载机器插件".into());return;}
+                if let Err(error)=machines_run(task_app.clone(),host.id,host.alias,task_id,"command".into(),Some(script)).await{
+                    *task_error_writer.lock().unwrap()=Some(error);
+                }
+            });
+            // machines_run 在后台任务里才会写入 queued 记录。提交接口不能在这一步
+            // 还没入队时就返回 ID，否则前端只能盲等一个永远查不到的任务。
+            for _ in 0..100 {
+                if let Some(error)=task_error.lock().unwrap().clone(){return Err(format!("安装任务启动失败：{error}"));}
+                if rt.active.lock().unwrap().contains_key(&id) || rt.history_store.job(&id)?.is_some() {
+                    return Ok(json!({"id":id}));
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+            Err("安装任务未能进入执行队列，请重新加载机器插件后重试".into())
         },
         "bastionStart" | "bastionState" | "bastionSend" | "bastionStop" | "bastionTerminal" => {
             let host = {
@@ -1318,7 +1351,11 @@ async fn execute(
     if kind != "collect" && kind != "command" {
         return Err("未知任务类型".into());
     }
-    validate_command(&command)?;
+    if crate::monitoring::netdata::is_install(&command) {
+        validate_command_with_limit(&command, 16384)?;
+    } else {
+        validate_command(&command)?;
+    }
     let rt = app.runtime.clone();
     let cancel = Arc::new(AtomicBool::new(false));
     let mut job = {
@@ -2065,7 +2102,15 @@ pub(crate) fn start_cloud_traffic(app:&Context){
   {let _guard=app.gate.read().await;
    if !app.backup.pending_restore(){
     let hosts={let c=app.runtime.config.lock().unwrap();if authorize(&c,"ssh:configure").is_ok(){c.hosts.iter().map(|h|h.id.clone()).collect::<Vec<_>>()}else{vec![]}};
-    for host in hosts {let root=app.runtime.path.parent().unwrap();if crate::traffic::cloud_traffic::read(root,&host)["configured"]==true{let _=machines_api(app.clone(),"trafficQuery".into(),json!({"hostId":host})).await;}}
+    for host in hosts {let root=app.runtime.path.parent().unwrap();let saved=crate::traffic::cloud_traffic::read(root,&host);if saved["configured"]==true{
+      // localNet has no cloud package API. Query it directly here so the background
+      // sampler cannot fall through to the default Tencent provider while warming
+      // the cache before the cloud-traffic dialog has been opened.
+      if saved["provider"]=="localNet" {
+        let value=match crate::traffic::cloud_traffic::query(root,&host).await{Ok(data)=>crate::traffic::cloud_traffic::summary(&data),Err(e)=>json!({"error":e})};
+        app.runtime.traffic_cache.lock().unwrap().insert(host,value);
+      } else {let _=machines_api(app.clone(),"trafficQuery".into(),json!({"hostId":host})).await;}
+    }}
    }
   }
   tokio::time::sleep(Duration::from_secs(300)).await;

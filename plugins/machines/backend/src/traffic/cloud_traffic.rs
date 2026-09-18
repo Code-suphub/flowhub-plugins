@@ -95,6 +95,13 @@ pub async fn query(root:&Path,host:&str)->Result<Value,String>{
 #[cfg(test)]mod tests{use super::*;#[test]fn credentials_survive_reopen_without_returning_secrets(){let dir=std::env::temp_dir().join(format!("tc-{}",chrono::Utc::now().timestamp_nanos_opt().unwrap()));std::fs::create_dir_all(&dir).unwrap();let p=json!({"secretId":"fixture-id","secretKey":"fixture-secret","region":"ap-shanghai","instanceId":"lhins-test"});save(&dir,"host1",&p).unwrap();assert!(!read(&dir,"host1").to_string().contains("fixture"));save(&dir,"host1",&json!({"region":"ap-singapore","instanceId":"lhins-next"})).unwrap();assert_eq!(load(&dir,"host1").unwrap()["secretKey"],"fixture-secret");assert!(!read(&dir,"host2")["configured"].as_bool().unwrap());std::fs::remove_dir_all(dir).unwrap();}}
 
 pub fn summary(data:&Value)->Value{
+ if data["provider"]=="localNet"{
+  let used=data["rows"].as_array().into_iter().flatten().flat_map(|row|row["TrafficPackageSet"].as_array().into_iter().flatten()).filter_map(|p|p["TrafficUsed"].as_f64()).filter(|n|n.is_finite()&&*n>=0.).sum::<f64>();
+  let total=data["rows"].as_array().into_iter().flatten().flat_map(|row|row["TrafficPackageSet"].as_array().into_iter().flatten()).filter_map(|p|p["TrafficPackageTotal"].as_f64()).filter(|n|n.is_finite()&&*n>0.).sum::<f64>();
+  if total<=0.{return json!({"mode":"usage","used":used,"at":data["at"]});}
+  let remaining=data["rows"].as_array().into_iter().flatten().flat_map(|row|row["TrafficPackageSet"].as_array().into_iter().flatten()).filter_map(|p|p["TrafficPackageRemaining"].as_f64()).filter(|n|n.is_finite()&&*n>=0.).sum::<f64>();
+  return json!({"remaining":remaining,"total":total,"at":data["at"]});
+ }
  if data["summary"].is_object(){return data["summary"].clone();}
  let now=chrono::Utc::now();let mut remaining=0f64;let mut total=0f64;let mut count=0;
  for row in data["rows"].as_array().into_iter().flatten(){for p in row["TrafficPackageSet"].as_array().into_iter().flatten(){
@@ -107,7 +114,8 @@ pub fn summary(data:&Value)->Value{
 }
 
 #[cfg(test)]mod summary_tests{use super::*;
-#[test]fn excludes_expired_and_future_packages_but_keeps_exhausted(){let data=json!({"at":"test","rows":[{"TrafficPackageSet":[{"TrafficPackageRemaining":0,"TrafficPackageTotal":300},{"TrafficPackageRemaining":100,"TrafficPackageTotal":100,"EndTime":"2000-01-01T00:00:00Z"},{"TrafficPackageRemaining":100,"TrafficPackageTotal":100,"StartTime":"2999-01-01T00:00:00Z"}]}]});let s=summary(&data);assert_eq!(s["remaining"],0.0);assert_eq!(s["total"],300.0);assert!(summary(&json!({"rows":[]}))["error"].is_string());}}
+#[test]fn excludes_expired_and_future_packages_but_keeps_exhausted(){let data=json!({"at":"test","rows":[{"TrafficPackageSet":[{"TrafficPackageRemaining":0,"TrafficPackageTotal":300},{"TrafficPackageRemaining":100,"TrafficPackageTotal":100,"EndTime":"2000-01-01T00:00:00Z"},{"TrafficPackageRemaining":100,"TrafficPackageTotal":100,"StartTime":"2999-01-01T00:00:00Z"}]}]});let s=summary(&data);assert_eq!(s["remaining"],0.0);assert_eq!(s["total"],300.0);assert!(summary(&json!({"rows":[]}))["error"].is_string());}
+#[test]fn local_net_without_limit_still_reports_usage(){let s=summary(&json!({"provider":"localNet","at":"test","rows":[{"TrafficPackageSet":[{"TrafficUsed":123456789,"TrafficPackageTotal":0}]}]}));assert_eq!(s["mode"],"usage");assert_eq!(s["used"],123456789.0);}}
 #[cfg(test)]mod provider_tests{use super::*;
 #[test]fn bandwagon_credentials_are_private_and_cannot_follow_changed_instance(){let dir=std::env::temp_dir().join(format!("cloud-{}",chrono::Utc::now().timestamp_nanos_opt().unwrap()));std::fs::create_dir_all(&dir).unwrap();save(&dir,"h",&json!({"provider":"bandwagon","veid":"123","apiKey":"fixture-private"})).unwrap();let first=read(&dir,"h");assert_eq!(first["provider"],"bandwagon");assert!(!first.to_string().contains("fixture-private"));save(&dir,"h",&json!({"provider":"bandwagon","veid":"123","apiKey":""})).unwrap();assert_ne!(read(&dir,"h")["revision"],first["revision"]);assert_eq!(load(&dir,"h").unwrap()["apiKey"],"fixture-private");assert!(save(&dir,"h",&json!({"provider":"bandwagon","veid":"456"})).is_err());assert_eq!(read(&dir,"h")["veid"],"123");assert!(save(&dir,"h",&json!({"provider":"other"})).is_err());std::fs::remove_dir_all(dir).unwrap();}
 }

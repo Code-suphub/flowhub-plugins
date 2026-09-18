@@ -22,7 +22,21 @@ async fn read(url:url::Url)->Result<Value,String>{
     let mut bytes=Vec::new();while let Some(chunk)=response.chunk().await.map_err(|_|"读取指标失败")?{if bytes.len()+chunk.len()>8*1024*1024{return Err("指标响应超过 8 MiB".into());}bytes.extend_from_slice(&chunk);}
     serde_json::from_slice(&bytes).map_err(|_|"返回内容不是 Netdata JSON 数据".into())
 }
-fn val(all:&Value,chart:&str,dim:&str)->Option<f64>{all[chart]["dimensions"][dim]["value"].as_f64().filter(|v|v.is_finite())}
+fn dimension_value(all:&Value,chart:&str,names:&[&str])->Option<f64>{
+    let dimensions=all[chart]["dimensions"].as_object()?;
+    names.iter().find_map(|wanted|dimensions.iter().find_map(|(name,value)|{
+        let normalized=name.to_ascii_lowercase().replace(['_','-'],"");
+        let wanted= wanted.to_ascii_lowercase().replace(['_','-'],"");
+        (normalized==wanted).then(||value["value"].as_f64()).flatten()
+    })).filter(|v|v.is_finite())
+}
+fn val(all:&Value,chart:&str,dim:&str)->Option<f64>{
+    match dim {
+        "received"=>dimension_value(all,chart,&["received","rx","in_octets","inoctets","in"]),
+        "sent"=>dimension_value(all,chart,&["sent","tx","out_octets","outoctets","out"]),
+        _=>dimension_value(all,chart,&[dim]),
+    }
+}
 fn percent(used:Option<f64>,total:Option<f64>)->Option<f64>{used.zip(total).filter(|(_,t)|*t>0.).map(|(u,t)|(u/t*100.).clamp(0.,100.))}
 fn normalize(instance:&Instance,all:&Value)->Result<Value,String>{
     let charts=all.as_object().filter(|c|c.values().any(|v|v["dimensions"].is_object())).ok_or("Netdata 未返回指标，请确认采集器已启动")?;
@@ -36,7 +50,7 @@ fn normalize(instance:&Instance,all:&Value)->Result<Value,String>{
 }
 pub(crate) async fn fetch(instance:&Instance)->Result<Value,String>{instance.validate()?;let mut url=endpoint(&instance.url,"api/v1/allmetrics")?;url.query_pairs_mut().append_pair("format","json");normalize(instance,&read(url).await?)}
 pub(crate) async fn history(instance:&Instance,chart:&str,seconds:u64)->Result<Value,String>{
-    instance.validate()?;if chart.is_empty()||chart.len()>256||![3600,86400,604800,2592000].contains(&seconds){return Err("指标或时间范围无效".into());}
+    instance.validate()?;if chart.is_empty()||chart.len()>256||!(3600..=31*86400).contains(&seconds){return Err("指标或时间范围无效".into());}
     let mut url=endpoint(&instance.url,"api/v1/data")?;url.query_pairs_mut().append_pair("chart",chart).append_pair("after",&format!("-{seconds}")).append_pair("points","180").append_pair("format","json");
     let data=read(url).await?;if !data["labels"].is_array()||!data["data"].is_array(){return Err("Agent 没有返回可用的历史数据".into());}Ok(data)
 }
@@ -123,6 +137,7 @@ fi
 as_root() {{ if test "$(id -u)" = 0; then "$@"; else sudo -n "$@"; fi; }}
 as_root true || {{ echo '需要 root 或免密 sudo 权限，可改在系统终端安装'; exit 1; }}
 command -v curl >/dev/null || {{ echo '请先安装 curl'; exit 1; }}
+command -v timeout >/dev/null || {{ echo '请先安装 timeout（通常由 coreutils 提供）'; exit 1; }}
 task_dir=$(mktemp -d)
 trap 'rm -rf "$task_dir"' EXIT
 # 这两步原本没有任何超时：网络不通、源不可达或 apt 等待锁时，任务会一直挂到后端
@@ -135,8 +150,8 @@ if ! curl --fail --location --proto '=https' --tlsv1.2 --connect-timeout 15 --ma
 fi
 echo '正在执行官方安装脚本（下载并安装软件包，可能需要几分钟）…'
 # kickstart 的上限必须留出后面几步的余量：后端对安装任务的整体上限是 600 秒，
-# 脚本自身各步上限之和必须小于它，否则会被后端先杀掉，用户看到的是「卡住 10 分钟」
-# 而不是这里给出的明确失败原因。当前预算：60+300+60+45+30 = 495 秒。
+# 脚本自身各步上限之和必须明显小于它，否则会被后端先杀掉，用户看到的是「卡住 10 分钟」
+# 而不是这里给出的明确失败原因。当前预算：60+300+80+30+25 = 495 秒。
 if ! as_root env DISABLE_TELEMETRY=1 timeout 300 sh "$task_dir/kickstart.sh" --non-interactive --release-channel stable --no-updates; then
   echo '安装脚本未成功完成（超时或返回错误）。'
   echo '常见原因：apt 源不可达、磁盘空间不足、或 apt/dpkg 锁被其他进程占用。'
@@ -159,16 +174,16 @@ cat > "$task_dir/netdata.conf" <<'FLOWHUB_CONFIG'
     default port = {port}
 FLOWHUB_CONFIG
 as_root install -m 644 "$task_dir/netdata.conf" "$conf"
-if command -v systemctl >/dev/null; then as_root systemctl restart netdata; else as_root service netdata restart; fi
-# 首次安装要初始化 dbengine 并加载插件，几秒内不会响应；只探测一次会把「装好了但还没起来」
-# 误报成安装失败，所以这里重试约 60 秒。只探测本机（云主机上探测自己的公网 IP 常因 NAT 失败）。
+if command -v systemctl >/dev/null; then as_root timeout 30 systemctl restart netdata; else as_root timeout 30 service netdata restart; fi
+# 首次安装要初始化 dbengine 并加载插件，几十秒内可能不会响应；只探测一次会把「装好了但还没起来」
+# 误报成安装失败，所以这里重试约 80 秒。只探测本机（云主机上探测自己的公网 IP 常因 NAT 失败）。
 ready=''
-for _ in $(seq 1 30); do
+for _ in $(seq 1 20); do
   if curl --fail --silent --max-time 3 http://127.0.0.1:{port}/api/v1/info >/dev/null 2>&1; then ready=1; break; fi
-  sleep 2
+  sleep 1
 done
 if test -z "$ready"; then
-  echo 'Netdata 已安装，但 Agent 在 60 秒内没有响应。'
+  echo 'Netdata 已安装，但 Agent 在约 80 秒内没有响应。'
   echo '这不是安装失败：请查看 systemctl status netdata 与 journalctl -u netdata 排查服务状态。'
   exit 1
 fi
@@ -208,7 +223,7 @@ if test "{bind}" = "0.0.0.0"; then
         as_root sed -i -E '/^[[:space:]]*NETDATA_EXTRA_ARGS=.*bind/d' "$sysconfig" 2>/dev/null || true
       fi
     done
-    if command -v systemctl >/dev/null; then as_root systemctl restart netdata; else as_root service netdata restart; fi
+    if command -v systemctl >/dev/null; then as_root timeout 30 systemctl restart netdata; else as_root timeout 30 service netdata restart; fi
     # 重启后重新校验，用事实说话。
     fixed=''
     for _ in $(seq 1 15); do
@@ -240,7 +255,7 @@ pub(crate) fn is_install(script:&str)->bool{script.starts_with("set -eu\n# FlowH
  #[test]fn install_script_retries_the_readiness_probe_instead_of_failing_once(){
   let script=install_script(19999,"0.0.0.0",7,1024).unwrap();
   // 首次启动要初始化 dbengine，单次探测会把「装好了但还没起来」误报成安装失败。
-  assert!(script.contains("for _ in $(seq 1 30)"),"自检必须重试");
+  assert!(script.contains("for _ in $(seq 1 20)"),"自检必须重试");
   assert!(!script.contains("--max-time 10 http://127.0.0.1:19999/api/v1/info >/dev/null ||"));
   // 超时措辞不能让人以为安装本身失败了。
   assert!(script.contains("这不是安装失败"));
@@ -287,13 +302,14 @@ pub(crate) fn is_install(script:&str)->bool{script.starts_with("set -eu\n# FlowH
   // 脚本里那些明确的失败原因根本来不及打印。
   let budget = 60   // 下载
     + 300          // kickstart
-    + 60           // 就绪重试 30×2s
-    + 45           // 监听修正 + 重试 15×2s
-    + 30;          // 地址探测 5 个候选 × 5s
+    + 80           // 就绪重试 20×(3s 请求 + 1s sleep)
+    + 30           // 监听修正 + 重试 15×2s
+    + 25;          // 地址探测最多 5 个候选 × 5s
   assert!(budget < 600, "脚本自身超时预算 {budget}s 必须小于后端 600s 上限");
   // 每个外部探测都要有 --max-time，避免 DNS/TLS 阶段长时间阻塞。
   assert!(script.contains("--max-time 5"),"外部回显探测必须有超时");
   assert!(script.contains("--max-time 3"),"就绪探测必须有超时");
+  assert!(script.contains("command -v timeout"),"安装前必须检查 timeout 命令");
   // 关键步骤要有进度输出，失败时能看出卡在哪。
   assert!(script.contains("正在下载 Netdata 官方安装脚本"));
   assert!(script.contains("正在执行官方安装脚本"));

@@ -29,7 +29,7 @@
   // 注意：这里是唯一的 install.oninput 处理器。再写一行会覆盖它，导致 plan 无法失效、确认按钮状态错乱。
   install.oninput=()=>{plan=null;$('[data-confirm]').hidden=true;$('[data-plan]').hidden=true;$('[data-agent-suggestion]').hidden=true;$('[data-use-agent]').hidden=true;};
   install.onsubmit=e=>{e.preventDefault();if(!invoke)return;run(async()=>{const payload={hostId:install.elements.host.value,port:Number(install.elements.port.value),bind:install.elements.bind.value,days:Number(install.elements.days.value),disk:Number(install.elements.disk.value)};const result=await api('netdataInstallPlan',payload);plan={...payload,...result,expectedAlias:result.alias};$('[data-plan]').textContent=`目标：${result.name} (${result.alias})\n\n${result.command}`;$('[data-plan]').hidden=false;$('[data-confirm]').hidden=false;});};
-  $('[data-confirm]').onclick=()=>{if(!plan)return;run(async()=>{const result=await api('netdataInstall',plan);plan=null;$('[data-confirm]').hidden=true;const started=Date.now();const elapsed=()=>{const s=Math.round((Date.now()-started)/1000);return `${Math.floor(s/60)} 分 ${String(s%60).padStart(2,'0')} 秒`;};status.textContent='安装任务已提交，可关闭窗口，结果保存在执行记录中。';for(let i=0;i<330;i++){await new Promise(r=>setTimeout(r,2000));let job=null;try{job=await api('job',{id:result.id});}catch(e){
+  $('[data-confirm]').onclick=()=>{if(!plan)return;run(async()=>{const result=await api('netdataInstall',plan);plan=null;$('[data-confirm]').hidden=true;const started=Date.now();const uiWaitSeconds=120;const elapsed=()=>{const s=Math.round((Date.now()-started)/1000);return `${Math.floor(s/60)} 分 ${String(s%60).padStart(2,'0')} 秒`;};status.textContent='安装任务已提交，可关闭窗口，结果保存在执行记录中。';for(let i=0;i<uiWaitSeconds/2;i++){await new Promise(r=>setTimeout(r,2000));let job=null;try{job=await api('job',{id:result.id});}catch(e){
    // 后端在任务运行期间可能暂时查不到记录（历史只在结束后写入）。这属于正常的等待，
    // 不能当成失败：之前连续 6 次就 throw，用户在任务正常执行时就看到「记录已过期或任务未结束」。
    // 只有明确表示任务不存在且已等待很久时，才提示去执行记录里查看。
@@ -37,7 +37,7 @@
   if(!job){status.textContent=`安装任务执行中…已等待 ${elapsed()}\n（任务在服务器上继续执行，关闭本窗口不会中断）`;continue;}
   status.textContent=`安装任务：${job.status}（已等待 ${elapsed()}）\n${job.stdout||''}\n${job.stderr||''}`;
   if(job.finishedAt){offerDiscoveredAgent(job);return;}}
-  status.textContent+=`\n等待超过 ${elapsed()}，请到执行记录中查看最终状态。`;});};
+  status.textContent=`前端已等待 ${elapsed()}，停止占用此窗口。后台安装任务仍在服务器上继续，完成后请到执行记录查看最终状态。`;});};
   // 安装脚本结束时回传探测到的地址（FLOWHUB_NETDATA_AGENT_HOST/PORT），这里解析出来直接填进接入表单，
   // 免得用户自己去拼 http://IP:19999。云主机 NAT 下探测到的可能是内网地址，所以仍然让用户确认后再保存。
   function offerDiscoveredAgent(job){if(!job||job.status!=='success')return;const text=`${job.stdout||''}\n${job.stderr||''}`;const host=/FLOWHUB_NETDATA_AGENT_HOST=(\S*)/.exec(text)?.[1]?.trim();const port=/FLOWHUB_NETDATA_AGENT_PORT=(\d+)/.exec(text)?.[1];const hint=$('[data-agent-suggestion]'),use=$('[data-use-agent]');
@@ -47,5 +47,10 @@
   // 兜底：IPv6 不带方括号时 http://2402:...:19999 是非法 URL（端口与末段 hextet 混淆），
   // 后端已保证补括号，这里再挡一次，避免把用不了的地址填进表单。
   const normalized=host.includes(':')&&!host.startsWith('[')?`[${host}]`:host;
-  if(!host||!port)return;const url=`http://${normalized}:${port}`;hint.hidden=false;hint.textContent=`已探测到 Agent 地址 ${url}（安装任务 ${job.id}）。云主机若是 NAT，这个地址可能是内网 IP，请确认后再保存。`;use.hidden=false;use.onclick=()=>{form.elements.url.value=url;const target=document.querySelector('#hostName');if(target&&!form.elements.name.value.trim())form.elements.name.value=(target.value||'').trim();hint.textContent=`已填入 ${url}，请点「测试并发现指标」验证后保存。`;use.hidden=true;};}
+  if(!host||!port)return;const url=`http://${normalized}:${port}`;
+  // 安装任务回传的地址就是本次目标机器的 Agent 地址，直接回填；仍要求用户
+  // 点击「测试并发现指标」确认 FlowHub 到 Agent 的网络路径后再保存。
+  form.elements.url.value=url;
+  if(!form.elements.name.value.trim()){const selected=install.elements.host.selectedOptions[0]?.textContent||'';form.elements.name.value=selected.split(' · ')[0].trim();}
+  hint.hidden=false;hint.textContent=`已自动填入 Agent 地址 ${url}，请点「测试并发现指标」验证后保存。`;use.hidden=true;}
 })();
