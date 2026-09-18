@@ -1,0 +1,96 @@
+:root {
+  color-scheme: dark;
+  --widget-accent: #f7a454;
+  --widget-border: #514951;
+  --widget-panel: rgb(54 48 55 / 82%);
+  --widget-text: #f5f1ed;
+  --widget-muted: #b9afb8;
+  --widget-success: #9fd4b4;
+  --widget-error: #ef968b;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: transparent;
+  color: var(--widget-muted);
+  font: 12px/1.5 "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+button,
+select,
+input {
+  font: inherit;
+}
+
+.widget-editor {
+  display: grid;
+  gap: 14px;
+}
+
+.widget-editor__metrics {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.widget-editor__metrics legend {
+  margin-bottom: 8px;
+  color: var(--widget-muted);
+}
+
+.widget-editor__metric-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+}
+
+.widget-editor__hint,
+.widget-editor__status {
+  margin: 0;
+}
+
+.widget-editor__hint {
+  padding-top: 2px;
+  color: color-mix(in srgb, var(--widget-muted) 78%, transparent);
+}
+
+.widget-editor__status {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  min-height: 32px;
+  padding: 7px 9px;
+  border: 1px solid var(--widget-border);
+  border-radius: 8px;
+  background: var(--widget-panel);
+  color: var(--widget-muted);
+}
+
+.widget-editor__status-dot {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 16%, transparent);
+}
+
+.widget-editor__status[data-tone='success'] {
+  color: var(--widget-success);
+}
+
+.widget-editor__status[data-tone='error'] {
+  color: var(--widget-error);
+}
+
+@media (max-width: 280px) {
+  .widget-editor__metric-grid {
+    grid-template-columns: 1fr;
+  }
+}
