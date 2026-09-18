@@ -11,20 +11,27 @@
   aws:{name:'AWS · Lightsail 监控用量',fields:['region','instanceId','secretId','secretKey','token'],required:['region','instanceId'],region:'us-east-1',instance:'Lightsail 实例名称',help:'查询本月 UTC 入站＋出站监控用量，可能有延迟或缺失。仅显示已用量，不代表账单或套餐余额。只读权限：lightsail:GetInstanceMetricData。'}
   ,zgocloud:{name:'ZgoCloud · API Token',fields:['apiToken','serverId','limitGB'],required:['apiToken','serverId'],serverIdHint:'例如 19383',help:'在 zgoCloud 控制台 → 用户设置生成 API Token（需要向客服申请）；serverId 是整数 ID。只读权限：账号对应 server 的查看权限。套餐限额由接口自动返回，limitGB 留空。'}
   ,zgocloudCookie:{name:'ZgoCloud · Session Cookie',fields:['cookie','xsrfToken','serverId','limitGB'],required:['cookie','xsrfToken','serverId'],serverIdHint:'例如 19383',help:'从浏览器登录 zgoCloud 后 DevTools → Network → 任一 /api/ 或 /resource/ 请求 → 复制 Cookie 头整串 + x-xsrf-token 头。limitGB 是套餐流量（手动填），用于显示剩余/超额。Cookie 会过期，过期后重新复制。'}
-  ,localNet:{name:'网卡计数器 · 本地 Netdata',fields:['netdataId','limitGB'],required:['netdataId'],hideHost:true,help:'复用已在 FlowHub 机器管理接入的 Netdata 节点（每 5 分钟自动抓取）；按 30 天 rx/tx 累计算日均和剩余天数。limitGB 是套餐流量（手动填），用于显示百分比和剩余天数。'}
+ ,localNet:{name:'网卡计数器 · 本地 Netdata',fields:['netdataId','limitGB'],required:['netdataId'],hideHost:true,help:'复用已在 FlowHub 机器管理接入的 Netdata 节点（每 5 分钟自动抓取）；按北京时间自然月 rx/tx 累计算日均和剩余天数。limitGB 是套餐流量（手动填），用于显示百分比和剩余天数。'}
  };
  const fields={region:'地域',instanceId:'实例 ID / 名称',secretId:'Access Key ID / SecretId',secretKey:'Access Key Secret / SecretKey',token:'临时会话 Token（可选）',veid:'VEID',apiKey:'API Key / 只读 Token',packageId:'流量包 ID',site:'华为云站点',apiToken:'API Token',cookie:'Cookie 串（浏览器）',xsrfToken:'XSRF Token（x-xsrf-token）',serverId:'Server ID（整数）',limitGB:'套餐流量 / GB（可选）'};
  const secrets=['secretId','secretKey','token','apiKey','apiToken','cookie','xsrfToken'];
  const dialog=document.createElement('dialog');dialog.className='netdata-dialog traffic-dialog';
- dialog.innerHTML=`<div class="section-head traffic-head"><div><h2>云流量</h2><p class="netdata-note">按机器关联云服务商。凭证加密保存在本机，组件每 5 分钟更新；更换服务商需要重新保存。</p></div><button data-close type="button">关闭</button></div>
+ dialog.innerHTML=`<div class="section-head traffic-head"><div class="traffic-head-main"><div class="traffic-title"><h2>云流量</h2><span class="inline-help"><button type="button" class="help-trigger" aria-label="云流量说明" aria-describedby="trafficHelp" aria-expanded="false">?</button><span id="trafficHelp" class="help-content" role="tooltip" hidden>配置按机器保存，凭证会加密保存在本机；组件每 5 分钟更新一次。更换云服务商或凭证后，需要重新保存配置。</span></span></div><p class="traffic-target" data-target hidden></p><div class="traffic-target-fields"><label data-host-row>机器<select data-host></select></label><label data-netdata-row hidden>Netdata 节点<select data-netdata></select></label></div></div><button data-close type="button">关闭</button></div>
  <div class="traffic-body"><form id="trafficForm">
-  <fieldset class="traffic-group"><legend>关联目标</legend><p class="traffic-target" data-target hidden></p><div class="traffic-fields"><label data-host-row>机器<select data-host></select></label><label data-netdata-row hidden>Netdata 节点<select data-netdata></select></label></div></fieldset>
-  <fieldset class="traffic-group"><legend>服务商与凭证</legend><label>云服务商<select name="provider"></select></label><p data-provider-help class="netdata-note"></p><div class="traffic-fields" data-fields></div><label data-clear-token class="traffic-inline"><input name="clearToken" type="checkbox">清除已保存的临时 Token</label></fieldset>
+  <fieldset class="traffic-group"><legend>服务商与凭证</legend><div class="traffic-provider-heading"><span>云服务商</span><span class="inline-help"><button type="button" class="help-trigger" aria-label="服务商说明" aria-describedby="providerHelp" aria-expanded="false">?</button><span id="providerHelp" data-provider-help class="help-content" role="tooltip" hidden></span></span></div><label class="traffic-provider-field"><span class="sr-only">云服务商</span><select name="provider"></select></label><div class="traffic-fields" data-fields></div><label data-clear-token class="traffic-inline"><input name="clearToken" type="checkbox">清除已保存的临时 Token</label></fieldset>
   <section data-result class="traffic-results"></section>
  </form></div>
- <footer class="traffic-footer"><p data-status role="status"></p><div class="actions"><button type="button" data-query>查询已保存配置</button><button type="submit" class="primary" form="trafficForm">保存配置</button></div></footer>`;
+ <footer class="traffic-footer"><p data-status role="status"></p><div class="actions"><button type="button" data-query>查询流量</button><button type="submit" class="primary" form="trafficForm">保存配置</button></div></footer>`;
  document.body.append(dialog);
  const $=s=>dialog.querySelector(s),form=$('form');let busy=false;
+ for(const help of dialog.querySelectorAll('.inline-help')){
+  const button=help.querySelector('.help-trigger'),content=help.querySelector('.help-content');
+  const show=visible=>{content.hidden=!visible;button.setAttribute('aria-expanded',String(visible));};
+  help.onmouseenter=()=>show(true);help.onmouseleave=()=>{if(document.activeElement!==button)show(false);};
+  button.onfocus=()=>show(true);button.onblur=()=>show(false);button.onclick=()=>show(true);
+  button.onkeydown=e=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();show(false);}};
+  document.addEventListener('pointerdown',e=>{if(!help.contains(e.target))show(false);});
+ }
  for(const [key,p]of Object.entries(providers)){const o=document.createElement('option');o.value=key;o.textContent=p.name;form.elements.provider.append(o);}
  for(const [key,label]of Object.entries(fields)){
   const row=document.createElement('label');row.textContent=label;

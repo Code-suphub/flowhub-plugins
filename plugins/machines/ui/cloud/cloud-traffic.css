@@ -4,9 +4,18 @@
    这里补上与 .host-dialog 相同的高度约束：撑满可用高度，正文区独立滚动。 */
 .traffic-dialog[open]{display:flex;flex-direction:column;height:min(calc(100vh - 24px),920px);max-height:calc(100vh - 24px);padding:0;overflow:hidden}
 .traffic-dialog .traffic-head{gap:16px;align-items:flex-start;margin:0;padding:24px 24px 18px;border-bottom:1px solid var(--line)}
-.traffic-dialog .traffic-head>div{display:grid;gap:8px;min-width:0}
+.traffic-dialog .traffic-head-main{display:grid;gap:9px;min-width:0}
+.traffic-dialog .traffic-title{display:flex;align-items:center;gap:8px;min-width:0}
 .traffic-dialog .traffic-head h2{margin:0}
-.traffic-dialog .traffic-head .netdata-note{margin:0}
+.traffic-dialog .traffic-target{margin:0;color:var(--muted);font-size:12px;line-height:1.5}
+.traffic-dialog .traffic-target-fields{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:end}
+.traffic-dialog .traffic-target-fields label{display:grid;gap:6px;min-width:220px;color:var(--muted);font-size:11px}
+.traffic-dialog .traffic-target-fields select{width:min(360px,100%);min-width:0}
+.traffic-dialog .traffic-provider-heading{display:flex;align-items:center;gap:7px;margin-bottom:7px;color:var(--muted);font-size:12px}
+.traffic-dialog .traffic-provider-field{display:block;width:min(380px,100%);margin:0}
+.traffic-dialog .traffic-provider-field select{width:100%;min-width:0}
+.traffic-dialog .traffic-group .traffic-provider-field .select-shell{display:block;width:100%;min-width:0}
+.traffic-dialog .traffic-group .traffic-provider-field .select-trigger{width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .traffic-dialog .traffic-body{flex:1;min-height:0;overflow:auto;padding:18px 24px 22px}
 .traffic-dialog .traffic-group{margin:0 0 16px;padding:16px 18px 18px;border:1px solid var(--line);border-radius:10px;min-width:0}
 .traffic-dialog .traffic-group:last-of-type{margin-bottom:0}
