@@ -59,6 +59,11 @@ export interface HostEditorOption {
   disabled?: boolean;
 }
 
+export type HostEditorMachineApi = (
+  action: string,
+  payload?: Record<string, unknown>,
+) => Promise<unknown>;
+
 export interface HostEditorActions {
   onChange: <Field extends HostEditorField>(field: Field, value: HostEditorFieldValue<Field>) => void;
   onTabChange: (tab: HostEditorTab) => void;
@@ -83,6 +88,7 @@ export interface HostEditorProps {
   testState?: HostEditorAsyncState;
   saving?: boolean;
   saved?: boolean;
+  monitoringApi?: HostEditorMachineApi;
   title?: ReactNode;
   description?: ReactNode;
   className?: string;

@@ -22,6 +22,7 @@ import type {
   HostEditorTab,
   HostEditorValue,
 } from './types';
+import { MonitoringWorkspace } from '../monitoring/MonitoringWorkspace';
 
 const DEFAULT_COUNTRIES: readonly HostEditorOption[] = [
   { value: '', label: '不设置' },
@@ -303,7 +304,8 @@ function ConnectionPanel({ value, errors, actions, loadState, testState, change 
   );
 }
 
-function MonitoringPanel({ saved, actions }: { saved: boolean; actions: HostEditorActions }) {
+function MonitoringPanel({ saved, actions, hostId, hostName, api }: { saved: boolean; actions: HostEditorActions; hostId: string; hostName: string; api?: HostEditorProps['monitoringApi'] }) {
+  if (saved && api) return <MonitoringWorkspace hostId={hostId} hostName={hostName} api={api} />;
   const monitoringHint = saved ? '保存后由机器管理器定时采集。' : '请先保存机器，才能配置监控与流量。';
 
   return (
@@ -345,6 +347,7 @@ export function HostEditor({
   testState = { status: 'idle' },
   saving = false,
   saved = Boolean(value.id),
+  monitoringApi,
   title = value.id ? '编辑机器' : '添加机器',
   description = '维护机器身份、连接方式与监控入口。所有字段由上层受控保存。',
   className,
@@ -368,7 +371,7 @@ export function HostEditor({
       contentClassName="host-editor__shell"
       aria-label="机器编辑器"
       footer={
-        <>
+        activeTab === 'monitoring' ? <Button variant="primary" onClick={actions.onClose}>完成</Button> : <>
           <Button variant="ghost" onClick={actions.onClose}>取消</Button>
           <Button variant="primary" disabled={saving || loadState.status === 'loading'} onClick={() => void actions.onSave()}>
             {saving ? '保存中…' : '保存机器'}
@@ -392,7 +395,7 @@ export function HostEditor({
             <ConnectionPanel value={value} errors={errors} actions={actions} loadState={loadState} testState={testState} change={change} />
           </Tabs.Panel>
           <Tabs.Panel value="monitoring" className="host-editor__tab-panel">
-            <MonitoringPanel saved={saved} actions={actions} />
+            <MonitoringPanel saved={saved} actions={actions} hostId={value.id ?? ''} hostName={value.name || value.alias} api={monitoringApi} />
           </Tabs.Panel>
         </Tabs>
         {loadState.status === 'loading' ? <span className="host-editor__sr-status" role="status" aria-live="polite">正在加载机器配置</span> : null}

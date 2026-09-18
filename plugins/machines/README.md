@@ -80,7 +80,7 @@ stdin/stdout 每行一条 JSON：
 | AWS Lightsail | 本月 UTC 入站＋出站监控用量 | AK/SK、地域、实例名称；`lightsail:GetInstanceMetricData` |
 | ZgoCloud (VirtFusion · API Token) | 当前周期套餐余量 | Bearer Token + 整数 serverId；`GET /api/v1/servers/{id}/traffic` |
 | ZgoCloud (VirtFusion · Session Cookie) | 当前周期累计（限额手动） | 浏览器 Cookie + XSRF Token + 整数 serverId；`GET /server/{id}/resource/traffic.json` |
-| 网卡计数器（本地 Netdata） | 累计 rx/tx + 日均 + 剩余天数（限额手动） | 复用 FlowHub 已接入的 Netdata 节点；30 天 `system.net` 累计差 / 30 算日均；`GET netdata/api/v1/allmetrics` + `api/v1/data` |
+| 网卡计数器（本地 Netdata） | 自然月累计 rx/tx + 日均 + 剩余天数（限额手动） | 复用 FlowHub 已接入的 Netdata 节点；按北京时间自然月积分 `system.net` 速率；`GET netdata/api/v1/allmetrics` + `api/v1/data` |
 
 - 套餐显示“295/300 GB”，共享池显示“共享 295/300 GB”，仅监控显示“已用 5 GB”。沿用组件的紧凑 GB 标签；详情按原 API 数值尺度区分 GB/GiB。
 - Linode 地域独立池不能互相抵扣；账户汇总不代表单台机器专属余量。Vultr 使用已累计额度，不用月底预测额度。
@@ -88,7 +88,7 @@ stdin/stdout 每行一条 JSON：
 - 华为云填写的是流量包 ID，不是服务器 ID。接口仅接受有效周期内、计量单位为 GB 的资源包。
 - 搬瓦工通过固定 HTTPS POST 请求，密钥不在 URL 中。按 `monthly_data_multiplier` 同时换算总量和已用量；实际倍率需用真实账单核对。
 - ZgoCloud 提供两种接入：API Token 走 Bearer（接口自带 limit/blocks），Session Cookie 走浏览器 session（接口只给累计，limitGB 由配置项手动填）。两路都把响应统一归一为 `rows[].TrafficPackageSet`，UI 同一套展示。Cookie 会过期，过期需重新从浏览器抓取；服务器重启或会话失效也会让 Cookie 失效。
-- 网卡计数器走的是 FlowHub 已接入的 Netdata 节点（无需额外鉴权，HTTP 即可），按 30 天窗口的累计差值算日均和剩余天数。VM 重启会让 Netdata 计数器归零，期间日均会显示"暂无数据"或偏低。limitGB 必须手动填。Netdata 累计样本不足 1 天时同样不计算日均。
+- 网卡计数器走的是 FlowHub 已接入的 Netdata 节点（无需额外鉴权，HTTP 即可），按北京时间自然月对 rx/tx 速率积分，并以本月已过去时间计算日均和剩余天数。limitGB 必须手动填；Netdata 历史样本不足时不计算日均。
 - 腾讯云、阿里云及 AWS 支持临时会话 Token；过期需更新，可显式清除。没有密钥时不生成演示余额。
 - 本轮新增厂商尚未使用真实用户凭证联调。已做响应解析、签名向量、配置持久化及交互验证；配置后需与控制台核对一轮。
 - 这不是所有云产品的账单查询：ECS/EIP、EC2、DigitalOcean 等不能复用上述轻量套餐接口。尚未提供它们的权威套餐余额适配，不能由 SSH 网卡计数推导。

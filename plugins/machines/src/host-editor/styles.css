@@ -101,6 +101,45 @@ dialog.host-editor {
   line-height: 1.55;
 }
 
+.monitor-workspace {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.monitor-workspace__bar {
+  display: flex;
+}
+
+.monitor-workspace__intro {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--host-editor-line);
+  border-radius: 0.55rem;
+  background: #0d1b13;
+}
+
+.monitor-workspace__intro span {
+  color: var(--host-editor-faint);
+  font: 10px ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.12em;
+}
+
+.monitor-workspace__intro h3 {
+  margin: 0.2rem 0 0;
+  font-size: 0.9rem;
+}
+
+.monitor-workspace .nd-panel {
+  min-width: 0;
+}
+
+.monitor-workspace .nd-install .nd-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .host-editor__section-head p {
   text-align: right;
 }

@@ -474,6 +474,7 @@
       testState:hostEditorTestState,
       saving:busy,
       saved:!!value.id,
+      monitoringApi:api,
       title:value.id?'编辑机器':'添加机器',
       description:value.id?`${value.name||value.alias} · ${value.alias}`:'添加身份信息后，再配置连接与监控。',
     });
