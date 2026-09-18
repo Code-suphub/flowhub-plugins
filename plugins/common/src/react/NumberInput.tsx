@@ -129,7 +129,7 @@ export const NumberInput = forwardRef<HTMLInputElement, NumberInputProps>(
           readOnly={readOnly}
           aria-invalid={ariaInvalid}
           className={cx(
-            "fh-number-input__field min-h-11 min-w-0 flex-1 border-0 bg-transparent px-3 text-center text-sm text-[#e5f0e9] outline-none placeholder:text-[#70877a] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#b9f2ca] aria-invalid:text-[#ffb1b8] read-only:cursor-default disabled:cursor-not-allowed",
+            "fh-number-input__field min-h-11 min-w-0 flex-1 appearance-none border-0 bg-transparent px-3 text-center text-sm text-[#e5f0e9] outline-none placeholder:text-[#70877a] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#b9f2ca] aria-invalid:text-[#ffb1b8] read-only:cursor-default disabled:cursor-not-allowed",
             className,
           )}
         />

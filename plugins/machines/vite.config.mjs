@@ -8,6 +8,7 @@ import {inlineCommonHtml} from '../../scripts/inline-common.mjs';
 const pluginRoot=dirname(fileURLToPath(import.meta.url));
 const fleetBuild=join(pluginRoot,'build/ui/react');
 const fleetSource=join(pluginRoot,'src/fleet');
+const hostEditorSource=join(pluginRoot,'src/host-editor');
 const commonReact=join(pluginRoot,'../common/src/react');
 const buildFleet=()=>execFileSync('npm',['run','build:fleet'],{
   cwd:pluginRoot,
@@ -34,10 +35,11 @@ export default defineConfig({
     });
     const fixture=new URL('./dev/machines-preview.js',import.meta.url);
     const commonFiles=[new URL('../common/ui/flowhub-common.js',import.meta.url).pathname,new URL('../common/ui/flowhub-common.css',import.meta.url).pathname];
-    server.watcher.add([fixture.pathname,...commonFiles,fleetSource,commonReact]);
+    const reactSources=[fleetSource,hostEditorSource,commonReact];
+    server.watcher.add([fixture.pathname,...commonFiles,...reactSources]);
     let fleetTimer;
     server.watcher.on('change',p=>{
-      if(p.startsWith(fleetSource)||p.startsWith(commonReact)){
+      if(reactSources.some(source=>p.startsWith(source))){
         clearTimeout(fleetTimer);
         fleetTimer=setTimeout(()=>{buildFleet();server.ws.send({type:'full-reload'});},120);
         return;

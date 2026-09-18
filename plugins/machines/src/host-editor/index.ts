@@ -12,5 +12,4 @@ export type {
   HostEditorProps,
   HostEditorTab,
   HostEditorValue,
-  HostMonitoringValue,
 } from './types';

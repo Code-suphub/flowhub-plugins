@@ -1,13 +1,15 @@
-import { useMemo, useRef, type ChangeEvent, type ReactNode } from 'react';
+import { useMemo, useRef, type ReactNode, type RefObject } from 'react';
 import {
   Button,
   Checkbox,
   DialogShell,
   Field,
+  Input,
+  NumberInput,
   Select,
   Tabs,
+  cx,
 } from '@flowhub/plugin-common/react';
-import { cx } from '@flowhub/plugin-common/react';
 
 import './styles.css';
 import type {
@@ -35,82 +37,6 @@ const TAB_LABELS: Record<HostEditorTab, string> = {
   connection: '连接配置',
   monitoring: '监控与流量',
 };
-
-interface InputProps {
-  id: string;
-  value: string;
-  onChange: (value: string) => void;
-  type?: 'text' | 'password' | 'date' | 'number';
-  placeholder?: string;
-  autoComplete?: string;
-  disabled?: boolean;
-  min?: number;
-  max?: number;
-  inputMode?: 'text' | 'numeric' | 'decimal';
-  'aria-describedby'?: string;
-}
-
-function TextInput({
-  id,
-  value,
-  onChange,
-  type = 'text',
-  placeholder,
-  autoComplete,
-  disabled,
-  min,
-  max,
-  inputMode,
-  'aria-describedby': ariaDescribedBy,
-}: InputProps) {
-  function handleChange(event: ChangeEvent<HTMLInputElement>): void {
-    onChange(event.currentTarget.value);
-  }
-
-  return (
-    <input
-      id={id}
-      className="host-editor__input"
-      type={type}
-      value={value}
-      placeholder={placeholder}
-      autoComplete={autoComplete}
-      disabled={disabled}
-      min={min}
-      max={max}
-      inputMode={inputMode}
-      aria-describedby={ariaDescribedBy}
-      onChange={handleChange}
-    />
-  );
-}
-
-interface TextAreaProps {
-  id: string;
-  value: string;
-  onChange: (value: string) => void;
-  placeholder?: string;
-  rows?: number;
-  disabled?: boolean;
-}
-
-function TextArea({ id, value, onChange, placeholder, rows = 4, disabled }: TextAreaProps) {
-  function handleChange(event: ChangeEvent<HTMLTextAreaElement>): void {
-    onChange(event.currentTarget.value);
-  }
-
-  return (
-    <textarea
-      id={id}
-      className="host-editor__input host-editor__textarea"
-      value={value}
-      placeholder={placeholder}
-      rows={rows}
-      disabled={disabled}
-      onChange={handleChange}
-    />
-  );
-}
 
 function StatusLine({ state, label }: { state: HostEditorAsyncState; label: string }) {
   const role = state.status === 'error' ? 'alert' : 'status';
@@ -160,8 +86,8 @@ function ConnectionStatus({
             重试加载
           </Button>
         ) : null}
-        {testState.status === 'error' && actions.onRetrySsh ? (
-          <Button size="sm" variant="ghost" onClick={() => void actions.onRetrySsh?.()}>
+        {testState.status === 'error' ? (
+          <Button size="sm" variant="ghost" onClick={() => void actions.onProbeSsh()}>
             重试测试
           </Button>
         ) : null}
@@ -176,12 +102,14 @@ function BasicPanel({
   countryOptions,
   errors,
   change,
+  nameRef,
 }: {
   value: HostEditorValue;
   groups: readonly string[];
   countryOptions: readonly HostEditorOption[];
   errors: HostEditorProps['errors'];
   change: HostEditorActions['onChange'];
+  nameRef: RefObject<HTMLInputElement | null>;
 }) {
   const groupOptions = useMemo(
     () => [
@@ -190,6 +118,7 @@ function BasicPanel({
         .filter((group) => group.length > 0)
         .filter((group, index, all) => all.indexOf(group) === index)
         .map((group) => ({ value: group, label: group })),
+      { value: '__new', label: '＋ 新建分组' },
     ],
     [groups],
   );
@@ -199,10 +128,10 @@ function BasicPanel({
       <Section title="身份">
         <div className="host-editor__grid host-editor__grid--two">
           <Field label="名称" htmlFor="host-editor-name" error={errors?.name}>
-            <TextInput id="host-editor-name" value={value.name} onChange={(next) => change('name', next)} />
+            <Input ref={nameRef} id="host-editor-name" value={value.name} onChange={(event) => change('name', event.currentTarget.value)} placeholder="应用服务 01" />
           </Field>
           <Field label="Alias" htmlFor="host-editor-alias" error={errors?.alias}>
-            <TextInput id="host-editor-alias" value={value.alias} onChange={(next) => change('alias', next)} />
+            <Input id="host-editor-alias" value={value.alias} onChange={(event) => change('alias', event.currentTarget.value)} placeholder="prod-app-01" />
           </Field>
         </div>
       </Section>
@@ -225,16 +154,13 @@ function BasicPanel({
               onChange={(next) => change('countryCode', next)}
             />
           </Field>
-          <Field
-            label="新建分组（可选）"
-            htmlFor="host-editor-group-name"
-            hint="填写后保存时优先使用新分组。"
-            error={errors?.group}
-          >
-            <TextInput id="host-editor-group-name" value={value.group} onChange={(next) => change('group', next)} />
-          </Field>
+          {value.groupChoice === '__new' ? (
+            <Field label="新分组名称" htmlFor="host-editor-group-name" error={errors?.group}>
+              <Input id="host-editor-group-name" value={value.group} onChange={(event) => change('group', event.currentTarget.value)} autoFocus />
+            </Field>
+          ) : null}
           <Field label="到期时间（可选）" htmlFor="host-editor-expires-local" error={errors?.expiresLocal}>
-            <TextInput id="host-editor-expires-local" type="date" value={value.expiresLocal} onChange={(next) => change('expiresLocal', next)} />
+            <Input id="host-editor-expires-local" type="datetime-local" value={value.expiresLocal} onChange={(event) => change('expiresLocal', event.currentTarget.value)} />
           </Field>
         </div>
         <Checkbox
@@ -270,16 +196,26 @@ function EndpointFields({ value, errors, change }: { value: HostEditorValue; err
   return (
     <div className="host-editor__grid host-editor__grid--two">
       <Field label="主机地址" htmlFor="host-editor-hostname" error={errors?.sshHostname}>
-        <TextInput id="host-editor-hostname" value={value.sshHostname} onChange={(next) => change('sshHostname', next)} autoComplete="url" />
+        <Input id="host-editor-hostname" value={value.sshHostname} onChange={(event) => change('sshHostname', event.currentTarget.value)} placeholder="192.168.1.100" />
       </Field>
       <Field label="登录用户" htmlFor="host-editor-user" error={errors?.sshUser}>
-        <TextInput id="host-editor-user" value={value.sshUser} onChange={(next) => change('sshUser', next)} autoComplete="username" />
+        <Input id="host-editor-user" value={value.sshUser} onChange={(event) => change('sshUser', event.currentTarget.value)} autoComplete="username" placeholder="root 或 ubuntu" />
       </Field>
       <Field label="SSH 端口" htmlFor="host-editor-port" error={errors?.sshPort}>
-        <TextInput id="host-editor-port" type="number" value={value.sshPort} onChange={(next) => change('sshPort', next)} min={1} max={65535} inputMode="numeric" />
+        <NumberInput
+          id="host-editor-port"
+          value={value.sshPort}
+          min={1}
+          max={65535}
+          step={1}
+          decrementAriaLabel="减少 SSH 端口"
+          incrementAriaLabel="增加 SSH 端口"
+          onChange={(event) => change('sshPort', event.currentTarget.value)}
+          onValueChange={(next) => change('sshPort', next)}
+        />
       </Field>
       <Field label="跳板机别名（可选）" htmlFor="host-editor-proxy-jump" error={errors?.sshJump}>
-        <TextInput id="host-editor-proxy-jump" value={value.sshJump} onChange={(next) => change('sshJump', next)} placeholder="bastion" />
+        <Input id="host-editor-proxy-jump" value={value.sshJump} onChange={(event) => change('sshJump', event.currentTarget.value)} placeholder="bastion" />
       </Field>
     </div>
   );
@@ -308,12 +244,12 @@ function SshPanel({ value, errors, actions, change }: { value: HostEditorValue; 
         </div>
         {value.sshAuth === 'password' ? (
           <Field label="登录密码" htmlFor="host-editor-password" error={errors?.sshPassword}>
-            <TextInput id="host-editor-password" type="password" value={value.sshPassword} onChange={(next) => change('sshPassword', next)} autoComplete="current-password" />
+            <Input id="host-editor-password" type="password" value={value.sshPassword} onChange={(event) => change('sshPassword', event.currentTarget.value)} autoComplete="new-password" placeholder="留空保留已保存密码" />
           </Field>
         ) : (
           <Field label="私钥路径" htmlFor="host-editor-private-key" error={errors?.sshIdentity}>
             <div className="host-editor__input-action">
-              <TextInput id="host-editor-private-key" value={value.sshIdentity} onChange={(next) => change('sshIdentity', next)} placeholder="~/.ssh/id_ed25519" />
+              <Input id="host-editor-private-key" value={value.sshIdentity} onChange={(event) => change('sshIdentity', event.currentTarget.value)} placeholder="~/.ssh/id_ed25519" autoComplete="off" />
               {actions.onChooseIdentity ? <Button size="sm" variant="secondary" onClick={() => void actions.onChooseIdentity?.()}>选择文件</Button> : null}
             </div>
           </Field>
@@ -325,41 +261,50 @@ function SshPanel({ value, errors, actions, change }: { value: HostEditorValue; 
 
 function BastionPanel({ value, errors, change }: { value: HostEditorValue; errors: HostEditorProps['errors']; change: HostEditorActions['onChange'] }) {
   return (
-    <>
-      <Section title="目标主机">
-        <EndpointFields value={value} errors={errors} change={change} />
-      </Section>
-      <Section title="Relay 脚本">
+    <Section title="堡垒机连接" hint="机器 Alias 作为目标参数；连接时只发送一次所选指令。">
         <Field label="脚本路径或内容" htmlFor="host-editor-relay-script" error={errors?.relayScript}>
-          <TextInput id="host-editor-relay-script" value={value.relayScript} onChange={(next) => change('relayScript', next)} placeholder="~/.flowhub/relay.sh" />
+          <Input id="host-editor-relay-script" value={value.relayScript} onChange={(event) => change('relayScript', event.currentTarget.value)} placeholder="/Users/you/.ssh/relay.sh" />
         </Field>
-        <Field label="连接命令" htmlFor="host-editor-command" error={errors?.relayCommand}>
-          <TextArea id="host-editor-command" value={value.relayCommand} onChange={(next) => change('relayCommand', next)} placeholder="ssh -W %h:%p relay" rows={3} />
+        <Field label="目标连接指令" htmlFor="host-editor-command" error={errors?.relayCommand}>
+          <Select
+            id="host-editor-command"
+            value={value.relayCommand}
+            options={[
+              { value: 'n', label: 'n · 私有云' },
+              { value: 's', label: 's · 物理机' },
+              { value: 'v', label: 'v · 虚拟机' },
+              { value: 'c', label: 'c · 公有云' },
+              { value: 'k', label: 'k · Kerberos' },
+              { value: 'o', label: 'o · 办公室服务器' },
+            ]}
+            onChange={(next) => change('relayCommand', next)}
+          />
         </Field>
-      </Section>
-    </>
+    </Section>
   );
 }
 
 function ConnectionPanel({ value, errors, actions, loadState, testState, change }: { value: HostEditorValue; errors: HostEditorProps['errors']; actions: HostEditorActions; loadState: HostEditorAsyncState; testState: HostEditorAsyncState; change: HostEditorActions['onChange'] }) {
   const testing = testState.status === 'loading';
+  const isSsh = value.connectionType === 'ssh';
 
   return (
     <div className="host-editor__panel-grid">
-      {value.connectionType === 'bastion' ? <BastionPanel value={value} errors={errors} change={change} /> : <SshPanel value={value} errors={errors} actions={actions} change={change} />}
-      <div className="host-editor__test-bar">
-        <ConnectionStatus loadState={loadState} testState={testState} actions={actions} />
-        <Button variant="secondary" disabled={testing || loadState.status === 'loading'} onClick={() => void actions.onProbeSsh()}>
-          {testing ? '测试中…' : '测试连接'}
-        </Button>
-      </div>
+      {isSsh ? <SshPanel value={value} errors={errors} actions={actions} change={change} /> : <BastionPanel value={value} errors={errors} change={change} />}
+      {isSsh ? (
+        <div className="host-editor__test-bar">
+          <ConnectionStatus loadState={loadState} testState={testState} actions={actions} />
+          <Button variant="secondary" disabled={testing || loadState.status === 'loading'} onClick={() => void actions.onProbeSsh()}>
+            {testing ? '测试中…' : '测试连接'}
+          </Button>
+        </div>
+      ) : null}
     </div>
   );
 }
 
-function MonitoringPanel({ value, saved, actions, change }: { value: HostEditorValue; saved: boolean; actions: HostEditorActions; change: HostEditorActions['onChange'] }) {
+function MonitoringPanel({ saved, actions }: { saved: boolean; actions: HostEditorActions }) {
   const monitoringHint = saved ? '保存后由机器管理器定时采集。' : '请先保存机器，才能配置监控与流量。';
-  const updateMonitoring = (next: Partial<HostEditorValue['monitoring']>) => change('monitoring', { ...value.monitoring, ...next });
 
   return (
     <div className="host-editor__panel-grid">
@@ -367,15 +312,7 @@ function MonitoringPanel({ value, saved, actions, change }: { value: HostEditorV
         <div className="host-editor__monitor-grid">
           <div className={cx('host-editor__monitor-card', !saved && 'host-editor__monitor-card--locked')}>
             <div className="host-editor__monitor-card-head">
-              <Checkbox
-                id="host-editor-cloud-traffic"
-                label="云流量"
-                checked={value.monitoring.cloudTraffic}
-                onChange={(checked) => updateMonitoring({ cloudTraffic: checked })}
-                disabled={!saved}
-                className="host-editor__checkbox"
-                containerClassName="host-editor__check-row"
-              />
+              <strong>云流量</strong>
               <span className="host-editor__monitor-chip">TRAFFIC</span>
             </div>
             <p>按已保存的云服务商配置查询自然月用量。</p>
@@ -383,15 +320,7 @@ function MonitoringPanel({ value, saved, actions, change }: { value: HostEditorV
           </div>
           <div className={cx('host-editor__monitor-card', !saved && 'host-editor__monitor-card--locked')}>
             <div className="host-editor__monitor-card-head">
-              <Checkbox
-                id="host-editor-netdata"
-                label="Netdata"
-                checked={value.monitoring.netdata}
-                onChange={(checked) => updateMonitoring({ netdata: checked })}
-                disabled={!saved}
-                className="host-editor__checkbox"
-                containerClassName="host-editor__check-row"
-              />
+              <strong>Netdata</strong>
               <span className="host-editor__monitor-chip">AGENT</span>
             </div>
             <p>读取机器上的 Netdata 节点，展示 CPU、内存、磁盘与流量。</p>
@@ -457,13 +386,13 @@ export function HostEditor({
             ))}
           </Tabs.List>
           <Tabs.Panel value="basic" className="host-editor__tab-panel">
-            <BasicPanel value={value} groups={groups} countryOptions={countryOptions} errors={errors} change={change} />
+            <BasicPanel value={value} groups={groups} countryOptions={countryOptions} errors={errors} change={change} nameRef={initialFocusRef} />
           </Tabs.Panel>
           <Tabs.Panel value="connection" className="host-editor__tab-panel">
             <ConnectionPanel value={value} errors={errors} actions={actions} loadState={loadState} testState={testState} change={change} />
           </Tabs.Panel>
           <Tabs.Panel value="monitoring" className="host-editor__tab-panel">
-            <MonitoringPanel value={value} saved={saved} actions={actions} change={change} />
+            <MonitoringPanel saved={saved} actions={actions} />
           </Tabs.Panel>
         </Tabs>
         {loadState.status === 'loading' ? <span className="host-editor__sr-status" role="status" aria-live="polite">正在加载机器配置</span> : null}

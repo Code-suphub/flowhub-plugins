@@ -23,7 +23,11 @@ const machinesHtml = fs.readFileSync(path.join(ui, 'machines.html'), 'utf8');
 for (const reference of ['react/fleet.js', 'react/fleet.css']) {
   if (!machinesHtml.includes(reference)) throw new Error(`machines 页面未引用 ${reference}`);
 }
-const bundles = [bundle, fs.readFileSync(path.join(ui, 'react/fleet.js'), 'utf8')];
+const fleetBundle = fs.readFileSync(path.join(ui, 'react/fleet.js'), 'utf8');
+for (const bridge of ['FlowHubFleet', 'FlowHubHostEditor']) {
+  if (!fleetBundle.includes(bridge)) throw new Error(`machines React 构建缺少 ${bridge} 桥接`);
+}
+const bundles = [bundle, fleetBundle];
 for (const source of bundles) {
   if (source.includes('@flowhub/plugin-common')) throw new Error('React 构建仍包含未解析的 common 包导入');
   if (/(?:^|[;\n])\s*import\s*(?:[\w*{]|["']|\()/m.test(source)) throw new Error('React 构建仍包含运行时模块导入');
@@ -34,4 +38,4 @@ if (!html.includes('data-flowhub-ready="editor"')) throw new Error('React 编辑
 const maps = fs.readdirSync(path.join(ui, 'react')).filter((name) => name.endsWith('.map'));
 if (maps.length) throw new Error(`发布构建不应包含 source map：${maps.join(', ')}`);
 
-console.log('React widget editor 构建产物自包含');
+console.log('React widget editor 与 machines islands 构建产物自包含');

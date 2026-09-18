@@ -4,11 +4,6 @@ export type HostEditorTab = 'basic' | 'connection' | 'monitoring';
 export type HostConnectionType = 'ssh' | 'bastion';
 export type HostAuthMethod = 'key' | 'password';
 
-export interface HostMonitoringValue {
-  cloudTraffic: boolean;
-  netdata: boolean;
-}
-
 export interface HostEditorValue {
   id?: string;
   connectionType: HostConnectionType;
@@ -28,7 +23,6 @@ export interface HostEditorValue {
   sshIdentity: string;
   relayScript: string;
   relayCommand: string;
-  monitoring: HostMonitoringValue;
 }
 
 export type HostEditorField =
@@ -48,8 +42,7 @@ export type HostEditorField =
   | 'sshJump'
   | 'sshIdentity'
   | 'relayScript'
-  | 'relayCommand'
-  | 'monitoring';
+  | 'relayCommand';
 
 export type HostEditorFieldValue<Field extends HostEditorField> = HostEditorValue[Field];
 

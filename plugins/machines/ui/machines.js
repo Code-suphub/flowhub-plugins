@@ -31,6 +31,7 @@
   const invoke = window.FlowHubPlugin?.invoke || host.__TAURI__?.core?.invoke;
   const readonly = !invoke;
   const reactFleet = window.FlowHubFleet;
+  const reactHostEditor = window.FlowHubHostEditor;
   let state = { config: { hosts: [], enabled: false, installed: null, interval: 60 }, metrics: {}, active: [], history: [] };
   let selection = new Set();
   let busy = false;
@@ -45,12 +46,17 @@
   let sshLoadedAlias = "";
   let sshBaseline = '';
   let sshEditVersion = 0, sshEditStatus = 'ready';
+  let hostEditorTab = 'basic';
+  let hostEditorErrors = {};
+  let hostEditorTestState = { status: 'idle', message: '尚未测试当前连接' };
+  let hostAliasLoadTimer = 0;
   let bastionHostId = '', bastionBusy = false, bastionPolling = false, bastionConnected = false;
   const jobDetails = new Map();
   const consoleJobs = new Map();
   let consoleMarkup = '';
   let collectionHost = null;
   let lastCollections = '';
+  let syncHostEditor = () => {};
   const labels = { interrupted: "结果未知", success: "成功", failed: "失败", timeout: "超时", cancelled: "已取消", running: "执行中", queued: "排队", stale: "已过期", unknown: "未采集" };
   const errorText = error => String(error?.message || error).replace(/^(?:Error:\s*)+/, '');
   const message = (text, error = false) => { $("#notice").textContent = error ? errorText(text) : text; $("#notice").classList.toggle("error", error); };
@@ -69,9 +75,9 @@
   }
   async function operate(fn) {
     if (busy) return;
-    busy = true;
+    busy = true; syncHostEditor();
     try { await fn(); await refresh(); } catch (e) { message(String(e), true); }
-    finally { busy = false; }
+    finally { busy = false; syncHostEditor(); }
   }
   function filtered() { return M.visibleHosts(state.config.hosts, $("#filter")?.value || "", $("#group")?.value || ""); }
   function chosen() { return M.targets(state.config.hosts, selection); }
@@ -116,7 +122,7 @@
     const templateOptions = '<option value="">选择命令模板</option>' + templates().map((t, i) => `<option value="${i}">${esc(t.name)}</option>`).join("");
     if (templateOptions !== lastTemplates) { $("#template").innerHTML = templateOptions; lastTemplates = templateOptions; }
     $("#template").value = templateValue;
-    renderHosts(); renderJobs(); renderConsole(); renderCollections();
+    renderHosts(); renderJobs(); renderConsole(); renderCollections(); syncHostEditor();
     window.FlowHubSelects?.sync();
   }
   function renderHosts() {
@@ -316,6 +322,8 @@
     };
   });
   async function edit(host) {
+    if(reactHostEditor)host.clearTimeout?.(hostAliasLoadTimer);
+    hostEditorTab = 'basic'; hostEditorErrors = {}; hostEditorTestState = { status: 'idle', message: '尚未测试当前连接' };
     for(const id of ['hostAlias','sshHostname','sshUser','sshPort']){
       document.getElementById?.(id+'Error')?.remove();
       $('#'+id).removeAttribute?.('aria-invalid');$('#'+id).removeAttribute?.('aria-describedby');
@@ -328,7 +336,7 @@
     $("#sshPort").value = "22";
     $("#sshStatus").textContent = '可直接沿用本机 SSH 配置；修改下方连接信息后，点击底部保存一并写入。';
     $("#hostCountry").value = host?.countryCode || ""; const expiry=host?.expiresAt; $("#hostExpires").value=Number.isFinite(expiry)?new Date(expiry-new Date(expiry).getTimezoneOffset()*60000).toISOString().slice(0,16):"";
-    if (document.body.classList.contains('widget-settings')) $('#hostDialog').setAttribute('open', ''); else if (!$('#hostDialog').open) $('#hostDialog').showModal(); $('#hostDialogTitle').textContent = host ? '编辑机器' : '添加机器'; $("#hostId").value = host?.id || ""; $("#hostName").value = host?.name || ""; $("#hostAlias").value = host?.alias || ""; $("#hostGroup").value = host?.group || ""; $("#hostName").focus();
+    if (document.body.classList.contains('widget-settings') || reactHostEditor) $('#hostDialog').setAttribute('open', ''); else if (!$('#hostDialog').open) $('#hostDialog').showModal(); $('#hostDialogTitle').textContent = host ? '编辑机器' : '添加机器'; $("#hostId").value = host?.id || ""; $("#hostName").value = host?.name || ""; $("#hostAlias").value = host?.alias || ""; $("#hostGroup").value = host?.group || ""; if (!reactHostEditor) $("#hostName").focus();
     const savedHostId = host?.id || "";
     $("#hostCloudTraffic").disabled = !savedHostId; $("#hostNetdata").disabled = !savedHostId;
     $("#hostMonitorNote").textContent = savedHostId ? "云流量按机器保存凭证；Netdata 接入后可读远端历史。" : "先保存机器，再配置云流量与 Netdata。";
@@ -342,6 +350,7 @@
     $('#relayCommand').value = host?.bastion?.command || 'n';
     $('#hostReadOnly').checked = !!host?.readOnly;
     connectionForm();
+    syncHostEditor();
     if (host && !host.bastion) await loadSshForEdit();
   }
   function connectionForm() {
@@ -350,6 +359,7 @@
     $('#bastionFields').disabled = !bastion; $('#directSshFields').disabled = bastion;
     $('#relayScript').required = bastion;
     window.FlowHubSelects?.sync();
+    syncHostEditor();
   }
   $('#hostConnectionType').onchange = () => {
     sshEditVersion++; sshEditStatus = 'ready'; $('#saveHost').disabled = false; $('#retrySshLoad').hidden = true;
@@ -359,7 +369,7 @@
   async function loadSshForEdit() {
     const version = ++sshEditVersion, alias = $('#hostAlias').value.trim();
     sshEditStatus = 'loading'; $('#saveHost').disabled = true; $('#directSshFields').disabled = true;
-    $('#retrySshLoad').hidden = true; $('#sshStatus').textContent = '正在加载这台机器的 SSH 配置…';
+    $('#retrySshLoad').hidden = true; $('#sshStatus').textContent = '正在加载这台机器的 SSH 配置…'; syncHostEditor();
     try {
       const result = await api('sshRead', { alias });
       if (version !== sshEditVersion || !$('#hostDialog').open) return;
@@ -368,15 +378,16 @@
       $('#sshJump').value = p.proxyJump; $('#sshIdentity').value = p.identityFile;
       $('#sshAuth').value=result.passwordAuth?'password':'key'; $('#sshPassword').value=''; authForm();
       sshRevision = result.revision; sshLoadedAlias = alias; sshBaseline = sshSignature();
-      sshEditStatus = 'ready'; $('#sshStatus').textContent = '已加载连接配置。未修改的字段继续沿用现有 SSH 配置。';
+      sshEditStatus = 'ready'; $('#sshStatus').textContent = '已加载连接配置。未修改的字段继续沿用现有 SSH 配置。'; syncHostEditor();
     } catch (error) {
       if (version !== sshEditVersion || !$('#hostDialog').open) return;
       sshEditStatus = 'error'; $('#sshStatus').textContent = `配置加载失败：${error}。请重试后保存。`;
-      $('#retrySshLoad').hidden = false;
+      $('#retrySshLoad').hidden = false; syncHostEditor();
     } finally {
       if (version === sshEditVersion) {
         $('#saveHost').disabled = sshEditStatus !== 'ready';
         $('#directSshFields').disabled = sshEditStatus !== 'ready';
+        syncHostEditor();
       }
     }
   }
@@ -384,7 +395,7 @@
   $('#hostAlias').oninput = () => {
     if (!$('#hostId').value || $('#hostConnectionType').value !== 'ssh') return;
     sshEditVersion++; sshEditStatus = 'loading'; $('#saveHost').disabled = true; $('#directSshFields').disabled = true;
-    $('#sshStatus').textContent = '输入完成后自动加载该别名的配置。';
+    $('#sshStatus').textContent = '输入完成后自动加载该别名的配置。'; syncHostEditor();
   };
   $('#hostAlias').onchange = () => {
     if ($('#hostId').value && $('#hostConnectionType').value === 'ssh') loadSshForEdit();
@@ -394,12 +405,13 @@
     const value = $('#groupChoice').value;
     $('#hostGroup').hidden = value !== '__new';
     $('#hostGroup').value = value === '__new' ? '' : value;
-    if (value === '__new') $('#hostGroup').focus();
+    if (value === '__new' && !reactHostEditor) $('#hostGroup').focus();
+    syncHostEditor();
   };
-  $("#cancelHost").onclick = () => { sshEditVersion++; $('#sshPassword').value=''; $('#hostDialog').close(); };
+  $("#cancelHost").onclick = () => { if(reactHostEditor)host.clearTimeout?.(hostAliasLoadTimer); sshEditVersion++; $('#sshPassword').value=''; $('#hostDialog').close(); syncHostEditor(); };
   $("#closeHost").onclick = $("#cancelHost").onclick;
-  $('#hostDialog').addEventListener('cancel', () => { sshEditVersion++; $('#sshPassword').value=''; });
-  $('#hostDialog').addEventListener('close', () => { $('#hostForm').inert = false; });
+  $('#hostDialog').addEventListener('cancel', () => { sshEditVersion++; $('#sshPassword').value=''; syncHostEditor(); });
+  $('#hostDialog').addEventListener('close', () => { $('#hostForm').inert = false; syncHostEditor(); });
   $("#hostCloudTraffic").onclick = () => { const id = $("#hostId").value; if (id) window.FlowHubCloudTraffic?.open(id, $("#hostName").value.trim() || id); };
   $("#hostNetdata").onclick = () => { const id = $("#hostId").value; if (id) window.FlowHubNetdata?.open(id, $("#hostName").value.trim() || id); };
   function sshDraft() {
@@ -408,36 +420,83 @@
   $('#sshUser').setAttribute?.('placeholder','必填，例如 root 或 ubuntu');
   for(const id of ['hostAlias','sshHostname','sshUser','sshPort']){
     $('#'+id).addEventListener('input',()=>{
+      const editorField={hostAlias:'alias',sshHostname:'sshHostname',sshUser:'sshUser',sshPort:'sshPort'}[id];
+      if(editorField){const next={...hostEditorErrors};delete next[editorField];hostEditorErrors=next;}
       $('#'+id).setCustomValidity?.('');$('#'+id).removeAttribute?.('aria-invalid');
       document.getElementById?.(id+'Error')?.remove();
+      syncHostEditor();
     });
   }
   function validateProfile(profile){
     const error=M.profileError(profile);if(!error)return;
     const [id,text]=error,input=$('#'+id);
+    const editorField={hostAlias:'alias',sshHostname:'sshHostname',sshUser:'sshUser',sshPort:'sshPort'}[id];
+    if(editorField)hostEditorErrors={...hostEditorErrors,[editorField]:text};
     document.getElementById?.(id+'Error')?.remove();
     input.insertAdjacentHTML?.('afterend',`<small class="field-error" id="${id}Error" role="alert">${esc(text)}</small>`);
     input.setAttribute?.('aria-invalid','true');input.setAttribute?.('aria-describedby',id+'Error');
-    input.focus();$('#sshStatus').textContent=text;throw new Error(text);
+    input.focus();$('#sshStatus').textContent=text;syncHostEditor();throw new Error(text);
   }
   function sshSignature(profile = sshDraft()) { return JSON.stringify({ ...profile, alias: '',passwordAuth:$('#sshAuth').value==='password' }); }
-  function authForm(){const password=$('#sshAuth').value==='password';$('#sshPasswordField').hidden=!password;$('#directSshFields .ssh-key').hidden=password;$('#sshIdentity').disabled=password;$('#chooseIdentity').disabled=password;window.FlowHubSelects?.sync();}
+  function hostEditorValue(){return{
+    id:$('#hostId').value,
+    connectionType:$('#hostConnectionType').value,
+    name:$('#hostName').value,
+    alias:$('#hostAlias').value,
+    groupChoice:$('#groupChoice').value,
+    group:$('#hostGroup').value,
+    countryCode:$('#hostCountry').value,
+    expiresLocal:$('#hostExpires').value,
+    readOnly:$('#hostReadOnly').checked,
+    sshAuth:$('#sshAuth').value,
+    sshPassword:$('#sshPassword').value,
+    sshHostname:$('#sshHostname').value,
+    sshUser:$('#sshUser').value,
+    sshPort:$('#sshPort').value,
+    sshJump:$('#sshJump').value,
+    sshIdentity:$('#sshIdentity').value,
+    relayScript:$('#relayScript').value,
+    relayCommand:$('#relayCommand').value,
+  };}
+  syncHostEditor=()=>{
+    if(!reactHostEditor)return;
+    const value=hostEditorValue();
+    const regions=(window.FlowHubMachineRegions||[]).map(region=>({value:region.code,label:region.label}));
+    const loadStatus=sshEditStatus==='loading'?'loading':sshEditStatus==='error'?'error':value.id&&value.connectionType==='ssh'?'success':'idle';
+    reactHostEditor.update({
+      open:$('#hostDialog').open,
+      value,
+      activeTab:hostEditorTab,
+      groups:[...new Set(state.config.hosts.map(item=>item.group).filter(Boolean))],
+      countryOptions:[{value:'',label:'不设置'},...regions],
+      errors:hostEditorErrors,
+      loadState:{status:loadStatus,message:$('#sshStatus').textContent},
+      testState:hostEditorTestState,
+      saving:busy,
+      saved:!!value.id,
+      title:value.id?'编辑机器':'添加机器',
+      description:value.id?`${value.name||value.alias} · ${value.alias}`:'添加身份信息后，再配置连接与监控。',
+    });
+  };
+  function authForm(){const password=$('#sshAuth').value==='password';$('#sshPasswordField').hidden=!password;$('#directSshFields .ssh-key').hidden=password;$('#sshIdentity').disabled=password;$('#chooseIdentity').disabled=password;window.FlowHubSelects?.sync();syncHostEditor();}
   $('#sshAuth').onchange=authForm;
   for (const action of ["sshProbe", "chooseIdentity"]) $("#" + action).onclick = () => operate(async () => {
     try {
       const alias = $("#hostAlias").value.trim();
       if (action === "chooseIdentity") {
-        const result = await api(action); if (!result.canceled) $("#sshIdentity").value = result.path; return;
+        const result = await api(action); if (!result.canceled) $("#sshIdentity").value = result.path; syncHostEditor(); return;
       }
       const profile = sshDraft();
       if(sshSignature(profile)!==sshBaseline)validateProfile(profile);
       if ($('#sshPassword').value || sshSignature(profile)!==sshBaseline && $('#sshAuth').value==='password') throw new Error('请先保存密码和连接配置，再测试连接。');
       {
+        hostEditorTestState={status:'loading',message:'正在执行 SSH 握手与认证…'};syncHostEditor();
         $("#sshStatus").textContent = "正在测试当前表单：SSH 握手、认证与执行，最多等待 20 秒…";
         const result = await api(action, sshSignature(profile) === sshBaseline ? { alias } : { alias, profile });
         $("#sshStatus").textContent = `${JSON.stringify(profile) !== JSON.stringify(sshDraft()) ? "表单已修改；以下结果属于修改前的配置，请重新测试。\n" : ""}${result.reason}（${result.durationMs} ms）${result.stderr ? "\n" + result.stderr : ""}`;
+        hostEditorTestState={status:'success',message:`${result.reason}（${result.durationMs} ms）`};syncHostEditor();
       }
-    } catch (e) { $("#sshStatus").textContent = errorText(e); throw e; }
+    } catch (e) { $("#sshStatus").textContent = errorText(e); hostEditorTestState={status:'error',message:errorText(e)};syncHostEditor();throw e; }
   });
   $("#hostForm").onsubmit = e => { e.preventDefault(); operate(async () => {
     const h = { id: $("#hostId").value || crypto.randomUUID(), name: $("#hostName").value.trim(), alias: $("#hostAlias").value.trim(), group: $("#hostGroup").value.trim() };
@@ -460,10 +519,42 @@
         const result = await api('sshSave', { profile, revision: sshRevision,passwordAuth:$('#sshAuth').value==='password',password:$('#sshPassword').value || null }); sshRevision = result.revision; $('#sshPassword').value='';
         sshBaseline = sshSignature(profile); savedSsh = true;
       }
-      await api("hosts", { hosts }); $('#sshPassword').value=''; $("#hostDialog").close(); if(window.machineSettingsReady)await edit(h); message(h.bastion ? '堡垒机配置已保存到插件。' : savedSsh ? '机器连接配置已保存到插件。' : '机器已保存。');
+      await api("hosts", { hosts }); $('#sshPassword').value=''; $("#hostDialog").close(); syncHostEditor(); if(window.machineSettingsReady)await edit(h); message(h.bastion ? '堡垒机配置已保存到插件。' : savedSsh ? '机器连接配置已保存到插件。' : '机器已保存。');
     } catch (error) { throw new Error(`${savedSsh ? 'SSH 配置已写入，但机器清单保存失败，请重试。' : ''}${error}`); }
-    finally { $('#hostForm').inert = false; }
+    finally { $('#hostForm').inert = false; syncHostEditor(); }
   }); };
+  if(reactHostEditor)window.addEventListener('flowhub:host-editor-action',event=>{
+    const detail=event.detail||{};
+    if(detail.type==='tab'){hostEditorTab=detail.tab||'basic';syncHostEditor();return;}
+    if(detail.type==='close'){$('#cancelHost').click();return;}
+    if(detail.type==='retry-ssh'){$('#retrySshLoad').click();return;}
+    if(detail.type==='probe-ssh'){$('#sshProbe').click();return;}
+    if(detail.type==='choose-identity'){$('#chooseIdentity').click();return;}
+    if(detail.type==='open-cloud-traffic'){$('#hostCloudTraffic').click();return;}
+    if(detail.type==='open-netdata'){$('#hostNetdata').click();return;}
+    if(detail.type==='save'){
+      const value=hostEditorValue(),errors={};
+      if(!value.name.trim())errors.name='请输入显示名称';
+      if(!M.validAlias(value.alias.trim()))errors.alias='SSH 别名只能包含字母、数字、点、下划线、冒号和连字符，不能以连字符开头';
+      if(value.connectionType==='bastion'&&!value.relayScript.trim())errors.relayScript='请输入本地 relay 脚本路径';
+      if(value.expiresLocal&&!Number.isFinite(new Date(value.expiresLocal).getTime()))errors.expiresLocal='到期时间无效';
+      hostEditorErrors=errors;
+      if(Object.keys(errors).length){hostEditorTab=errors.relayScript?'connection':'basic';syncHostEditor();return;}
+      $('#hostForm').dispatchEvent(new SubmitEvent('submit',{bubbles:true,cancelable:true,submitter:$('#saveHost')}));
+      return;
+    }
+    if(detail.type!=='change')return;
+    if(hostEditorErrors[detail.field]){const next={...hostEditorErrors};delete next[detail.field];hostEditorErrors=next;}
+    const ids={connectionType:'hostConnectionType',name:'hostName',alias:'hostAlias',groupChoice:'groupChoice',group:'hostGroup',countryCode:'hostCountry',expiresLocal:'hostExpires',readOnly:'hostReadOnly',sshAuth:'sshAuth',sshPassword:'sshPassword',sshHostname:'sshHostname',sshUser:'sshUser',sshPort:'sshPort',sshJump:'sshJump',sshIdentity:'sshIdentity',relayScript:'relayScript',relayCommand:'relayCommand'};
+    const control=$('#'+ids[detail.field]);if(!control)return;
+    if(detail.field==='readOnly')control.checked=!!detail.value;else control.value=String(detail.value??'');
+    control.dispatchEvent(new Event('input',{bubbles:true}));
+    if(['connectionType','groupChoice','sshAuth'].includes(detail.field))control.onchange?.();
+    if(detail.field==='alias'&&$('#hostId').value&&$('#hostConnectionType').value==='ssh'){
+      host.clearTimeout?.(hostAliasLoadTimer);hostAliasLoadTimer=host.setTimeout?.(()=>control.onchange?.(),400)||0;
+    }
+    syncHostEditor();
+  });
   function runHostAction(h, action) {
     if (action === "collections") { collectionHost = h; lastCollections = ""; renderCollections(); $("#collectionDialog").showModal(); return; }
     if (action === "edit") { edit(h); return; }
@@ -473,7 +564,7 @@
         if (!h.bastion && sshEditStatus !== 'ready') throw Error('原配置加载失败，请重试后复制');
         $('#hostId').value = ''; $('#hostName').value = h.name + ' 副本'; $('#hostAlias').value = '';
         sshRevision = ''; sshLoadedAlias = ''; sshBaseline = ''; $('#sshPassword').value = '';
-        $('#hostAlias').focus();
+        syncHostEditor(); if(!reactHostEditor)$('#hostAlias').focus();
         message('已复制到新增表单，请填写新的目标机器。已保存密码不会复制。');
       }); return;
     }

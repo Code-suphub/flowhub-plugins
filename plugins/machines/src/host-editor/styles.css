@@ -20,9 +20,20 @@
   box-sizing: border-box;
 }
 
+dialog.host-editor {
+  width: min(760px, calc(100vw - 24px));
+  max-height: min(704px, calc(100dvh - 24px));
+  padding: 0;
+  border-radius: 14px;
+}
+
 .host-editor__shell {
   min-height: 0;
+  height: min(704px, calc(100dvh - 24px));
+  grid-template-rows: auto minmax(0, 1fr) auto;
 }
+
+.host-editor .select-trigger::after { content: none; }
 
 .host-editor__body {
   min-width: 0;
@@ -101,45 +112,6 @@
 
 .host-editor__grid--two {
   grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.host-editor__input {
-  display: block;
-  width: 100%;
-  min-height: 2.75rem;
-  padding: 0.65rem 0.75rem;
-  border: 1px solid #304b3c;
-  border-radius: 0.55rem;
-  outline: 0;
-  background: #0b1711;
-  color: var(--host-editor-ink);
-  font: inherit;
-  transition: border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease;
-}
-
-.host-editor__input::placeholder {
-  color: #60776b;
-}
-
-.host-editor__input:hover {
-  border-color: #557462;
-  background: #0e1c15;
-}
-
-.host-editor__input:focus {
-  border-color: var(--host-editor-green);
-  box-shadow: 0 0 0 3px rgb(169 232 188 / 0.12);
-}
-
-.host-editor__input:disabled {
-  cursor: not-allowed;
-  opacity: 0.5;
-}
-
-.host-editor__textarea {
-  min-height: 5.75rem;
-  resize: vertical;
-  line-height: 1.55;
 }
 
 .host-editor__check-row {
@@ -263,6 +235,12 @@
   gap: 0.5rem;
 }
 
+.host-editor__monitor-card-head strong {
+  color: var(--host-editor-ink);
+  font-size: 0.8rem;
+  letter-spacing: 0.04em;
+}
+
 .host-editor__monitor-card p {
   min-height: 2.3rem;
   margin: 0.35rem 0 0.55rem;
@@ -327,11 +305,5 @@
 
   .host-editor__test-bar > button {
     width: 100%;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .host-editor__input {
-    transition: none;
   }
 }
