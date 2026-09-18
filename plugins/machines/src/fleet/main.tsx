@@ -1,5 +1,7 @@
 import './styles.css';
 
+import { resolveMachinesApi } from '../api/machines';
+import { mountHistory } from '../history/mount';
 import { mountHostEditor } from '../host-editor/mount';
 import type {
   HostEditorActions,
@@ -35,7 +37,16 @@ declare global {
   interface Window {
     FlowHubFleet?: { update: (props: FleetBridgeProps) => void };
     FlowHubHostEditor?: { update: (props: HostEditorBridgeProps) => void };
+    FlowHubHistory?: { mounted: true };
   }
+}
+
+const historyContainer = document.querySelector('#historyReactRoot');
+if (historyContainer) {
+  mountHistory(historyContainer, { api: resolveMachinesApi() });
+  window.FlowHubHistory = { mounted: true };
+  const legacyHistory = document.querySelector<HTMLElement>('#historyLegacy');
+  if (legacyHistory) legacyHistory.hidden = true;
 }
 
 function dispatch(detail: FleetAction): void {

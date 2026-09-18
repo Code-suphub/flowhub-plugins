@@ -8,6 +8,7 @@
       tab.setAttribute('aria-selected', String(selected)); tab.tabIndex = selected ? 0 : -1;
       document.getElementById(tab.getAttribute('aria-controls')).hidden = !selected;
     }
+    window.dispatchEvent(new CustomEvent('flowhub:machine-tab', { detail: { tab: name } }));
     if (focus) target.focus();
   }
   tabs.forEach((tab, index) => {

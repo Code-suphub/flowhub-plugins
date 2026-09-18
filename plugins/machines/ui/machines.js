@@ -32,6 +32,7 @@
   const readonly = !invoke;
   const reactFleet = window.FlowHubFleet;
   const reactHostEditor = window.FlowHubHostEditor;
+  const reactHistory = window.FlowHubHistory;
   let state = { config: { hosts: [], enabled: false, installed: null, interval: 60 }, metrics: {}, active: [], history: [] };
   let selection = new Set();
   let busy = false;
@@ -122,7 +123,7 @@
     const templateOptions = '<option value="">选择命令模板</option>' + templates().map((t, i) => `<option value="${i}">${esc(t.name)}</option>`).join("");
     if (templateOptions !== lastTemplates) { $("#template").innerHTML = templateOptions; lastTemplates = templateOptions; }
     $("#template").value = templateValue;
-    renderHosts(); renderJobs(); renderConsole(); renderCollections(); syncHostEditor();
+    renderHosts(); if (!reactHistory) renderJobs(); renderConsole(); renderCollections(); syncHostEditor();
     window.FlowHubSelects?.sync();
   }
   function renderHosts() {
@@ -179,6 +180,7 @@
   $('#targetPicker').addEventListener('keydown', e => { if (e.key === 'Escape') { $('#targetPicker').open = false; $('#targetSummary').focus(); e.preventDefault(); } });
   let historyPage = 1, historyVersion = 0;
   async function renderJobs(force = false) {
+    if (reactHistory) return;
     if (readonly || (!force && $('#historyPanel').hidden !== false)) { paintJobs(); return; }
     const version = ++historyVersion;
     try {

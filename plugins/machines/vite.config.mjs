@@ -11,6 +11,8 @@ const fleetSource=join(pluginRoot,'src/fleet');
 const hostEditorSource=join(pluginRoot,'src/host-editor');
 const monitoringSource=join(pluginRoot,'src/monitoring');
 const trafficSource=join(pluginRoot,'src/traffic');
+const historySource=join(pluginRoot,'src/history');
+const apiSource=join(pluginRoot,'src/api');
 const commonReact=join(pluginRoot,'../common/src/react');
 const buildFleet=()=>execFileSync('npm',['run','build:fleet'],{
   cwd:pluginRoot,
@@ -37,7 +39,7 @@ export default defineConfig({
     });
     const fixture=new URL('./dev/machines-preview.js',import.meta.url);
     const commonFiles=[new URL('../common/ui/flowhub-common.js',import.meta.url).pathname,new URL('../common/ui/flowhub-common.css',import.meta.url).pathname];
-    const reactSources=[fleetSource,hostEditorSource,monitoringSource,trafficSource,commonReact];
+    const reactSources=[fleetSource,hostEditorSource,monitoringSource,trafficSource,historySource,apiSource,commonReact];
     server.watcher.add([fixture.pathname,...commonFiles,...reactSources]);
     let fleetTimer;
     server.watcher.on('change',p=>{
