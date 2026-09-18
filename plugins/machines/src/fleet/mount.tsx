@@ -1,3 +1,4 @@
+import { flushSync } from 'react-dom';
 import { createRoot, type Root } from 'react-dom/client';
 
 import { FleetPage } from './FleetPage';
@@ -11,7 +12,7 @@ export interface FleetMount {
 /** Mounts the fleet island without owning any host/configuration side effects. */
 export function mountFleet(container: Element, props: FleetPageProps): FleetMount {
   const root: Root = createRoot(container);
-  root.render(<FleetPage {...props} />);
+  flushSync(() => root.render(<FleetPage {...props} />));
 
   return {
     update(nextProps) {

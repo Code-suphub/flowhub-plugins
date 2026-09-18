@@ -1,4 +1,6 @@
-@import "tailwindcss";
+@layer theme, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
 @source "../../../common/src/react";
 
 :root {
@@ -26,15 +28,10 @@
 }
 
 .fleet {
-  min-height: 100%;
-  padding: clamp(18px, 3vw, 38px);
+  min-height: 0;
+  padding: 0;
   color: var(--fleet-ink);
-  background-color: var(--fleet-bg);
-  background-image:
-    linear-gradient(90deg, rgb(113 171 128 / 0.035) 1px, transparent 1px),
-    linear-gradient(rgb(113 171 128 / 0.035) 1px, transparent 1px),
-    radial-gradient(circle at 78% 8%, rgb(95 161 112 / 0.12), transparent 28rem);
-  background-size: 32px 32px, 32px 32px, auto;
+  background: transparent;
   font-size: 13px;
 }
 
@@ -54,22 +51,18 @@
 
 .fleet__overview {
   display: grid;
-  grid-template-columns: minmax(180px, 1.55fr) repeat(4, minmax(104px, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 1px;
   overflow: hidden;
   border: 1px solid var(--fleet-line);
+  border-radius: 7px;
   background: var(--fleet-line);
-  box-shadow: 0 20px 45px rgb(0 0 0 / 0.12);
 }
 
 .fleet__overview > * {
   min-width: 0;
-  padding: 20px 18px;
+  padding: 12px 16px;
   background: var(--fleet-panel);
-}
-
-.fleet__overview-intro {
-  background: linear-gradient(135deg, var(--fleet-panel-raised), var(--fleet-panel)) !important;
 }
 
 .fleet__eyebrow,
@@ -81,22 +74,12 @@
   text-transform: uppercase;
 }
 
-.fleet__overview h1 {
-  margin-top: 9px;
-  font-size: clamp(20px, 2.5vw, 27px);
-}
-
-.fleet__overview-intro p {
-  margin-top: 8px;
-  color: var(--fleet-muted);
-  font-size: 11px;
-}
-
 .fleet__stat {
-  display: grid;
-  align-content: space-between;
-  gap: 9px;
-  min-height: 124px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 54px;
 }
 
 .fleet__stat > span {
@@ -106,7 +89,7 @@
 
 .fleet__stat strong {
   color: var(--fleet-ink);
-  font: 400 clamp(27px, 3.3vw, 40px)/0.92 ui-monospace, SFMono-Regular, Menlo, monospace;
+  font: 400 clamp(23px, 2.8vw, 31px)/0.92 ui-monospace, SFMono-Regular, Menlo, monospace;
   letter-spacing: -0.08em;
 }
 
@@ -126,11 +109,11 @@
 }
 
 .fleet__panel {
-  margin-top: 20px;
-  padding: var(--fleet-panel-pad);
+  margin-top: 12px;
+  padding: 18px;
   border: 1px solid var(--fleet-line);
+  border-radius: 8px;
   background: rgb(19 30 24 / 0.94);
-  box-shadow: 0 20px 45px rgb(0 0 0 / 0.13);
 }
 
 .fleet__section-head {
@@ -138,12 +121,17 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 18px;
-  margin-bottom: 22px;
+  margin-bottom: 13px;
 }
 
 .fleet__section-head h2 {
-  margin-top: 7px;
-  font-size: 20px;
+  margin-top: 4px;
+  font-size: 18px;
+}
+
+.fleet__section-head > button {
+  min-height: 36px;
+  border-radius: 6px;
 }
 
 .fleet__toolbar {
@@ -151,7 +139,7 @@
   align-items: flex-end;
   flex-wrap: wrap;
   gap: 9px;
-  padding: 11px;
+  padding: 8px;
   border: 1px solid var(--fleet-line);
   background: rgb(9 18 13 / 0.55);
 }
@@ -168,7 +156,7 @@
 
 .fleet__search input {
   width: 100%;
-  min-height: 44px;
+  min-height: 38px;
   padding: 0 13px 0 36px;
   border: 1px solid var(--fleet-line);
   border-radius: 6px;
@@ -216,7 +204,7 @@
 }
 
 .fleet__select-trigger {
-  min-height: 44px !important;
+  min-height: 38px !important;
   border-color: var(--fleet-line) !important;
   border-radius: 6px !important;
   background: var(--fleet-bg) !important;
@@ -236,7 +224,7 @@
 }
 
 .fleet__monitor {
-  min-height: 44px !important;
+  min-height: 38px !important;
   margin-bottom: 0;
   color: var(--fleet-muted) !important;
   font-size: 12px !important;
@@ -256,7 +244,7 @@
   display: flex;
   align-items: center;
   gap: 7px;
-  margin: 12px 1px 17px;
+  margin: 9px 1px 12px;
   color: var(--fleet-faint);
   font-size: 11px;
   line-height: 1.6;
@@ -393,6 +381,11 @@
   color: var(--fleet-amber);
 }
 
+.fleet__status--cancelled,
+.fleet__status--interrupted {
+  color: var(--fleet-amber);
+}
+
 .fleet__status--unknown {
   color: var(--fleet-faint);
 }
@@ -510,11 +503,7 @@
 
 @media (max-width: 920px) {
   .fleet__overview {
-    grid-template-columns: minmax(180px, 1.3fr) repeat(2, minmax(110px, 1fr));
-  }
-
-  .fleet__overview-intro {
-    grid-column: span 2;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .fleet__toolbar-rule {
@@ -522,51 +511,34 @@
   }
 }
 
-@media (max-width: 680px) {
+@media (max-width: 760px) {
   .fleet {
-    padding: 12px;
+    padding: 0;
   }
 
   .fleet__overview {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .fleet__overview-intro {
-    grid-column: span 2;
-  }
-
   .fleet__stat {
-    min-height: 104px;
-    padding: 15px;
+    min-height: 50px;
+    padding: 11px 13px;
   }
 
   .fleet__section-head {
-    flex-wrap: wrap;
-  }
-
-  .fleet__section-head > button {
-    width: 100%;
+    flex-wrap: nowrap;
   }
 
   .fleet__toolbar {
     align-items: stretch;
   }
 
-  .fleet__search,
-  .fleet__filter,
-  .fleet__filter--interval {
-    flex: 1 1 calc(50% - 5px);
-    width: auto;
-  }
-
+  .fleet__search { flex: 1 1 220px; }
+  .fleet__filter { flex: 0 1 118px; width: 118px; }
+  .fleet__filter--interval { flex-basis: 130px; width: 130px; }
   .fleet__toolbar > .fh-button,
-  .fleet__toolbar > button {
-    flex: 1 1 100%;
-  }
-
-  .fleet__monitor {
-    flex: 1 1 calc(50% - 5px);
-  }
+  .fleet__toolbar > button { flex: 0 0 auto; }
+  .fleet__monitor { flex: 0 0 auto; }
 
   .fleet__table-wrap {
     display: none;
@@ -574,6 +546,7 @@
 
   .fleet__cards {
     display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;
   }
 
@@ -630,14 +603,19 @@
   }
 }
 
-@media (max-width: 420px) {
-  .fleet__overview {
-    grid-template-columns: 1fr;
-  }
+@media (max-width: 520px) {
+  .fleet__section-head { flex-wrap: wrap; }
+  .fleet__section-head > button { width: 100%; }
+  .fleet__search,
+  .fleet__filter,
+  .fleet__filter--interval { flex: 1 1 100%; width: auto; }
+  .fleet__toolbar > .fh-button,
+  .fleet__toolbar > button { flex: 1 1 100%; }
+  .fleet__monitor { flex: 1 1 100%; }
+  .fleet__cards { grid-template-columns: 1fr; }
+}
 
-  .fleet__overview-intro {
-    grid-column: auto;
-  }
+@media (max-width: 420px) {
 
   .fleet__stat {
     min-height: auto;

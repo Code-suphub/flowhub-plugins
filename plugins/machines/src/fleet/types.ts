@@ -16,7 +16,13 @@ export interface FleetMetricValues {
   uptime: number;
 }
 
-export type FleetMetricResultStatus = 'success' | 'failed' | 'timeout' | 'unknown';
+export type FleetMetricResultStatus =
+  | 'success'
+  | 'failed'
+  | 'timeout'
+  | 'cancelled'
+  | 'interrupted'
+  | 'unknown';
 
 export interface FleetMetric {
   status: FleetMetricResultStatus;

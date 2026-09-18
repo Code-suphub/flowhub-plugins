@@ -30,6 +30,7 @@
   const host = window;
   const invoke = window.FlowHubPlugin?.invoke || host.__TAURI__?.core?.invoke;
   const readonly = !invoke;
+  const reactFleet = window.FlowHubFleet;
   let state = { config: { hosts: [], enabled: false, installed: null, interval: 60 }, metrics: {}, active: [], history: [] };
   let selection = new Set();
   let busy = false;
@@ -72,7 +73,7 @@
     try { await fn(); await refresh(); } catch (e) { message(String(e), true); }
     finally { busy = false; }
   }
-  function filtered() { return M.visibleHosts(state.config.hosts, $("#filter").value, $("#group").value); }
+  function filtered() { return M.visibleHosts(state.config.hosts, $("#filter")?.value || "", $("#group")?.value || ""); }
   function chosen() { return M.targets(state.config.hosts, selection); }
   function bastionHost() { const hosts = chosen(); return hosts.length === 1 && hosts[0].bastion ? hosts[0] : null; }
   function templates() { return state.config.templates ?? state.config.installed?.templates ?? []; }
@@ -82,29 +83,33 @@
     $("#version").textContent = c.installed ? `v${c.installed.version}${c.enabled ? "" : " · 已停用"}` : "未安装";
     $("main").hidden = !c.installed || !c.enabled;
     $("#unavailable").hidden = !!c.installed && c.enabled;
-    for (const id of ["addHost", "collectSelected", "runCommand", "monitor", "interval"]) $("#" + id).disabled = readonly || !c.enabled;
+    for (const id of ["addHost", "collectSelected", "runCommand", "monitor", "interval"]) { const control=$("#" + id); if(control)control.disabled = readonly || !c.enabled; }
     $("#runCommand").disabled ||= commandRunning;
     $("#runCommand").textContent = commandRunning ? "执行中…" : "执行 ↵";
     for (const id of ["sshProbe", "chooseIdentity"]) $("#" + id).disabled = readonly || !c.enabled || !c.installed?.capabilities.includes("ssh:configure") || (id==='chooseIdentity' && $('#sshAuth').value==='password');
-    $("#monitor").checked = !!c.monitoring;
-    if (![...$("#interval").options].some(o => o.value === String(c.interval || 60))) $("#interval").add(new Option(`每 ${c.interval} 秒`, String(c.interval)));
-    $("#interval").value = String(c.interval || 60);
+    if (!reactFleet) {
+      $("#monitor").checked = !!c.monitoring;
+      if (![...$("#interval").options].some(o => o.value === String(c.interval || 60))) $("#interval").add(new Option(`每 ${c.interval} 秒`, String(c.interval)));
+      $("#interval").value = String(c.interval || 60);
+    }
     $('#connectionMode').value = c.reuseConnections ? 'reuse' : 'independent';
     $('#connectionSummary').textContent = c.reuseConnections ? '复用已认证连接' : '每次独立连接';
     $('#connectionIdle').value = String(c.connectionIdleSeconds >= 3600 ? c.connectionIdleSeconds : 28800);
     $('#connectionMode').disabled = readonly || !c.enabled;
     $('#connectionIdle').disabled = readonly || !c.enabled || !c.reuseConnections;
     $('#connectionIdleField').hidden = !c.reuseConnections;
-    const group = $("#group").value;
-    const groups = [...new Set(c.hosts.map(h => h.group).filter(Boolean))].sort();
-    const groupOptions = '<option value="">全部分组</option>' + groups.map(g => `<option value="${esc(g)}">${esc(g)}</option>`).join("");
-    if (groupOptions !== lastGroups) { $("#group").innerHTML = groupOptions; lastGroups = groupOptions; }
-    $("#group").value = groups.includes(group) ? group : "";
-    const statuses = c.hosts.map(h => M.metricStatus(state.metrics[h.id], c.interval || 60));
-    $("#totalCount").textContent = c.hosts.length;
-    $("#healthyCount").textContent = statuses.filter(s => s === "success").length;
-    $("#failedCount").textContent = statuses.filter(s => s !== "success" && s !== "unknown").length;
-    $("#activeCount").textContent = state.active.length;
+    if (!reactFleet) {
+      const group = $("#group").value;
+      const groups = [...new Set(c.hosts.map(h => h.group).filter(Boolean))].sort();
+      const groupOptions = '<option value="">全部分组</option>' + groups.map(g => `<option value="${esc(g)}">${esc(g)}</option>`).join("");
+      if (groupOptions !== lastGroups) { $("#group").innerHTML = groupOptions; lastGroups = groupOptions; }
+      $("#group").value = groups.includes(group) ? group : "";
+      const statuses = c.hosts.map(h => M.metricStatus(state.metrics[h.id], c.interval || 60));
+      $("#totalCount").textContent = c.hosts.length;
+      $("#healthyCount").textContent = statuses.filter(s => s === "success").length;
+      $("#failedCount").textContent = statuses.filter(s => s !== "success" && s !== "unknown").length;
+      $("#activeCount").textContent = state.active.length;
+    }
     const templateValue = $("#template").value;
     $("#templatePicker").hidden = !templates().length;
     $("#manageTemplates").disabled = readonly || !c.enabled;
@@ -115,6 +120,17 @@
     window.FlowHubSelects?.sync();
   }
   function renderHosts() {
+    if (reactFleet) {
+      reactFleet.update({
+        snapshot: { hosts: state.config.hosts, metrics: state.metrics, activeJobs: state.active },
+        config: { enabled: !readonly && !!state.config.enabled, monitoring: !!state.config.monitoring, intervalSeconds: state.config.interval || 60 },
+        selectedHostIds: [...selection],
+        now: Date.now(),
+      });
+      $("#selectionInfo").textContent = selection.size ? `已选择 ${selection.size} 台：${chosen().map(h => h.name + ' (' + h.alias + ')').join('、')}` : "请在上方下拉框选择目标机器";
+      renderTargets();
+      return;
+    }
     const hosts = filtered(); const c = state.config;
     const hostMarkup = hosts.map(h => {
       const metric = state.metrics[h.id]; const status = M.metricStatus(metric, c.interval || 60);
@@ -274,9 +290,11 @@
   function submit(hosts, kind, command) {
     batch(hosts, kind, command).catch(e => message(String(e), true)).finally(() => refresh().catch(e => message(String(e), true)));
   }
-  $("#filter").oninput = renderHosts; $("#group").onchange = renderHosts;
-  $("#selectAll").onchange = e => { for (const h of filtered()) e.target.checked ? selection.add(h.id) : selection.delete(h.id); renderHosts(); };
-  $("#hostRows").onchange = e => { if (e.target.dataset.select) { e.target.checked ? selection.add(e.target.dataset.select) : selection.delete(e.target.dataset.select); renderHosts(); } };
+  if (!reactFleet) {
+    $("#filter").oninput = renderHosts; $("#group").onchange = renderHosts;
+    $("#selectAll").onchange = e => { for (const h of filtered()) e.target.checked ? selection.add(h.id) : selection.delete(h.id); renderHosts(); };
+    $("#hostRows").onchange = e => { if (e.target.dataset.select) { e.target.checked ? selection.add(e.target.dataset.select) : selection.delete(e.target.dataset.select); renderHosts(); } };
+  }
   const hostTabs = [...document.querySelectorAll('[data-host-tab]')];
   function showHostTab(name, focus = false) {
     const target = hostTabs.find(tab => tab.dataset.hostTab === name) || hostTabs[0];
@@ -371,7 +389,7 @@
   $('#hostAlias').onchange = () => {
     if ($('#hostId').value && $('#hostConnectionType').value === 'ssh') loadSshForEdit();
   };
-  $("#addHost").onclick = () => edit(null);
+  if (!reactFleet) $("#addHost").onclick = () => edit(null);
   $('#groupChoice').onchange = () => {
     const value = $('#groupChoice').value;
     $('#hostGroup').hidden = value !== '__new';
@@ -496,12 +514,33 @@
     hostMenu.style.top = Math.max(8, Math.min(innerHeight - box.height - 8, flip ? rect.top - box.height - 6 : rect.bottom + 6)) + "px";
     hostMenu.querySelector("button:not(:disabled)")?.focus();
   }
-  $("#hostRows").onclick = e => {
+  function handleHostAction(action, id, anchor) {
+    const h = state.config.hosts.find(x => x.id === id); if (!h) return;
+    if (action === "more") {
+      const button = anchor || [...document.querySelectorAll('[data-host-action="more"]')].find(el => el.dataset.id === id && el.getClientRects().length);
+      if (button) hostMenu.hidden ? openHostMenu(button, h) : closeHostMenu();
+      return;
+    }
+    runHostAction(h, action);
+  }
+  if (!reactFleet) $("#hostRows").onclick = e => {
     const button = e.target.closest("[data-host-action]"); if (!button) return;
-    const h = state.config.hosts.find(x => x.id === button.dataset.id); if (!h) return;
-    if (button.dataset.hostAction === "more") { hostMenu.hidden ? openHostMenu(button, h) : closeHostMenu(); return; }
-    runHostAction(h, button.dataset.hostAction);
+    handleHostAction(button.dataset.hostAction, button.dataset.id, button);
   };
+  else window.addEventListener("flowhub:fleet-action", e => {
+    const detail = e.detail || {};
+    if (detail.type === "selection") {
+      selection = new Set((detail.hostIds || []).filter(id => state.config.hosts.some(h => h.id === id)));
+      renderHosts();
+    } else if (detail.type === "add") edit(null);
+    else if (detail.type === "collect-selected") {
+      const ids = new Set(detail.hostIds || []);
+      submit(state.config.hosts.filter(h => ids.has(h.id)), "collect");
+    } else if (detail.type === "collect-host") {
+      const h = state.config.hosts.find(x => x.id === detail.hostId); if (h) submit([h], "collect");
+    } else if (detail.type === "host-action") handleHostAction(detail.action, detail.hostId);
+    else if (detail.type === "monitor") operate(() => api("monitor", { enabled: !!detail.enabled, interval: Number(detail.intervalSeconds) || 60 }));
+  });
   hostMenu.onclick = e => {
     const item = e.target.closest("[data-host-action]"); if (!item) return;
     const h = state.config.hosts.find(x => x.id === hostMenu.dataset.id); closeHostMenu();
@@ -511,7 +550,7 @@
   document.addEventListener?.("keydown", e => { if (e.key === "Escape") closeHostMenu(); });
   window.addEventListener?.("resize", closeHostMenu);
   window.addEventListener?.("scroll", closeHostMenu, true);
-  $("#collectSelected").onclick = () => submit(chosen(), "collect");
+  if (!reactFleet) $("#collectSelected").onclick = () => submit(chosen(), "collect");
   function updateBastionOutput(text, forceFollow = false) {
     const output = $('#bastionOutput');
     const follow = forceFollow || output.scrollHeight - output.scrollTop - output.clientHeight < 48;
@@ -555,7 +594,7 @@
     await api('connectionSettings', { reuse: $('#connectionMode').value === 'reuse', idleSeconds: Number($('#connectionIdle').value) });
     message('连接配置已保存，对后续命令、采集和系统终端生效；已建立连接按原空闲时间退出。');
   });
-  for (const selector of ["#monitor", "#interval"]) $(selector).onchange = () => operate(() => api("monitor", { enabled: $("#monitor").checked, interval: Number($("#interval").value) }));
+  if (!reactFleet) for (const selector of ["#monitor", "#interval"]) $(selector).onchange = () => operate(() => api("monitor", { enabled: $("#monitor").checked, interval: Number($("#interval").value) }));
   $("#template").onchange = e => { if (e.target.value !== "") {$("#command").value = templates()[Number(e.target.value)]?.command || '';sizeCommand();$('#command').focus?.();} };
   let templateDraft = [];
   function renderTemplateEditor() {

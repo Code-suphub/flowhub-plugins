@@ -5,7 +5,9 @@
   "scripts": {
     "dev": "vite --config vite.config.mjs",
     "build": "node scripts/build.mjs",
-    "build:react": "vite build --config vite.react.config.mjs",
+    "build:react": "npm run build:widget-editor && npm run build:fleet",
+    "build:widget-editor": "vite build --config vite.react.config.mjs",
+    "build:fleet": "vite build --config vite.fleet.config.mjs",
     "typecheck": "tsc --noEmit",
     "test": "cargo test --manifest-path backend/Cargo.toml && npm run typecheck && node --test tests/*.test.cjs && node scripts/layout-audit.mjs --check && node scripts/preview-fingerprint.mjs",
     "layout": "node scripts/layout-audit.mjs",

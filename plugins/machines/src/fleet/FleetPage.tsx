@@ -21,6 +21,8 @@ const STATUS_LABELS: Record<FleetMetricStatus, string> = {
   success: '正常',
   failed: '失败',
   timeout: '超时',
+  cancelled: '已取消',
+  interrupted: '结果未知',
   stale: '已过期',
   unknown: '未采集',
 };
@@ -29,6 +31,8 @@ const STATUS_HINTS: Record<FleetMetricStatus, string> = {
   success: '最近采集成功',
   failed: '最近一次采集失败',
   timeout: '最近一次采集超时',
+  cancelled: '最近一次采集已取消',
+  interrupted: '应用退出，采集结果未知',
   stale: '超过两个采集周期未更新',
   unknown: '尚未有采集记录',
 };
@@ -431,32 +435,23 @@ export function FleetPage({
   }).length;
 
   return (
-    <main className={cx('fleet', className)}>
+    <div className={cx('fleet', className)}>
       <section className="fleet__overview" aria-label="机器概况">
-        <div className="fleet__overview-intro">
-          <span className="fleet__eyebrow">01 / FLEET SIGNAL</span>
-          <h1>机器概况</h1>
-          <p>基础指标 · SSH 采集 · 本机后台监控</p>
-        </div>
         <div className="fleet__stat">
           <span>机器总数</span>
           <strong>{total}</strong>
-          <small>REGISTERED</small>
         </div>
         <div className="fleet__stat fleet__stat--healthy">
           <span>最近采集成功</span>
           <strong>{healthy}</strong>
-          <small>RESPONDING</small>
         </div>
         <div className="fleet__stat fleet__stat--problem">
           <span>异常 / 过期</span>
           <strong>{problem}</strong>
-          <small>NEEDS ATTENTION</small>
         </div>
         <div className="fleet__stat fleet__stat--active">
           <span>执行中 / 排队</span>
           <strong>{snapshot.activeJobs.length}</strong>
-          <small>IN FLIGHT</small>
         </div>
       </section>
 
@@ -587,6 +582,6 @@ export function FleetPage({
           onReset={resetFilters}
         />
       </section>
-    </main>
+    </div>
   );
 }

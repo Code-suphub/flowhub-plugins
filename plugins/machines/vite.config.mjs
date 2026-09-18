@@ -1,19 +1,55 @@
 import {defineConfig} from 'vite';
+import {execFileSync} from 'node:child_process';
 import {readFileSync} from 'node:fs';
+import {dirname,join} from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {inlineCommonHtml} from '../../scripts/inline-common.mjs';
+
+const pluginRoot=dirname(fileURLToPath(import.meta.url));
+const fleetBuild=join(pluginRoot,'build/ui/react');
+const fleetSource=join(pluginRoot,'src/fleet');
+const commonReact=join(pluginRoot,'../common/src/react');
+const buildFleet=()=>execFileSync('npm',['run','build:fleet'],{
+  cwd:pluginRoot,
+  stdio:'inherit',
+  env:{...process.env,NODE_ENV:'production'}
+});
+
 export default defineConfig({
   root:'ui',server:{host:'127.0.0.1',port:5183,strictPort:true,cors:{origin:/^(?:null|http:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?)$/}},
   plugins:[{name:'isolated-preview',configureServer(server){
+    buildFleet();
     server.middlewares.use((request,response,next)=>{
       if(request.url==='/'||request.url==='/index.html'){
         response.statusCode=302;response.setHeader('Location','/machines.html');response.end();return;
       }
       next();
     });
+    server.middlewares.use('/react/',(request,response,next)=>{
+      const name=new URL(request.url,'http://local').pathname.replace(/^\/+/, '');
+      if(!['fleet.js','fleet.css'].includes(name)){next();return;}
+      response.setHeader('Content-Type',name.endsWith('.css')?'text/css; charset=utf-8':'text/javascript; charset=utf-8');
+      response.setHeader('Cache-Control','no-store');
+      response.end(readFileSync(join(fleetBuild,name)));
+    });
     const fixture=new URL('./dev/machines-preview.js',import.meta.url);
     const commonFiles=[new URL('../common/ui/flowhub-common.js',import.meta.url).pathname,new URL('../common/ui/flowhub-common.css',import.meta.url).pathname];
-    server.watcher.add([fixture.pathname,...commonFiles]);
-    server.watcher.on('change',p=>{if(p===fixture.pathname||commonFiles.includes(p))server.ws.send({type:'full-reload'});});
+    server.watcher.add([fixture.pathname,...commonFiles,fleetSource,commonReact]);
+    let fleetTimer;
+    server.watcher.on('change',p=>{
+      if(p.startsWith(fleetSource)||p.startsWith(commonReact)){
+        clearTimeout(fleetTimer);
+        fleetTimer=setTimeout(()=>{buildFleet();server.ws.send({type:'full-reload'});},120);
+        return;
+      }
+      if(p===fixture.pathname||commonFiles.includes(p))server.ws.send({type:'full-reload'});
+    });
     server.middlewares.use('/__machines-preview.js',(_req,res)=>{res.setHeader('Content-Type','text/javascript');res.end(readFileSync(fixture,'utf8'));});
-  },transformIndexHtml(html){const preview=html.replace('<script src="plugin-bridge.js">','<script src="/__machines-preview.js"></script><script src="plugin-bridge.js">');return inlineCommonHtml(preview);}}]
+  },transformIndexHtml(html){
+    const preview=html
+      .replace('<script src="plugin-bridge.js">','<script src="/__machines-preview.js"></script><script src="plugin-bridge.js">')
+      .replace('<link data-flowhub-fleet rel="stylesheet">','<link rel="stylesheet" href="react/fleet.css">')
+      .replace('<script data-flowhub-fleet></script>','<script src="react/fleet.js"></script>');
+    return inlineCommonHtml(preview);
+  }}]
 });
