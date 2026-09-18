@@ -1,6 +1,8 @@
 import {mkdirSync,copyFileSync,chmodSync} from 'node:fs';
 import {execFileSync} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
 mkdirSync('bin',{recursive:true});
 execFileSync('cargo',['build','--manifest-path','backend/Cargo.toml','--release'],{stdio:'inherit'});
 copyFileSync('backend/target/release/flowhub-twofa','bin/flowhub-twofa');
 chmodSync('bin/flowhub-twofa',0o700);
+execFileSync(process.execPath,[fileURLToPath(new URL('../../../scripts/package-plugin.mjs',import.meta.url)),'twofa'],{stdio:'inherit'});

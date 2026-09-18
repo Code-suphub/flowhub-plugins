@@ -39,9 +39,11 @@ function plan(){
 }
 function bundle(id,target){
   const {dir,m}=manifest(id);
+  const buildDir=path.join(dir,'build'),built=json(path.join(buildDir,'flowhub-plugin.json'));
+  if(built.id!==m.id||built.version!==m.version)throw Error('Build manifest does not match source manifest; run npm run build first');
   if(target!==`macos-${process.arch==='arm64'?'aarch64':process.arch==='x64'?'x86_64':'unsupported'}`||process.platform!=='darwin')throw Error('Runner architecture mismatch');
   const files={};
-  const add=relative=>{const full=path.join(dir,relative),stat=fs.lstatSync(full);if(stat.isSymbolicLink())throw Error('Symlinks not allowed');if(stat.isDirectory()){for(const name of fs.readdirSync(full).sort())add(`${relative}/${name}`);}else if(stat.isFile())files[relative]=fs.readFileSync(full).toString('base64');else throw Error('Unsupported file');};
+  const add=relative=>{const full=path.join(buildDir,relative),stat=fs.lstatSync(full);if(stat.isSymbolicLink())throw Error('Symlinks not allowed');if(stat.isDirectory()){for(const name of fs.readdirSync(full).sort())add(`${relative}/${name}`);}else if(stat.isFile())files[relative]=fs.readFileSync(full).toString('base64');else throw Error('Unsupported file');};
   add('flowhub-plugin.json');add('ui');add(m.executable);
   if(!files[m.ui])throw Error('Missing entry page');
   fs.mkdirSync('release-output',{recursive:true});

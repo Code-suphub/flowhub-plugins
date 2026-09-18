@@ -4,7 +4,7 @@
 
 - 机器管理页面的预览入口是 `plugins/machines/ui/machines.html`；本地预览使用 `npm run dev -- --port 5183`。
 - 页面中的说明性内容优先放进统一的帮助气泡或弹窗，主界面只保留操作所需的短标签和状态。
-- `plugins/common` 是跨插件公共 UI 包的唯一源码；修改后运行 `npm run sync:common`，并将各插件 `ui/common/` 的运行时副本一并提交。独立发布的插件不能依赖仓库外的源码路径。
+- `plugins/common` 是跨插件公共 UI 包的唯一源码；插件构建时由 `scripts/package-plugin.mjs` 内联到 `plugins/<id>/build/`，不要在各插件 `ui/` 下提交公共资源副本。独立发布的插件不能依赖仓库外的源码路径。
 - 公共层负责无主题的行为和基础组件：帮助气泡、数字输入、下拉交互、分页、字段、复选框、表格及按钮基础类；业务状态、插件桥接逻辑、颜色和页面布局仍由具体插件维护。
 - 机器管理页和 widget 页可以保留各自的下拉视觉主题；公共层统一下拉行为，不强行合并页面皮肤。改动下拉外观后运行预览指纹检查。
 
@@ -13,7 +13,7 @@
 ```sh
 npm test
 npm run layout:machines -- --check
-npm run sync:common
+npm run build
 ```
 
 机器管理页面的布局或下拉样式变化，还应在 1400、600、380 像素宽度下打开 `/machines.html` 检查滚动、弹窗和键盘操作。

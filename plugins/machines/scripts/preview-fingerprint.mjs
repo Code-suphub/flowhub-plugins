@@ -13,6 +13,7 @@ import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { inlineCommonHtml } from '../../../scripts/inline-common.mjs';
 
 const here = resolve(fileURLToPath(new URL('.', import.meta.url)));
 const ui = resolve(here, '..', 'ui');
@@ -38,7 +39,8 @@ function server() {
     const path = resolve(ui, name);
     if (!path.startsWith(ui) || !existsSync(path)) { response.writeHead(404).end(); return; }
     response.writeHead(200, { 'content-type': TYPES[extname(name)] || 'application/octet-stream', 'cache-control': 'no-store' });
-    response.end(await readFile(path));
+    const raw = await readFile(path, 'utf8');
+    response.end(extname(name) === '.html' ? inlineCommonHtml(raw) : raw);
   });
   return new Promise(resolve => instance.listen(0, '127.0.0.1', () => resolve(instance)));
 }

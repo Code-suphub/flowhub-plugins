@@ -1,4 +1,5 @@
 import {execFileSync} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
 import {mkdirSync,copyFileSync,chmodSync,renameSync} from 'node:fs';
 execFileSync('cargo',['build','--release','--manifest-path','backend/Cargo.toml'],{stdio:'inherit'});
 // Replace the inode atomically: overwriting a running Mach-O can leave macOS
@@ -8,3 +9,4 @@ const temporary=`bin/.flowhub-machines-${process.pid}`;
 copyFileSync('backend/target/release/flowhub-machines',temporary);
 chmodSync(temporary,0o755);
 renameSync(temporary,'bin/flowhub-machines');
+execFileSync(process.execPath,[fileURLToPath(new URL('../../../scripts/package-plugin.mjs',import.meta.url)),'machines'],{stdio:'inherit'});

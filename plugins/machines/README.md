@@ -20,13 +20,13 @@ npm run build
 npm test
 ```
 
-在支持 schema 2 的 FlowHub 中打开插件市场，选择 `plugins/machines` 目录安装。安装的是目录引用，不复制开发源码。
+在支持 schema 2 的 FlowHub 中打开插件市场，选择构建后的 `plugins/machines/build` 目录安装。开发预览仍使用 `npm run dev`，不会复制公共源码。
 
-- 修改 ui 中页面：在插件市场重新加载，然后进入机器管理。
+- 修改 ui 或 common 中页面：运行 `npm run build` 后，在插件市场重新加载构建目录。
 - 修改 backend：先运行 npm run build，再重新加载。
 - 普通插件升级不需要编译 FlowHub；只有改变宿主通信协议才需要宿主更新。
 - 重新加载会重启插件进程，进行中的命令连接会中断；tmux 堡垒机会话独立存在。
-- 发布包包含 flowhub-plugin.json、ui/、bin/；Rust 可执行文件需要按目标系统和架构构建。构建产物不随源码提交，克隆后先运行 npm run build。
+- `build/` 包含自包含的 flowhub-plugin.json、ui/、bin/；Rust 可执行文件需要按目标系统和架构构建。构建产物不随源码提交，克隆后先运行 npm run build。
 
 ## Agent 调用与查询权限
 

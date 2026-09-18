@@ -11,7 +11,7 @@
 
 ## 构建与安装
 
-在插件目录运行 `npm run build`（后端 `cargo build --release` 后复制到 `bin/flowhub-social-hub`），然后在 FlowHub「插件市场 → 安装开发目录」选择本目录。`npm test` 执行后端测试与 UI 语法检查。
+在插件目录运行 `npm run build`（后端 `cargo build --release` 后生成自包含的 `build/`），然后在 FlowHub「插件市场 → 安装开发目录」选择 `build/`。`npm test` 执行后端测试与 UI 语法检查。
 
 ## 边界
 

@@ -1,8 +1,10 @@
 import {execFileSync} from 'node:child_process';
 import {mkdirSync,copyFileSync,chmodSync,renameSync} from 'node:fs';
+import {fileURLToPath} from 'node:url';
 execFileSync('cargo',['build','--release','--manifest-path','backend/Cargo.toml'],{stdio:'inherit'});
 mkdirSync('bin',{recursive:true});
 const temporary=`bin/.flowhub-docker-${process.pid}`;
 copyFileSync('backend/target/release/flowhub-docker',temporary);
 chmodSync(temporary,0o755);
 renameSync(temporary,'bin/flowhub-docker');
+execFileSync(process.execPath,[fileURLToPath(new URL('../../../scripts/package-plugin.mjs',import.meta.url)),'docker'],{stdio:'inherit'});

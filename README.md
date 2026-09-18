@@ -46,7 +46,7 @@ npm test                      # 先校验约定，再依次测试全部插件
 
 `build`、`test` 由 `scripts/run-all.mjs` 遍历 `plugins/*/flowhub-plugin.json` 执行，并跳过没有对应脚本的插件；也可以进入单个插件目录直接运行 `npm run build`、`npm test`。每个插件独立维护依赖锁文件。CI 在 `plan` 阶段就会跑 `check-plugins`，缺文件或版本不一致不会拖到打标签发布时才暴露。
 
-FlowHub 从本地目录安装时，选择 **`plugins/<插件 ID>`**，不是仓库根目录。发布插件时只打包该目录的 `flowhub-plugin.json`、`ui/` 和 `bin/`。
+FlowHub 从本地目录安装时，先在插件目录运行 `npm run build`，再选择 **`plugins/<插件 ID>/build`**，不是仓库根目录或源码目录。构建目录包含自包含的 `flowhub-plugin.json`、`ui/` 和 `bin/`；公共 UI 会在构建阶段内联，不依赖仓库外路径。
 
 ## 添加新插件
 

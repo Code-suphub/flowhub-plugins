@@ -2,9 +2,6 @@
   "name": "flowhub-plugins",
   "private": true,
   "scripts": {
-    "sync:common": "node scripts/sync-common.mjs",
-    "prebuild": "npm run sync:common",
-    "pretest": "npm run sync:common",
     "dev": "npm --prefix plugins/machines run dev --",
     "dev:machines": "npm --prefix plugins/machines run dev --",
     "dev:docker": "npm --prefix plugins/docker run dev",

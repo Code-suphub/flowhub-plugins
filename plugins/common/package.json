@@ -3,6 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "exports": {
+    ".": "./ui/flowhub-common.js",
+    "./styles.css": "./ui/flowhub-common.css"
+  },
   "scripts": {
     "check": "node --check ui/flowhub-common.js"
   }

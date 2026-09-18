@@ -1,5 +1,6 @@
 import {defineConfig} from 'vite';
 import {readFileSync} from 'node:fs';
+import {inlineCommonHtml} from '../../scripts/inline-common.mjs';
 export default defineConfig({
   root:'ui',server:{host:'127.0.0.1',port:5183,strictPort:true,cors:{origin:/^(?:null|http:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?)$/}},
   plugins:[{name:'isolated-preview',configureServer(server){
@@ -10,7 +11,9 @@ export default defineConfig({
       next();
     });
     const fixture=new URL('./dev/machines-preview.js',import.meta.url);
-    server.watcher.add(fixture.pathname);server.watcher.on('change',p=>{if(p===fixture.pathname)server.ws.send({type:'full-reload'});});
+    const commonFiles=[new URL('../common/ui/flowhub-common.js',import.meta.url).pathname,new URL('../common/ui/flowhub-common.css',import.meta.url).pathname];
+    server.watcher.add([fixture.pathname,...commonFiles]);
+    server.watcher.on('change',p=>{if(p===fixture.pathname||commonFiles.includes(p))server.ws.send({type:'full-reload'});});
     server.middlewares.use('/__machines-preview.js',(_req,res)=>{res.setHeader('Content-Type','text/javascript');res.end(readFileSync(fixture,'utf8'));});
-  },transformIndexHtml(html){return html.replace('<script src="plugin-bridge.js">','<script src="/__machines-preview.js"></script><script src="plugin-bridge.js">');}}]
+  },transformIndexHtml(html){const preview=html.replace('<script src="plugin-bridge.js">','<script src="/__machines-preview.js"></script><script src="plugin-bridge.js">');return inlineCommonHtml(preview);}}]
 });

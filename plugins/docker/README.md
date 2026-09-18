@@ -4,7 +4,7 @@ FlowHub schema 2 独立插件。第一版面向本机 Docker：按 Compose 标�
 
 ## 构建与加载
 
-在本目录运行 `npm run build`。在 FlowHub「插件市场 → 安装开发目录」选择本目录，确认安装后打开侧栏「Docker 管理」。前端修改后切换页面即可重新读取资源，后端修改后重新构建，再在「已安装」中重新加载。
+在本目录运行 `npm run build`，然后在 FlowHub「插件市场 → 安装开发目录」选择 `build/`，确认安装后打开侧栏「Docker 管理」。前端或公共组件修改后重新构建，再在「已安装」中重新加载。
 
 Docker CLI 查找 `/opt/homebrew/bin/docker`、`/usr/local/bin/docker` 以及 Docker Desktop 自带路径。使用 Docker 当前 context，但仅接受 Unix socket 本机环境；不切换用户 context，不启动引擎，不执行 shell，不读取容器环境变量。Docker Desktop 或 Colima 必须先启动。环境变量 DOCKER_HOST / DOCKER_CONTEXT 不覆盖 context 配置。
 

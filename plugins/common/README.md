@@ -1,8 +1,8 @@
 # FlowHub plugin common
 
-插件公共 UI 基础层。源码只维护一份，运行时资源由根目录的
-`scripts/sync-common.mjs` 同步到每个插件的 `ui/common/`，这样独立发布的
-`.fhplugin` 不依赖仓库外路径。
+插件公共 UI 基础层。源码只维护一份，插件构建时由
+`scripts/package-plugin.mjs` 内联到独立构建目录的 HTML 中，最终 `.fhplugin`
+不依赖仓库外路径，也不在各插件源码中维护副本。
 
 ## 组件边界
 
@@ -12,10 +12,14 @@
 
 ## 使用方式
 
+源码页面使用构建标记：
+
 ```html
-<link rel="stylesheet" href="common/flowhub-common.css">
-<script src="common/flowhub-common.js"></script>
+<link data-flowhub-common rel="stylesheet">
+<script data-flowhub-common></script>
 ```
+
+`npm run build` 会将标记替换为内联 CSS/JS；机器管理和 Docker 的本地预览服务器也会即时完成同样的处理。
 
 脚本暴露 `window.FlowHubCommon`。主要 API 包括：
 
