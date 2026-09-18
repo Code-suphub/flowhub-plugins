@@ -2,7 +2,7 @@
 
 `Plugin CI and Release` 工作流在 main 推送、PR 和 `<插件 ID>-v<版本>` 标签推送时运行。
 
-- 普通改动：按 `plugins/<id>/` 选择受影响插件；公共脚本或工作流改动验证全部插件。只测试和构建，不发布安装包。
+- 普通改动：按 `plugins/<id>/` 选择受影响插件；`plugins/common/`、公共脚本或工作流改动验证并构建全部插件。只测试和构建，不发布安装包。
 - 标签：只构建该插件，要求清单、npm 包及 Cargo 版本一致。目前仅构建 Apple Silicon，Intel 暂停；所配置架构全部成功后发布完整 Release。
 - 不缓存 Rust target；临时上传产物保留 3 天。正式 Release 独立按插件版本保留，不标记为仓库级 latest。
 

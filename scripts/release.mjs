@@ -22,7 +22,7 @@ export function manifest(id){
   return {dir,m};
 }
 export function parseTag(tag){const match=/^([a-z0-9]+(?:-[a-z0-9]+)*)-v(\d+\.\d+\.\d+)$/.exec(tag);if(!match)throw Error('Expected <plugin>-vX.Y.Z');const {m}=manifest(match[1]);if(m.version!==match[2])throw Error('Tag does not match plugin version');return m.id;}
-export function changedPlugins(files,ids){return ids.filter(id=>files.some(f=>f.startsWith(`plugins/${id}/`)||f.startsWith('scripts/')||f.startsWith('.github/')||f==='package.json'));}
+export function changedPlugins(files,ids){return ids.filter(id=>files.some(f=>f.startsWith(`plugins/${id}/`)||f.startsWith('plugins/common/')||f.startsWith('scripts/')||f.startsWith('.github/')||f==='package.json'));}
 function plan(){
   const ids=fs.readdirSync(path.join(root,'plugins')).filter(id=>fs.existsSync(path.join(root,'plugins',id,'flowhub-plugin.json')));
   const release=process.env.GITHUB_REF_TYPE==='tag';

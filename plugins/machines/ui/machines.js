@@ -174,9 +174,9 @@
     if ($('#jobInstance').innerHTML !== options) { $('#jobInstance').innerHTML = options; $('#jobInstance').value = instances.has(current) ? current : ''; }
     const jobs = result ? allJobs : M.visibleJobs(allJobs, $('#jobInstance').value, $('#jobStatus').value, 'command');
     $('#jobCount').textContent = `共 ${result?.total ?? jobs.length} 条记录 · 本页 ${jobs.length} 条`;
-    $('#historyPageInfo').textContent = `${result?.page || 1} / ${result?.pages || 1} 页`;
-    $('#historyPrev').disabled = !result || result.page <= 1;
-    $('#historyNext').disabled = !result || result.page >= result.pages;
+    const page = result?.page || 1, pages = result?.pages || 1;
+    if (window.FlowHubCommon?.pagination) window.FlowHubCommon.pagination(document.querySelector('.history-pagination'), { page, pages, onChange: nextPage => { historyPage = nextPage; renderJobs(true); } });
+    else { $('#historyPageInfo').textContent = `${page} / ${pages} 页`; $('#historyPrev').disabled = !result || page <= 1; $('#historyNext').disabled = !result || page >= pages; }
     const signature = JSON.stringify(jobs);
     for (const id of jobDetails.keys()) if (!allJobs.some(j => j.id === id)) jobDetails.delete(id);
     if (signature === lastJobs) return; lastJobs = signature;
@@ -185,8 +185,10 @@
     for (const el of document.querySelectorAll(".job details[open]")) loadJob(el);
   }
   for (const id of ['jobInstance', 'jobStatus', 'historyPageSize']) $('#' + id).onchange = () => { historyPage = 1; renderJobs(true); };
-  $('#historyPrev').onclick = () => { historyPage = Math.max(1, historyPage - 1); renderJobs(true); };
-  $('#historyNext').onclick = () => { historyPage++; renderJobs(true); };
+  if (!window.FlowHubCommon?.pagination) {
+    $('#historyPrev').onclick = () => { historyPage = Math.max(1, historyPage - 1); renderJobs(true); };
+    $('#historyNext').onclick = () => { historyPage++; renderJobs(true); };
+  }
   $('#historyTab').addEventListener('click', () => renderJobs(true));
   function renderCollections() {
     if (!collectionHost) return;

@@ -16,13 +16,6 @@ td:last-child{white-space:normal;min-width:260px}.host-actions{display:flex;flex
 .host-dialog .host-pane>.ssh-fields,.host-dialog .host-pane>#retrySshLoad{grid-column:1/-1}
 .host-dialog .host-pane>.caption{margin:0;align-self:center}
 .host-dialog .host-pane[hidden]{display:none}
-.number-control{position:relative;display:block;width:100%}
-.number-control>input{width:100%;padding-right:54px;appearance:textfield;-moz-appearance:textfield}
-.number-control>input::-webkit-inner-spin-button,.number-control>input::-webkit-outer-spin-button{margin:0;appearance:none}
-.number-control-buttons{position:absolute;right:1px;top:1px;bottom:1px;display:flex;flex-direction:column;width:34px;overflow:hidden;border-left:1px solid var(--line);border-radius:0 5px 5px 0}
-.number-control .number-step{flex:1;min-height:0;padding:0;border:0;border-radius:0;background:transparent;color:var(--muted);font-size:13px;line-height:1}
-.number-control .number-step+ .number-step{border-top:1px solid var(--line)}
-.number-control .number-step:hover{background:#2a3c30;color:var(--ink)}
 #backupDialog pre:empty{display:none}
 .machine-tabs [data-machine-tab=discovery],#discoveryPanel{display:none!important}
 @media(max-width:760px){.overview.overview{grid-template-columns:repeat(2,minmax(0,1fr))}}
