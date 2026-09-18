@@ -30,10 +30,6 @@
   const host = window;
   const invoke = window.FlowHubPlugin?.invoke || host.__TAURI__?.core?.invoke;
   const readonly = !invoke;
-  $('#openStatus').onclick=async()=>{
-    if(!window.FlowHubPlugin){message('桌面组件与菜单栏需在 FlowHub 中使用，浏览器预览不创建系统窗口。');return;}
-    try{await window.FlowHubPlugin.invoke('flowhub_status',{});}catch(e){message(String(e),true);}
-  };
   let state = { config: { hosts: [], enabled: false, installed: null, interval: 60 }, metrics: {}, active: [], history: [] };
   let selection = new Set();
   let busy = false;
@@ -82,7 +78,6 @@
   function templates() { return state.config.templates ?? state.config.installed?.templates ?? []; }
   function render() {
     const c = state.config;
-    window.FlowHubSshDiscovery?.update(c, api, refresh);
     selection = new Set([...selection].filter(id => c.hosts.some(h => h.id === id)));
     $("#version").textContent = c.installed ? `v${c.installed.version}${c.enabled ? "" : " · 已停用"}` : "未安装";
     $("main").hidden = !c.installed || !c.enabled;
@@ -280,12 +275,32 @@
   $("#filter").oninput = renderHosts; $("#group").onchange = renderHosts;
   $("#selectAll").onchange = e => { for (const h of filtered()) e.target.checked ? selection.add(h.id) : selection.delete(h.id); renderHosts(); };
   $("#hostRows").onchange = e => { if (e.target.dataset.select) { e.target.checked ? selection.add(e.target.dataset.select) : selection.delete(e.target.dataset.select); renderHosts(); } };
+  const hostTabs = [...document.querySelectorAll('[data-host-tab]')];
+  function showHostTab(name, focus = false) {
+    const target = hostTabs.find(tab => tab.dataset.hostTab === name) || hostTabs[0];
+    if (!target) return;
+    for (const tab of hostTabs) {
+      const selected = tab === target;
+      tab.setAttribute('aria-selected', String(selected));
+      tab.tabIndex = selected ? 0 : -1;
+      document.getElementById(tab.getAttribute('aria-controls'))?.toggleAttribute('hidden', !selected);
+    }
+    if (focus) target.focus();
+  }
+  hostTabs.forEach((tab, index) => {
+    tab.onclick = () => showHostTab(tab.dataset.hostTab);
+    tab.onkeydown = event => {
+      const next = event.key === 'Home' ? 0 : event.key === 'End' ? hostTabs.length - 1 : event.key === 'ArrowRight' ? (index + 1) % hostTabs.length : event.key === 'ArrowLeft' ? (index + hostTabs.length - 1) % hostTabs.length : null;
+      if (next === null) return;
+      event.preventDefault(); showHostTab(hostTabs[next].dataset.hostTab, true);
+    };
+  });
   async function edit(host) {
     for(const id of ['hostAlias','sshHostname','sshUser','sshPort']){
       document.getElementById?.(id+'Error')?.remove();
       $('#'+id).removeAttribute?.('aria-invalid');$('#'+id).removeAttribute?.('aria-describedby');
     }
-    $('#sshAuth').value='key'; $('#sshPassword').value=''; authForm();
+    $('#sshAuth').value='key'; $('#sshPassword').value=''; authForm(); showHostTab('basic');
     sshEditVersion++; sshEditStatus = 'ready';
     $("#saveHost").disabled = false; $("#retrySshLoad").hidden = true;
     sshRevision = ""; sshLoadedAlias = "";
@@ -386,7 +401,7 @@
     input.focus();$('#sshStatus').textContent=text;throw new Error(text);
   }
   function sshSignature(profile = sshDraft()) { return JSON.stringify({ ...profile, alias: '',passwordAuth:$('#sshAuth').value==='password' }); }
-  function authForm(){const password=$('#sshAuth').value==='password';$('#sshPasswordField').hidden=!password;$('#sshIdentity').disabled=password;$('#chooseIdentity').disabled=password;window.FlowHubSelects?.sync();}
+  function authForm(){const password=$('#sshAuth').value==='password';$('#sshPasswordField').hidden=!password;$('#directSshFields .ssh-key').hidden=password;$('#sshIdentity').disabled=password;$('#chooseIdentity').disabled=password;window.FlowHubSelects?.sync();}
   $('#sshAuth').onchange=authForm;
   for (const action of ["sshProbe", "chooseIdentity"]) $("#" + action).onclick = () => operate(async () => {
     try {

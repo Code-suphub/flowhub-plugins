@@ -6,3 +6,24 @@ td:last-child{white-space:normal;min-width:260px}.host-actions{display:flex;flex
 @media(max-width:760px){.overview{grid-template-columns:repeat(2,minmax(0,1fr));gap:16px 20px}.overview div{border-right:0}.overview div:nth-child(odd){border-right:1px solid var(--line)}td:last-child{min-width:160px}td:nth-child(2) strong,td:nth-child(2) small{max-width:150px;overflow:hidden;text-overflow:ellipsis}}
 @media(max-width:480px){td:last-child{min-width:150px}td:nth-child(2) strong,td:nth-child(2) small{max-width:96px}}
 @media(max-width:420px){.overview{grid-template-columns:1fr;gap:14px}.overview div{border-right:0;border-bottom:1px solid var(--line);padding-bottom:14px}.overview div:last-child{border-bottom:0;padding-bottom:0}}
+.overview.overview{max-width:760px;grid-template-columns:repeat(4,minmax(120px,1fr))}
+.host-dialog .host-form.host-form{display:block}
+.host-dialog .host-tabs{display:flex;gap:6px;margin:0 0 20px;padding-bottom:8px;border-bottom:1px solid var(--line);overflow-x:auto}
+.host-dialog .host-tabs [role=tab]{min-height:34px;padding:7px 14px;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--muted);font-size:12px}
+.host-dialog .host-tabs [aria-selected=true]{border-color:var(--line);background:#223127;color:var(--accent)}
+.host-dialog .host-pane{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 16px}
+.host-dialog .host-pane>label{min-width:0;margin:0}
+.host-dialog .host-pane>.ssh-fields,.host-dialog .host-pane>#retrySshLoad{grid-column:1/-1}
+.host-dialog .host-pane>.caption{margin:0;align-self:center}
+.host-dialog .host-pane[hidden]{display:none}
+.number-control{position:relative;display:block;width:100%}
+.number-control>input{width:100%;padding-right:54px;appearance:textfield;-moz-appearance:textfield}
+.number-control>input::-webkit-inner-spin-button,.number-control>input::-webkit-outer-spin-button{margin:0;appearance:none}
+.number-control-buttons{position:absolute;right:1px;top:1px;bottom:1px;display:flex;flex-direction:column;width:34px;overflow:hidden;border-left:1px solid var(--line);border-radius:0 5px 5px 0}
+.number-control .number-step{flex:1;min-height:0;padding:0;border:0;border-radius:0;background:transparent;color:var(--muted);font-size:13px;line-height:1}
+.number-control .number-step+ .number-step{border-top:1px solid var(--line)}
+.number-control .number-step:hover{background:#2a3c30;color:var(--ink)}
+#backupDialog pre:empty{display:none}
+.machine-tabs [data-machine-tab=discovery],#discoveryPanel{display:none!important}
+@media(max-width:760px){.overview.overview{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:420px){.overview.overview{grid-template-columns:1fr}}
