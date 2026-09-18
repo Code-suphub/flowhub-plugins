@@ -29,8 +29,15 @@
   // 注意：这里是唯一的 install.oninput 处理器。再写一行会覆盖它，导致 plan 无法失效、确认按钮状态错乱。
   install.oninput=()=>{plan=null;$('[data-confirm]').hidden=true;$('[data-plan]').hidden=true;$('[data-agent-suggestion]').hidden=true;$('[data-use-agent]').hidden=true;};
   install.onsubmit=e=>{e.preventDefault();if(!invoke)return;run(async()=>{const payload={hostId:install.elements.host.value,port:Number(install.elements.port.value),bind:install.elements.bind.value,days:Number(install.elements.days.value),disk:Number(install.elements.disk.value)};const result=await api('netdataInstallPlan',payload);plan={...payload,...result,expectedAlias:result.alias};$('[data-plan]').textContent=`目标：${result.name} (${result.alias})\n\n${result.command}`;$('[data-plan]').hidden=false;$('[data-confirm]').hidden=false;});};
-  $('[data-confirm]').onclick=()=>{if(!plan)return;run(async()=>{const result=await api('netdataInstall',plan);plan=null;$('[data-confirm]').hidden=true;status.textContent='安装任务已提交，可关闭窗口，结果保存在执行记录中。';let missing=0;for(let i=0;i<310;i++){await new Promise(r=>setTimeout(r,2000));let job;try{job=await api('job',{id:result.id});}catch(e){if(++missing>5)throw e;continue;}// 任务可能还没落到历史记录里，此时查不到属于正常情况，继续等而不是当作失败。
-if(!job){missing=0;continue;}missing=0;status.textContent=`安装任务：${job.status}\n${job.stdout||''}\n${job.stderr||''}`;if(job.finishedAt){offerDiscoveredAgent(job);return;}}status.textContent+='\n请在执行记录中查看最终状态。';});};
+  $('[data-confirm]').onclick=()=>{if(!plan)return;run(async()=>{const result=await api('netdataInstall',plan);plan=null;$('[data-confirm]').hidden=true;const started=Date.now();const elapsed=()=>{const s=Math.round((Date.now()-started)/1000);return `${Math.floor(s/60)} 分 ${String(s%60).padStart(2,'0')} 秒`;};status.textContent='安装任务已提交，可关闭窗口，结果保存在执行记录中。';for(let i=0;i<330;i++){await new Promise(r=>setTimeout(r,2000));let job=null;try{job=await api('job',{id:result.id});}catch(e){
+   // 后端在任务运行期间可能暂时查不到记录（历史只在结束后写入）。这属于正常的等待，
+   // 不能当成失败：之前连续 6 次就 throw，用户在任务正常执行时就看到「记录已过期或任务未结束」。
+   // 只有明确表示任务不存在且已等待很久时，才提示去执行记录里查看。
+   status.textContent=`安装任务执行中…已等待 ${elapsed()}\n（任务在服务器上继续执行，关闭本窗口不会中断）`;continue;}
+  if(!job){status.textContent=`安装任务执行中…已等待 ${elapsed()}\n（任务在服务器上继续执行，关闭本窗口不会中断）`;continue;}
+  status.textContent=`安装任务：${job.status}（已等待 ${elapsed()}）\n${job.stdout||''}\n${job.stderr||''}`;
+  if(job.finishedAt){offerDiscoveredAgent(job);return;}}
+  status.textContent+=`\n等待超过 ${elapsed()}，请到执行记录中查看最终状态。`;});};
   // 安装脚本结束时回传探测到的地址（FLOWHUB_NETDATA_AGENT_HOST/PORT），这里解析出来直接填进接入表单，
   // 免得用户自己去拼 http://IP:19999。云主机 NAT 下探测到的可能是内网地址，所以仍然让用户确认后再保存。
   function offerDiscoveredAgent(job){if(!job||job.status!=='success')return;const text=`${job.stdout||''}\n${job.stderr||''}`;const host=/FLOWHUB_NETDATA_AGENT_HOST=(\S*)/.exec(text)?.[1]?.trim();const port=/FLOWHUB_NETDATA_AGENT_PORT=(\d+)/.exec(text)?.[1];const hint=$('[data-agent-suggestion]'),use=$('[data-use-agent]');

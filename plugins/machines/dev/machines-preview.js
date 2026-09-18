@@ -126,7 +126,13 @@
         const pages = Math.max(1, Math.ceil(items.length / pageSize)), page = Math.max(1, Math.min(pages, Number(payload.page) || 1));
         return clone({ items: items.slice((page-1)*pageSize,page*pageSize), total: items.length, pages, page, pageSize, instances: [...new Map(all.map(j => [j.hostId, {hostId:j.hostId,alias:j.alias}])).values()] });
       }
-      case 'job': return clone(archive.find(j => j.id === payload.id) || state.history.find(j => j.id === payload.id));
+      // 模拟修复后的后端：任务运行期间也能查到（status=running、finishedAt=null），
+      // 而不是抛「记录已过期或任务未结束」。
+      case 'job': { const done=archive.find(j => j.id === payload.id) || state.history.find(j => j.id === payload.id);
+        if (done) return clone(done);
+        const live=state.active.find(j => j.id === payload.id);
+        if (live) return { ...clone(live), status:'running', finishedAt:null, stdout:'', stderr:'' };
+        throw Error('记录已过期或任务未结束'); }
       case 'cancel': pending.get(payload.id)?.finish('cancelled'); return {};
       case 'discoverSsh': return { root: '/模拟目录/.ssh/config', files: 1, warnings: ['这是模拟配置，未读取本机文件。'], hosts: ['demo-app', 'demo-db', 'demo-new'].map((alias, i) => ({ alias, sources: [`/模拟目录/.ssh/config:${i * 5 + 1}`] })) };
       case 'sshRead': {

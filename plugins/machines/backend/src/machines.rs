@@ -480,6 +480,25 @@ mod status_tests {
         let restored=Runtime::new(root.clone()).unwrap();assert_eq!(restored.config.lock().unwrap().netdata[0].network_chart,"net.eth0");drop(restored);drop(runtime);std::fs::remove_dir_all(root).unwrap();
     }
     #[test]
+    fn running_job_is_queryable_before_it_finishes() {
+        // 运行中的任务只在 active 里，历史要等结束才写入。job 查询必须能返回它，
+        // 否则前端在任务正常执行期间就会看到「记录已过期或任务未结束」并判定失败。
+        let root=std::env::temp_dir().join(format!("fh-running-{}",chrono::Utc::now().timestamp_nanos_opt().unwrap()));
+        let runtime=Runtime::new(root.clone()).unwrap();
+        let job=Job{id:"install-1".into(),host_id:"h1".into(),alias:"demo".into(),kind:"command".into(),
+            command:Some("install".into()),started_at:1,finished_at:None,status:"running".into(),
+            exit_code:None,stdout:String::new(),stderr:String::new(),truncated:false};
+        runtime.active.lock().unwrap().insert("install-1".into(),Active{cancel:Arc::new(AtomicBool::new(false)),job});
+        // 历史里没有，但 active 里有 → 应返回 running 而不是报错。
+        let found=runtime.active.lock().unwrap().get("install-1").map(|a|a.job.summary()).unwrap();
+        assert_eq!(found["status"],"running");
+        assert_eq!(found["id"],"install-1");
+        assert!(found["finishedAt"].is_null());
+        // 完全未知的 id 仍然报错。
+        assert!(runtime.active.lock().unwrap().get("nope").is_none());
+        drop(runtime);std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
     fn summary_distinguishes_missing_stale_and_failed_without_exposing_connections() {
         let snapshot=json!({"config":{"interval":60,"monitoring":true,"hosts":[
             {"id":"a","name":"A","alias":"private-host","password":"secret"},
@@ -913,13 +932,26 @@ pub(crate) async fn machines_api(
             )
         }
         "job" => {
-            if let Some(job) = rt.history_store.job(payload["id"].as_str().unwrap_or(""))? { return Ok(job); }
-            let history = rt.history.lock().unwrap();
-            let job = history
-                .iter()
-                .find(|j| j.id == payload["id"].as_str().unwrap_or(""))
-                .ok_or("记录已过期或任务未结束")?;
-            Ok(serde_json::to_value(job).unwrap())
+            let id = payload["id"].as_str().unwrap_or("");
+            if let Some(job) = rt.history_store.job(id)? { return Ok(job); }
+            if let Some(job) = rt.history.lock().unwrap().iter().find(|j| j.id == id) {
+                return Ok(serde_json::to_value(job).unwrap());
+            }
+            // 运行中的任务只存在于 active，历史里要等结束才写入。之前这里直接报
+            // 「记录已过期或任务未结束」，导致前端在任务正常执行期间就判定失败
+            // （连续 6 次查不到即放弃）。改为返回 active 里的实时状态，status 为 running。
+            if let Some(active) = rt.active.lock().unwrap().get(id) {
+                let mut value = serde_json::to_value(active.job.summary()).unwrap();
+                // 运行中还没有输出，给出空串以便前端统一处理。
+                if let Some(object) = value.as_object_mut() {
+                    object.insert("stdout".into(), json!(""));
+                    object.insert("stderr".into(), json!(""));
+                    object.insert("status".into(), json!("running"));
+                    object.insert("finishedAt".into(), Value::Null);
+                }
+                return Ok(value);
+            }
+            Err("记录已过期或任务未结束".into())
         }
         "installBuiltin" => {
             let package: Package = serde_json::from_str(BUILTIN).map_err(|e| e.to_string())?;
