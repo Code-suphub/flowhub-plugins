@@ -1,5 +1,6 @@
 export { Button, type ButtonProps, type ButtonSize, type ButtonVariant } from "./Button";
 export { Checkbox, type CheckboxProps } from "./Checkbox";
+export { FormSection, type FormSectionProps } from "./FormSection";
 export {
   DataTable,
   type DataTableColumn,
@@ -7,6 +8,8 @@ export {
 } from "./DataTable";
 export { Field, type FieldProps } from "./Field";
 export { HelpPopover, type HelpPopoverProps } from "./HelpPopover";
+export { Input, type InputProps } from "./Input";
+export { NumberInput, type NumberInputProps } from "./NumberInput";
 export { Pagination, type PaginationProps } from "./Pagination";
 export {
   DialogShell,
@@ -29,6 +32,7 @@ export {
   type StatStripProps,
   type StatTone,
 } from "./StatStrip";
+export { Textarea, type TextareaProps } from "./Textarea";
 export {
   Tabs,
   TabsList,
