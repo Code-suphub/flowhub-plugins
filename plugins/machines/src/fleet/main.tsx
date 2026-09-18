@@ -1,6 +1,7 @@
 import './styles.css';
 
-import { resolveMachinesApi } from '../api/machines';
+import { resolveMachinesApi, resolveMachinesRun } from '../api/machines';
+import { mountCommand } from '../command/mount';
 import { mountHistory } from '../history/mount';
 import { mountHostEditor } from '../host-editor/mount';
 import type {
@@ -38,7 +39,16 @@ declare global {
     FlowHubFleet?: { update: (props: FleetBridgeProps) => void };
     FlowHubHostEditor?: { update: (props: HostEditorBridgeProps) => void };
     FlowHubHistory?: { mounted: true };
+    FlowHubCommand?: { mounted: true; setTargets: (hostIds: readonly string[]) => void };
   }
+}
+
+const commandContainer = document.querySelector('#commandReactRoot');
+if (commandContainer) {
+  const mounted = mountCommand(commandContainer, { api: resolveMachinesApi(), run: resolveMachinesRun() });
+  window.FlowHubCommand = { mounted: true, setTargets: mounted.setTargets };
+  const legacyCommand = document.querySelector<HTMLElement>('#commandLegacy');
+  if (legacyCommand) legacyCommand.hidden = true;
 }
 
 const historyContainer = document.querySelector('#historyReactRoot');

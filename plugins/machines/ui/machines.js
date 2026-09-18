@@ -33,6 +33,7 @@
   const reactFleet = window.FlowHubFleet;
   const reactHostEditor = window.FlowHubHostEditor;
   const reactHistory = window.FlowHubHistory;
+  const reactCommand = window.FlowHubCommand;
   let state = { config: { hosts: [], enabled: false, installed: null, interval: 60 }, metrics: {}, active: [], history: [] };
   let selection = new Set();
   let busy = false;
@@ -123,7 +124,7 @@
     const templateOptions = '<option value="">选择命令模板</option>' + templates().map((t, i) => `<option value="${i}">${esc(t.name)}</option>`).join("");
     if (templateOptions !== lastTemplates) { $("#template").innerHTML = templateOptions; lastTemplates = templateOptions; }
     $("#template").value = templateValue;
-    renderHosts(); if (!reactHistory) renderJobs(); renderConsole(); renderCollections(); syncHostEditor();
+    renderHosts(); if (!reactHistory) renderJobs(); if (!reactCommand) renderConsole(); renderCollections(); syncHostEditor();
     window.FlowHubSelects?.sync();
   }
   function renderHosts() {
@@ -134,8 +135,10 @@
         selectedHostIds: [...selection],
         now: Date.now(),
       });
-      $("#selectionInfo").textContent = selection.size ? `已选择 ${selection.size} 台：${chosen().map(h => h.name + ' (' + h.alias + ')').join('、')}` : "请在上方下拉框选择目标机器";
-      renderTargets();
+      if (!reactCommand) {
+        $("#selectionInfo").textContent = selection.size ? `已选择 ${selection.size} 台：${chosen().map(h => h.name + ' (' + h.alias + ')').join('、')}` : "请在上方下拉框选择目标机器";
+        renderTargets();
+      }
       return;
     }
     const hosts = filtered(); const c = state.config;
@@ -151,8 +154,10 @@
     $("#empty h3").textContent = c.hosts.length ? "没有匹配的机器" : "从一台机器开始";
     $("#selectAll").checked = hosts.length > 0 && hosts.every(h => selection.has(h.id));
     $("#selectAll").indeterminate = hosts.some(h => selection.has(h.id)) && !$("#selectAll").checked;
-    $("#selectionInfo").textContent = selection.size ? `已选择 ${selection.size} 台：${chosen().map(h => h.name + ' (' + h.alias + ')').join('、')}` : "请在上方下拉框选择目标机器";
-    renderTargets();
+    if (!reactCommand) {
+      $("#selectionInfo").textContent = selection.size ? `已选择 ${selection.size} 台：${chosen().map(h => h.name + ' (' + h.alias + ')').join('、')}` : "请在上方下拉框选择目标机器";
+      renderTargets();
+    }
   }
   function renderTargets() {
     const hasBastion = chosen().some(h => h.bastion);
@@ -571,7 +576,7 @@
         message('已复制到新增表单，请填写新的目标机器。已保存密码不会复制。');
       }); return;
     }
-    if (action === "command") { selection = new Set([h.id]); renderHosts(); window.FlowHubMachineTabs?.show('command', true); return; }
+    if (action === "command") { selection = new Set([h.id]); renderHosts(); reactCommand?.setTargets([h.id]); window.FlowHubMachineTabs?.show('command', true); return; }
     operate(async () => {
       if (action === "collect") submit([h], "collect");
       if (action === "terminal") await api(h.bastion ? 'bastionTerminal' : "terminal", { hostId: h.id });
@@ -625,6 +630,7 @@
     const detail = e.detail || {};
     if (detail.type === "selection") {
       selection = new Set((detail.hostIds || []).filter(id => state.config.hosts.some(h => h.id === id)));
+      reactCommand?.setTargets([...selection]);
       renderHosts();
     } else if (detail.type === "add") edit(null);
     else if (detail.type === "collect-selected") {
@@ -634,6 +640,10 @@
       const h = state.config.hosts.find(x => x.id === detail.hostId); if (h) submit([h], "collect");
     } else if (detail.type === "host-action") handleHostAction(detail.action, detail.hostId);
     else if (detail.type === "monitor") operate(() => api("monitor", { enabled: !!detail.enabled, interval: Number(detail.intervalSeconds) || 60 }));
+  });
+  if (reactCommand) window.addEventListener('flowhub:command-selection', event => {
+    selection = new Set((event.detail?.hostIds || []).filter(id => state.config.hosts.some(h => h.id === id)));
+    renderHosts();
   });
   hostMenu.onclick = e => {
     const item = e.target.closest("[data-host-action]"); if (!item) return;
@@ -670,7 +680,7 @@
   $('#bastionSecret').onchange = () => { $('#bastionInput').type = $('#bastionSecret').checked ? 'password' : 'text'; };
   $('#bastionSend').onclick = () => { if (!bastionConnected || bastionBusy) return; const text = $('#bastionInput').value; $('#bastionInput').value = ''; sessionAction('bastionSend', { text }); };
   $('#bastionInput').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); $('#bastionSend').onclick(); } });
-  if (!readonly) setInterval(async () => {
+  if (!readonly && !reactCommand) setInterval(async () => {
     const h = bastionHost(); if (!h || document.hidden || $('#commandPanel').hidden || (embedded && !true) || bastionBusy || bastionPolling) return;
     bastionPolling = true;
     try { const result = await api('bastionState', { hostId: h.id }); if (bastionHostId === h.id) { bastionConnected = result.connected; updateBastionOutput(result.output); renderTargets(); } }
