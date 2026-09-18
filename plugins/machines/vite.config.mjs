@@ -3,6 +3,12 @@ import {readFileSync} from 'node:fs';
 export default defineConfig({
   root:'ui',server:{host:'127.0.0.1',port:5183,strictPort:true,cors:{origin:/^(?:null|http:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?)$/}},
   plugins:[{name:'isolated-preview',configureServer(server){
+    server.middlewares.use((request,response,next)=>{
+      if(request.url==='/'||request.url==='/index.html'){
+        response.statusCode=302;response.setHeader('Location','/machines.html');response.end();return;
+      }
+      next();
+    });
     const fixture=new URL('./dev/machines-preview.js',import.meta.url);
     server.watcher.add(fixture.pathname);server.watcher.on('change',p=>{if(p===fixture.pathname)server.ws.send({type:'full-reload'});});
     server.middlewares.use('/__machines-preview.js',(_req,res)=>{res.setHeader('Content-Type','text/javascript');res.end(readFileSync(fixture,'utf8'));});
