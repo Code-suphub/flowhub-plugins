@@ -47,6 +47,16 @@ export function HelpPopover({
     <span
       ref={rootRef}
       className={cx("fh-help relative inline-flex align-middle", className)}
+      onPointerEnter={(event) => {
+        if (event.pointerType !== "touch") setOpen(true);
+      }}
+      onPointerLeave={(event) => {
+        if (event.pointerType !== "touch") setOpen(false);
+      }}
+      onFocusCapture={() => setOpen(true)}
+      onBlurCapture={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOpen(false);
+      }}
     >
       <button
         ref={triggerRef}

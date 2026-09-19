@@ -120,10 +120,11 @@
 .fleet__summary--active dd { color: var(--fleet-blue); }
 
 .fleet__toolbar {
-  display: grid;
-  grid-template-columns: minmax(190px, 1fr) 118px auto 1px auto 112px auto;
+  display: flex;
   align-items: flex-end;
-  gap: 9px;
+  flex-wrap: nowrap;
+  justify-content: flex-start;
+  gap: 7px;
   padding: 8px;
   border: 1px solid var(--fleet-line);
   background: rgb(9 18 13 / 0.55);
@@ -131,7 +132,9 @@
 
 .fleet__search {
   position: relative;
-  min-width: 160px;
+  flex: 0 1 260px;
+  width: 260px;
+  min-width: 190px;
 }
 
 .fleet__search input {
@@ -169,11 +172,13 @@
 .fleet__filter {
   display: grid;
   gap: 4px;
-  width: 118px;
+  flex: 0 0 96px;
+  width: 96px;
 }
 
 .fleet__filter--interval {
-  width: 112px;
+  flex-basis: 92px;
+  width: 92px;
 }
 
 .fleet__filter .fh-select {
@@ -190,6 +195,8 @@
 
 .fleet__select-trigger {
   min-height: 38px !important;
+  gap: 6px !important;
+  padding-inline: 10px !important;
   border-color: var(--fleet-line) !important;
   border-radius: 6px !important;
   background: var(--fleet-bg) !important;
@@ -202,6 +209,7 @@
 }
 
 .fleet__toolbar-rule {
+  flex: 0 0 1px;
   width: 1px;
   height: 28px;
   margin: 0 2px 8px;
@@ -209,10 +217,12 @@
 }
 
 .fleet__collect {
-  min-width: 94px;
+  flex: 0 0 auto;
+  min-width: 90px;
 }
 
 .fleet__monitor {
+  flex: 0 0 auto;
   min-height: 38px !important;
   margin-bottom: 0;
   color: var(--fleet-muted) !important;
@@ -233,6 +243,8 @@
   display: flex;
   align-items: center;
   align-self: end;
+  flex: 0 0 28px;
+  justify-content: center;
   gap: 4px;
   min-height: 38px;
   color: var(--fleet-faint);
@@ -496,16 +508,6 @@
 }
 
 @media (max-width: 920px) {
-  .fleet__toolbar {
-    grid-template-columns: minmax(180px, 1fr) 118px auto;
-  }
-
-  .fleet__search { grid-column: 1; grid-row: 1; }
-  .fleet__filter:not(.fleet__filter--interval) { grid-column: 2; grid-row: 1; }
-  .fleet__collect { grid-column: 3; grid-row: 1; }
-  .fleet__monitor { grid-column: 1; grid-row: 2; }
-  .fleet__filter--interval { grid-column: 2; grid-row: 2; }
-  .fleet__toolbar-help { grid-column: 3; grid-row: 2; }
   .fleet__toolbar-rule {
     display: none;
   }
@@ -583,18 +585,20 @@
   }
 }
 
+@media (max-width: 650px) {
+  .fleet__toolbar { flex-wrap: wrap; }
+}
+
 @media (max-width: 520px) {
   .fleet__section-head { align-items: stretch; flex-direction: column; }
   .fleet__head-actions { justify-content: space-between; gap: 10px; }
   .fleet__summary { gap: 7px; }
   .fleet__summary > div { gap: 3px; }
-  .fleet__toolbar { grid-template-columns: minmax(0, 1fr) minmax(104px, .72fr); }
-  .fleet__search { grid-column: 1 / -1; grid-row: 1; }
-  .fleet__filter:not(.fleet__filter--interval) { grid-column: 1; grid-row: 2; width: 100%; }
-  .fleet__collect { grid-column: 2; grid-row: 2; width: 100%; }
-  .fleet__monitor { grid-column: 1; grid-row: 3; }
-  .fleet__filter--interval { grid-column: 2; grid-row: 3; width: 100%; }
-  .fleet__toolbar-help { grid-column: 1 / -1; grid-row: 4; justify-self: end; min-height: 28px; }
+  .fleet__search { flex: 1 1 100%; width: 100%; min-width: 0; }
+  .fleet__filter { flex: 1 1 96px; width: auto; }
+  .fleet__filter--interval { flex: 1 1 92px; width: auto; }
+  .fleet__collect { flex: 1 1 90px; }
+  .fleet__toolbar-help { min-height: 28px; }
   .fleet__cards { grid-template-columns: 1fr; }
 }
 

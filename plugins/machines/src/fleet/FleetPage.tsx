@@ -509,7 +509,6 @@ export function FleetPage({
             />
           </div>
           <div className="fleet__toolbar-help">
-            <span>指标说明</span>
             <HelpPopover label="机器指标与后台监控说明" panelClassName="fleet__help-panel">
               Linux / macOS 基础指标。后台监控仅在 FlowHub 运行且电脑保持唤醒时工作；采集失败后会逐步延长重试间隔。
             </HelpPopover>
