@@ -8,7 +8,7 @@
 
 - `flowhub-common.css`：无主题的按钮、帮助气泡、数字输入、字段、表单网格、表格和分页基础样式。
 - `flowhub-common.js`：帮助气泡和数字输入的行为，以及表单、表格、分页的轻量 DOM API。
-- `src/react/`：React 版 Button、Checkbox、DataTable、Field、HelpPopover、Pagination 和 Select；由使用方的 Vite 构建直接打进插件产物。
+- `src/react/`：React 版 Button、Checkbox、Combobox、DataTable、Field、HelpPopover、Pagination 和 Select；由使用方的 Vite 构建直接打进插件产物。
 - 颜色、字体、面板背景和页面布局由具体插件覆盖；公共层不读取业务状态，也不包含插件桥接逻辑。
 
 ## 使用方式
@@ -33,7 +33,7 @@
 React 页面从本地包导入组件，不在浏览器里加载 common 路径：
 
 ```tsx
-import { Button, Field, Select } from '@flowhub/plugin-common/react';
+import { Button, Combobox, Field, Select } from '@flowhub/plugin-common/react';
 ```
 
 Tailwind 入口需使用 `@source` 扫描 `plugins/common/src/react`。公共组件只提供结构、交互和基础视觉，具体页面继续负责业务状态与桥接协议。

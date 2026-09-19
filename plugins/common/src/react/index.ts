@@ -1,5 +1,10 @@
 export { Button, type ButtonProps, type ButtonSize, type ButtonVariant } from "./Button";
 export { Checkbox, type CheckboxProps } from "./Checkbox";
+export {
+  Combobox,
+  type ComboboxOption,
+  type ComboboxProps,
+} from "./Combobox";
 export { FormSection, type FormSectionProps } from "./FormSection";
 export {
   DataTable,

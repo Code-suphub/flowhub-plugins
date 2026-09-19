@@ -142,6 +142,9 @@
 .command-react__template-select { width: 180px; min-width: 0 !important; }
 .command-react__control-group .fh-select__trigger,
 .command-react__query .fh-select__trigger { min-height: 38px; border-radius: 6px; }
+.command-react__control-group .fh-combobox__control { min-height: 38px; border-radius: 6px; }
+.command-react__control-group .fh-combobox__input,
+.command-react__control-group .fh-combobox__toggle { min-height: 36px; }
 
 .command-react__terminal { overflow: hidden; border: 1px solid #314b3c; border-radius: 7px; background: #07100b; }
 .command-react__terminal > header { display: flex; min-height: 38px; align-items: center; gap: 14px; padding: 0 10px 0 13px; border-bottom: 1px solid #263d30; background: #101c15; color: #789082; font: 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .08em; }
