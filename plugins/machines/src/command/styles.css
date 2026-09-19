@@ -17,8 +17,7 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 20px;
-  padding: 2px 0 12px;
-  border-bottom: 1px solid var(--fleet-line, #2a3d31);
+  padding: 2px 0 4px;
 }
 
 .command-react__control-group > span:first-child,
@@ -46,6 +45,30 @@
 }
 .command-react__head-status .is-ready,
 .command-react__bastion header > .is-connected { color: #a9e0b8; }
+
+.command-react__workspace-tabs { min-width: 0; }
+.command-react__subtabs {
+  gap: 18px !important;
+  margin-bottom: 12px;
+  border-bottom-color: var(--fleet-line, #2a3d31) !important;
+}
+.command-react__subtab {
+  min-height: 36px !important;
+  padding: 0 1px !important;
+  border: 0 !important;
+  border-bottom: 2px solid transparent !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: #7f9689 !important;
+  font-size: 11px !important;
+  letter-spacing: .04em !important;
+  text-transform: none !important;
+}
+.command-react__subtab:hover { background: transparent !important; color: #dce9e0 !important; }
+.command-react__subtab[aria-selected="true"] { border-bottom-color: #a9e8bc !important; color: #b9efc9 !important; }
+.command-react__subtab:focus-visible { outline: none !important; box-shadow: inset 0 -2px #a9e8bc !important; }
+.command-react__workspace-panel:focus-visible { outline: none; box-shadow: none; }
 
 .command-react__layout {
   display: grid;
@@ -117,10 +140,8 @@
 .command-react__connection-select { width: 180px; min-width: 0 !important; }
 .command-react__idle-select { width: 112px; min-width: 0 !important; }
 .command-react__template-select { width: 180px; min-width: 0 !important; }
-.command-react__no-templates { color: #667d70; font-size: 11px; }
 .command-react__control-group .fh-select__trigger,
 .command-react__query .fh-select__trigger { min-height: 38px; border-radius: 6px; }
-.command-react__template-controls > button { min-height: 34px !important; padding-inline: 8px !important; border-radius: 6px !important; }
 
 .command-react__terminal { overflow: hidden; border: 1px solid #314b3c; border-radius: 7px; background: #07100b; }
 .command-react__terminal > header { display: flex; min-height: 38px; align-items: center; gap: 14px; padding: 0 10px 0 13px; border-bottom: 1px solid #263d30; background: #101c15; color: #789082; font: 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .08em; }
@@ -173,9 +194,40 @@
 .command-react__session-input input,
 .command-react__session-input button { min-height: 40px; }
 
-.command-react__template-list { display: grid; gap: 12px; }
-.command-react__template-row { display: grid; grid-template-columns: minmax(120px, .55fr) minmax(220px, 1.45fr) auto; align-items: end; gap: 10px; padding: 12px; border: 1px solid #294336; border-radius: 8px; background: #0d1a13; }
+.command-react__template-manager {
+  overflow: hidden;
+  border: 1px solid var(--fleet-line, #2a3d31);
+  border-radius: 8px;
+  background: rgb(13 22 17 / 92%);
+}
+.command-react__template-manager > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px;
+  border-bottom: 1px solid var(--fleet-line, #2a3d31);
+}
+.command-react__template-manager > header h3 { color: #edf5ef; font-size: 16px; }
+.command-react__template-manager > header p { margin-top: 4px; color: #80978a; font-size: 11px; }
+.command-react__template-manager > header > div:last-child { display: flex; align-items: center; gap: 7px; }
+.command-react__template-manager > header button { min-height: 34px !important; border-radius: 6px !important; }
+.command-react__template-list { display: grid; }
+.command-react__template-row {
+  display: grid;
+  grid-template-columns: 28px minmax(140px, .55fr) minmax(240px, 1.45fr) auto;
+  align-items: end;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid #243a2e;
+}
+.command-react__template-row:last-child { border-bottom: 0; }
+.command-react__template-index { align-self: center; color: #5e7768; font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; }
 .command-react__template-row label span { display: block; margin-bottom: 5px; color: #8fa698; font-size: 11px; }
+.command-react__template-row textarea { min-height: 58px; resize: vertical; }
+.command-react__template-row > button { min-height: 34px !important; margin-bottom: 5px; padding-inline: 8px !important; border-radius: 6px !important; color: #df9b9f; }
+.command-react__template-list > .fh-empty-state { margin: 20px; }
+.command-react__template-manager > .command-react__error { margin: 0 16px 16px !important; }
 
 @media (max-width: 760px) {
   .command-react__layout { grid-template-columns: 1fr; }
@@ -202,7 +254,13 @@
   .command-react__footer span { display: block; max-width: none !important; margin-top: 4px; }
   .command-react__session-input { grid-template-columns: 1fr 1fr; }
   .command-react__session-input input { grid-column: 1 / -1; }
-  .command-react__template-row { grid-template-columns: 1fr; }
+  .command-react__template-manager > header { align-items: stretch; flex-direction: column; padding: 12px; }
+  .command-react__template-manager > header > div:last-child { justify-content: flex-end; }
+  .command-react__template-row { grid-template-columns: 22px minmax(0, 1fr); gap: 9px; padding: 12px; }
+  .command-react__template-row label,
+  .command-react__template-row > button { grid-column: 2; }
+  .command-react__template-index { grid-row: 1; }
+  .command-react__template-row > button { justify-self: start; margin-bottom: 0; }
   .command-react__query .fh-select { flex: 1 1 150px; min-width: 0; }
   .command-react__query .fh-checkbox { width: 100%; margin-left: 0; }
 }

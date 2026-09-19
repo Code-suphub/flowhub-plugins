@@ -2,11 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent }
 import {
   Button,
   Checkbox,
-  DialogShell,
   EmptyState,
   HelpPopover,
   Input,
   Select,
+  Tabs,
   Textarea,
 } from '@flowhub/plugin-common/react';
 
@@ -38,19 +38,18 @@ function byteLength(value: string): number {
   return new TextEncoder().encode(value).length;
 }
 
-function TemplateDialog({ open, initial, busy, onClose, onSave }: {
-  open: boolean;
+function TemplateManager({ initial, busy, onSave }: {
   initial: readonly CommandTemplate[];
   busy: boolean;
-  onClose: () => void;
   onSave: (templates: readonly CommandTemplate[]) => Promise<void>;
 }) {
-  const [draft, setDraft] = useState<CommandTemplate[]>([]);
+  const [draft, setDraft] = useState<CommandTemplate[]>(() => initial.map((item) => ({ ...item })));
   const [error, setError] = useState('');
 
   useEffect(() => {
-    if (open) { setDraft(initial.map((item) => ({ ...item }))); setError(''); }
-  }, [initial, open]);
+    setDraft(initial.map((item) => ({ ...item })));
+    setError('');
+  }, [initial]);
 
   async function save() {
     if (draft.some((item) => !item.name.trim() || byteLength(item.name) > 100 || !item.command.trim() || byteLength(item.command) > 8192)) {
@@ -60,18 +59,19 @@ function TemplateDialog({ open, initial, busy, onClose, onSave }: {
     try { await onSave(draft); } catch (reason) { setError(errorText(reason)); }
   }
 
-  return <DialogShell open={open} onOpenChange={(next) => { if (!next) onClose(); }} title="命令模板" eyebrow="COMMAND LIBRARY" description="模板只负责填入命令，不会自动执行。" footer={<><Button variant="ghost" onClick={onClose}>取消</Button><Button variant="primary" disabled={busy} onClick={() => void save()}>{busy ? '保存中…' : '保存模板'}</Button></>}>
+  return <section className="command-react__template-manager" aria-labelledby="command-template-title">
+    <header><div><h3 id="command-template-title">模板列表</h3><p>集中维护常用命令；选择模板只会填入命令，不会自动执行。</p></div><div>{draft.length < 50 ? <Button size="sm" variant="ghost" onClick={() => setDraft((current) => [...current, { name: '', command: '' }])}>新建模板</Button> : null}<Button size="sm" variant="primary" disabled={busy} onClick={() => void save()}>{busy ? '保存中…' : '保存修改'}</Button></div></header>
     <div className="command-react__template-list">
       {draft.map((item, index) => <section key={index} className="command-react__template-row">
-        <label><span>模板名称</span><Input value={item.name} maxLength={100} onChange={(event) => setDraft((current) => current.map((entry, itemIndex) => itemIndex === index ? { ...entry, name: event.target.value } : entry))} /></label>
-        <label><span>命令内容</span><Textarea rows={2} value={item.command} onChange={(event) => setDraft((current) => current.map((entry, itemIndex) => itemIndex === index ? { ...entry, command: event.target.value } : entry))} /></label>
-        <Button size="sm" variant="danger" onClick={() => setDraft((current) => current.filter((_, itemIndex) => itemIndex !== index))}>删除</Button>
+        <span className="command-react__template-index">{String(index + 1).padStart(2, '0')}</span>
+        <label><span>模板名称</span><Input value={item.name} maxLength={100} placeholder="例如：查看磁盘使用" onChange={(event) => setDraft((current) => current.map((entry, itemIndex) => itemIndex === index ? { ...entry, name: event.target.value } : entry))} /></label>
+        <label><span>命令内容</span><Textarea rows={2} value={item.command} placeholder="df -h /" onChange={(event) => setDraft((current) => current.map((entry, itemIndex) => itemIndex === index ? { ...entry, command: event.target.value } : entry))} /></label>
+        <Button size="sm" variant="ghost" onClick={() => setDraft((current) => current.filter((_, itemIndex) => itemIndex !== index))}>删除</Button>
       </section>)}
-      {!draft.length ? <EmptyState size="compact" title="还没有命令模板" description="建立常用查询，减少重复输入。" /> : null}
-      {draft.length < 50 ? <Button variant="secondary" onClick={() => setDraft((current) => [...current, { name: '', command: '' }])}>＋ 新建模板</Button> : null}
-      {error ? <p className="command-react__error" role="alert">{error}</p> : null}
+      {!draft.length ? <EmptyState size="compact" title="还没有命令模板" description="点击右上角“新建模板”添加常用命令。" /> : null}
     </div>
-  </DialogShell>;
+    {error ? <p className="command-react__error" role="alert">{error}</p> : null}
+  </section>;
 }
 
 function TargetRail({ hosts, selected, disabled, onChange }: {
@@ -135,7 +135,7 @@ export function CommandWorkspace({ api, run }: CommandWorkspaceProps) {
   const [running, setRunning] = useState(false);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
-  const [templateOpen, setTemplateOpen] = useState(false);
+  const [workspaceView, setWorkspaceView] = useState<'execute' | 'templates'>('execute');
   const [templateBusy, setTemplateBusy] = useState(false);
   const [query, setQuery] = useState('uptime');
   const [bastion, setBastion] = useState<BastionState>({ connected: false, output: '尚未连接此机器的会话。' });
@@ -266,7 +266,7 @@ export function CommandWorkspace({ api, run }: CommandWorkspaceProps) {
   async function saveTemplates(next: readonly CommandTemplate[]) {
     if (!api) return;
     setTemplateBusy(true);
-    try { setState(await api('templates', { templates: next }) as CommandState); setTemplateOpen(false); setNotice('命令模板已保存。'); }
+    try { setState(await api('templates', { templates: next }) as CommandState); setNotice('命令模板已保存。'); }
     finally { setTemplateBusy(false); }
   }
 
@@ -274,8 +274,14 @@ export function CommandWorkspace({ api, run }: CommandWorkspaceProps) {
   if (!state) return <section className="command-react"><EmptyState title={error || '正在读取命令工作台…'} /></section>;
 
   return <section className="command-react" aria-labelledby="command-react-title">
-    <header className="command-react__head"><div><div className="command-react__title"><h2 id="command-react-title">远程命令</h2><HelpPopover label="命令执行说明">每条命令独立执行，不保留目录或环境变量。每批最多 16 台，并发由插件调度，超时 60 秒；取消本地 SSH 后，远端进程仍可能继续。</HelpPopover></div><p>选择目标、输入命令并查看本次会话输出。</p></div><div className="command-react__head-status"><span className={selectedHosts.length ? 'is-ready' : ''}>{selectedHosts.length ? `已选 ${selectedHosts.length} 台` : '尚未选择目标'}</span></div></header>
-    <div className="command-react__layout">
+    <header className="command-react__head"><div><div className="command-react__title"><h2 id="command-react-title">远程命令</h2><HelpPopover label="命令执行说明">每条命令独立执行，不保留目录或环境变量。每批最多 16 台，并发由插件调度，超时 60 秒；取消本地 SSH 后，远端进程仍可能继续。</HelpPopover></div><p>{workspaceView === 'execute' ? '选择目标、输入命令并查看本次会话输出。' : '集中维护可重复使用的常用命令。'}</p></div><div className="command-react__head-status"><span className={selectedHosts.length && workspaceView === 'execute' ? 'is-ready' : ''}>{workspaceView === 'execute' ? (selectedHosts.length ? `已选 ${selectedHosts.length} 台` : '尚未选择目标') : `${templates.length} 个模板`}</span></div></header>
+    <Tabs value={workspaceView} onValueChange={(value) => setWorkspaceView(value as 'execute' | 'templates')} className="command-react__workspace-tabs">
+      <Tabs.List aria-label="远程命令工作区" className="command-react__subtabs">
+        <Tabs.Trigger value="execute" className="command-react__subtab">执行命令</Tabs.Trigger>
+        <Tabs.Trigger value="templates" className="command-react__subtab">命令模板</Tabs.Trigger>
+      </Tabs.List>
+      <Tabs.Panel value="execute" forceMount className="command-react__workspace-panel">
+        <div className="command-react__layout">
       <TargetRail hosts={hosts} selected={selected} disabled={!state.config.enabled} onChange={updateSelection} />
       <main className="command-react__main">
         {hasBastion ? <section className="command-react__bastion">
@@ -288,7 +294,7 @@ export function CommandWorkspace({ api, run }: CommandWorkspaceProps) {
         </section> : <>
           <div className="command-react__controls" aria-label="命令设置">
             <div className="command-react__control-group"><span>连接</span><Select className="command-react__connection-select" aria-label="SSH 连接方式" value={state.config.reuseConnections ? 'reuse' : 'independent'} options={[{ value: 'independent', label: '每次独立连接' }, { value: 'reuse', label: '复用已认证连接' }]} onChange={(value) => void saveConnection(value === 'reuse', state.config.connectionIdleSeconds ?? 28800)} />{state.config.reuseConnections ? <Select className="command-react__idle-select" aria-label="连接空闲保留" value={String(state.config.connectionIdleSeconds ?? 28800)} options={IDLE_OPTIONS} onChange={(value) => void saveConnection(true, Number(value))} /> : null}<HelpPopover label="SSH 连接说明">复用连接适合频繁执行命令。首次需要密码或验证码时，请先从机器菜单打开系统终端完成认证；共享连接不继承 Shell 目录。</HelpPopover></div>
-            <div className="command-react__control-group command-react__template-controls"><span>模板</span>{templates.length ? <Select className="command-react__template-select" aria-label="选择命令模板" value="" placeholder="选择模板" options={[{ value: '', label: '选择模板' }, ...templates.map((template, index) => ({ value: String(index), label: template.name }))]} onChange={(value) => { if (value) setCommand(templates[Number(value)]?.command ?? ''); }} /> : <span className="command-react__no-templates">无模板</span>}<Button size="sm" variant="ghost" onClick={() => setTemplateOpen(true)}>管理</Button></div>
+            {templates.length ? <div className="command-react__control-group command-react__template-controls"><span>模板</span><Select className="command-react__template-select" aria-label="选择命令模板" value="" placeholder="选择模板" options={[{ value: '', label: '选择模板' }, ...templates.map((template, index) => ({ value: String(index), label: template.name }))]} onChange={(value) => { if (value) setCommand(templates[Number(value)]?.command ?? ''); }} /></div> : null}
           </div>
           <div className="command-react__composer"><span aria-hidden="true">{selectedHosts.length === 1 ? `${selectedHosts[0]?.alias} $` : selectedHosts.length ? `${selectedHosts.length} 台 $` : '$'}</span><Textarea rows={1} spellCheck={false} autoComplete="off" placeholder="输入命令，回车执行" value={command} onChange={(event) => setCommand(event.target.value)} onKeyDown={commandKeyDown} /><Button variant="primary" disabled={running || !selectedHosts.length || !command.trim()} onClick={submitCommand}>{running ? '执行中…' : '执行 ↵'}</Button></div>
           <footer className="command-react__footer"><span>{selectedHosts.length ? selectedHosts.map((host) => host.name).join('、') : '尚未选择机器'}</span><span>Enter 执行 · Shift+Enter 换行 · ↑↓ 历史</span></footer>
@@ -297,7 +303,11 @@ export function CommandWorkspace({ api, run }: CommandWorkspaceProps) {
         {notice ? <p className="command-react__notice" role="status">{notice}</p> : null}
         {error ? <p className="command-react__error" role="alert">{error}</p> : null}
       </main>
-    </div>
-    <TemplateDialog open={templateOpen} initial={templates} busy={templateBusy} onClose={() => setTemplateOpen(false)} onSave={saveTemplates} />
+        </div>
+      </Tabs.Panel>
+      <Tabs.Panel value="templates" forceMount className="command-react__workspace-panel">
+        <TemplateManager initial={templates} busy={templateBusy} onSave={saveTemplates} />
+      </Tabs.Panel>
+    </Tabs>
   </section>;
 }
