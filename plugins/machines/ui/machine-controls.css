@@ -1,3 +1,4 @@
+@layer flowhub-legacy {
 .target-picker { position: relative; min-width: 208px; margin: 0; padding: 0; border: 0; }
 .command-workspace { padding: 18px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
 .inline-help { position: relative; display: inline-flex; flex: none; }
@@ -169,3 +170,4 @@
 
 .select-menu .select-search { position: sticky; top: 0; z-index: 1; display: block; width: 100%; min-width: 0; margin: 0 0 5px; padding: 8px 9px; background: var(--panel, #17231c); font: inherit; }
 .select-menu [role="status"] { display: block; padding: 9px; color: var(--muted, #99aa9e); }
+}

@@ -1,3 +1,4 @@
+@layer flowhub-legacy {
 :root {
   color-scheme: dark;
   --bg: #0d1410;
@@ -291,4 +292,5 @@ body > .panel[aria-label="插件开发预览"] button { min-height: 28px; paddin
   .host-dialog .host-dialog-head { padding-top: 14px; padding-bottom: 9px; }
   .host-dialog .host-dialog-body { padding-top: 12px; padding-bottom: 12px; }
   .host-dialog-foot { padding-top: 9px; padding-bottom: 9px; }
+}
 }

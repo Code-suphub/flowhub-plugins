@@ -1,3 +1,4 @@
+@layer flowhub-legacy {
 /* 云流量与「编辑机器」「Netdata 监控」是同一族弹窗：宽度与高度都必须与它们一致。
    宽度沿用 .netdata-dialog 的 min(820px,94vw)；高度上 .netdata-dialog 只有 max-height:88vh，
    于是本弹窗会按内容长度“长一半就停”，在矮 iframe 里正文被压到一半并出现滚动条。
@@ -58,4 +59,6 @@
  .traffic-dialog .traffic-footer{flex-wrap:wrap}
  .traffic-dialog .traffic-footer .actions{width:100%}
  .traffic-dialog .traffic-footer .actions button{flex:1}
+}
+
 }

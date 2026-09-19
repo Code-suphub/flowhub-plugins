@@ -179,7 +179,7 @@ export function Select({
   return (
     <div
       ref={shellRef}
-      className={cx("select-shell fh-select relative min-w-0", className)}
+      className={cx("fh-select relative min-w-0", className)}
       data-open={open || undefined}
     >
       {name ? (
@@ -190,7 +190,7 @@ export function Select({
         id={selectId}
         type="button"
         className={cx(
-          "select-trigger fh-select__trigger flex min-h-11 w-full items-center justify-between gap-3 rounded-[10px] border border-[#304b3c] bg-[#0b1711] px-3.5 text-left text-sm text-[#e5f0e9] shadow-[inset_0_1px_0_rgba(255,255,255,0.025)] transition-[border-color,background-color,box-shadow] hover:border-[#557462] hover:bg-[#0e1c15] motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#b9f2ca] focus-visible:ring-offset-2 focus-visible:ring-offset-[#09130e] disabled:cursor-not-allowed disabled:opacity-45",
+          "fh-select__trigger flex min-h-11 w-full items-center justify-between gap-3 rounded-[10px] border border-[#304b3c] bg-[#0b1711] px-3.5 text-left text-sm text-[#e5f0e9] shadow-[inset_0_1px_0_rgba(255,255,255,0.025)] transition-[border-color,background-color,box-shadow] hover:border-[#557462] hover:bg-[#0e1c15] motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#b9f2ca] focus-visible:ring-offset-2 focus-visible:ring-offset-[#09130e] disabled:cursor-not-allowed disabled:opacity-45",
           triggerClassName,
         )}
         aria-label={resolvedAriaLabel}
@@ -228,7 +228,7 @@ export function Select({
           aria-label={resolvedAriaLabel ?? "可选项"}
           aria-activedescendant={activeOptionId}
           className={cx(
-            "select-menu fh-select__menu absolute z-50 mt-1.5 max-h-64 w-full overflow-y-auto rounded-[10px] border border-[#355442] bg-[#0b1711] p-1.5 text-sm text-[#dce9e0] shadow-[0_18px_50px_rgba(0,0,0,0.42)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#b9f2ca] focus-visible:ring-offset-2 focus-visible:ring-offset-[#09130e]",
+            "fh-select__menu absolute z-50 mt-1.5 max-h-64 w-full overflow-y-auto rounded-[10px] border border-[#355442] bg-[#0b1711] p-1.5 text-sm text-[#dce9e0] shadow-[0_18px_50px_rgba(0,0,0,0.42)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#b9f2ca] focus-visible:ring-offset-2 focus-visible:ring-offset-[#09130e]",
             menuClassName,
           )}
           onKeyDown={handleMenuKeyDown}
@@ -241,7 +241,7 @@ export function Select({
               aria-selected={option.value === value}
               aria-disabled={option.disabled || undefined}
               className={cx(
-                "select-option flex min-h-10 cursor-pointer items-center justify-between gap-3 rounded-[7px] px-3 py-2 outline-none",
+                "fh-select__option flex min-h-10 cursor-pointer items-center justify-between gap-3 rounded-[7px] px-3 py-2 outline-none",
                 index === activeIndex && !option.disabled && "bg-[#1a3024] text-white",
                 option.value === value && "font-semibold text-[#b9efc9]",
                 option.disabled

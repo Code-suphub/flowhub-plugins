@@ -1,3 +1,5 @@
+/* Static DOM compatibility layer. React component styles are loaded later and win. */
+@layer flowhub-legacy {
 /* Theme-neutral primitives. Each plugin supplies --line, --muted, --ink and --accent. */
 .fh-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .fh-button{font:inherit;border:1px solid var(--line,#2b3a31);border-radius:7px;background:var(--control-bg,#1e2a22);color:var(--ink,#e1ece5);padding:9px 13px;cursor:pointer;white-space:nowrap}
@@ -31,3 +33,4 @@
 .fh-pagination{display:flex;align-items:center;justify-content:flex-end;gap:10px;flex-wrap:wrap}
 .fh-pagination [data-page-info]{color:var(--muted,#8a9e90);font-size:11px}
 @media(max-width:760px){.fh-help__content{position:fixed;left:12px;right:12px;bottom:12px;top:auto;width:auto;max-width:none}.fh-form-grid{grid-template-columns:1fr}}
+}
