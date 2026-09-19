@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Button, DataTable, EmptyState, Pagination, Select, StatItem, StatStrip, Toolbar } from '@flowhub/plugin-common/react';
+import { Button, DataTable, EmptyState, Pagination, Select, Toolbar } from '@flowhub/plugin-common/react';
 import type { DataTableColumn } from '@flowhub/plugin-common/react';
 import type { HistoryHost, HistoryJob, HistoryJobDetail, HistoryResponse, HistoryStatus, HistoryWorkspaceProps } from './types';
 import './styles.css';
@@ -12,6 +12,8 @@ const STATUS_OPTIONS = [
   { value: '', label: '全部状态' },
   ...Object.entries(STATUS_LABELS).map(([value, label]) => ({ value, label })),
 ];
+
+const PAGE_SIZE = 10;
 
 function errorText(error: unknown) {
   return String(error instanceof Error ? error.message : error).replace(/^(?:Error:\s*)+/, '');
@@ -46,7 +48,6 @@ export function HistoryWorkspace({ api }: HistoryWorkspaceProps) {
   const [status, setStatus] = useState('');
   const [page, setPage] = useState(1);
   const [pages, setPages] = useState(1);
-  const [pageSize, setPageSize] = useState(20);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -67,7 +68,7 @@ export function HistoryWorkspace({ api }: HistoryWorkspaceProps) {
     setError('');
     try {
       const [history, state] = await Promise.all([
-        api('history', { page, pageSize, hostId, status }) as Promise<HistoryResponse>,
+        api('history', { page, pageSize: PAGE_SIZE, hostId, status }) as Promise<HistoryResponse>,
         api('state') as Promise<{ config?: { hosts?: readonly HistoryHost[] } }>,
       ]);
       if (version !== requestVersion.current) return;
@@ -84,7 +85,7 @@ export function HistoryWorkspace({ api }: HistoryWorkspaceProps) {
     } finally {
       if (version === requestVersion.current) setLoading(false);
     }
-  }, [active, api, hostId, page, pageSize, status]);
+  }, [active, api, hostId, page, status]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -115,15 +116,12 @@ export function HistoryWorkspace({ api }: HistoryWorkspaceProps) {
     { key: 'action', header: '', className: 'history-react__table-actions', render: (job) => <div><Button size="sm" variant="ghost" onClick={() => void toggle(job)}>{expanded.has(job.id) ? '收起' : '详情'}</Button>{!job.finishedAt ? <Button size="sm" variant="danger" disabled={loading} onClick={() => void cancel(job)}>取消</Button> : null}</div> },
   ], [expanded, loading]);
 
-  const running = jobs.filter((job) => !job.finishedAt).length;
-  const failures = jobs.filter((job) => ['failed', 'timeout', 'interrupted'].includes(job.status)).length;
   const hostOptions = [{ value: '', label: '全部实例' }, ...hosts.map((host) => ({ value: host.id, label: `${host.name} (${host.alias})` }))];
 
   if (!api) return <section className="history-react"><EmptyState title="执行记录仅在 FlowHub 中可用" description="当前浏览器环境没有插件调用桥。" /></section>;
   return <section className="history-react" aria-labelledby="history-react-title">
-    <header className="history-react__head"><div><span>04 / SESSION ARCHIVE</span><h2 id="history-react-title">执行记录</h2><p>命令输出保存在本机；展开时才读取完整详情。</p></div><Button variant="secondary" disabled={loading} onClick={() => void load()}>{loading ? '刷新中…' : '刷新'}</Button></header>
-    <StatStrip columns={3} className="history-react__stats"><StatItem label="记录总数" value={total} /><StatItem label="本页运行中" value={running} tone={running ? 'warning' : 'neutral'} /><StatItem label="本页异常" value={failures} tone={failures ? 'danger' : 'neutral'} /></StatStrip>
-    <Toolbar label="执行记录筛选" className="history-react__toolbar"><div className="history-react__filters"><Select aria-label="实例" value={hostId} options={hostOptions} onChange={(value) => { setHostId(value); setPage(1); }} /><Select aria-label="执行状态" value={status} options={STATUS_OPTIONS} onChange={(value) => { setStatus(value); setPage(1); }} /><Select aria-label="每页条数" value={String(pageSize)} options={[20, 50, 100].map((value) => ({ value: String(value), label: `${value} 条 / 页` }))} onChange={(value) => { setPageSize(Number(value)); setPage(1); }} /></div><span className="history-react__count">本页 {jobs.length} 条</span></Toolbar>
+    <header className="history-react__head"><div><h2 id="history-react-title">执行记录</h2><p>命令输出保存在本机；展开时读取完整详情。</p></div><Button size="sm" variant="ghost" disabled={loading} onClick={() => void load()}>{loading ? '刷新中…' : '刷新'}</Button></header>
+    <Toolbar label="执行记录筛选" className="history-react__toolbar"><div className="history-react__filters"><Select className="history-react__host-filter" aria-label="实例" value={hostId} options={hostOptions} onChange={(value) => { setHostId(value); setPage(1); }} /><Select className="history-react__status-filter" aria-label="执行状态" value={status} options={STATUS_OPTIONS} onChange={(value) => { setStatus(value); setPage(1); }} /></div></Toolbar>
     {error ? <p className="history-react__error" role="alert">读取执行记录失败：{error}</p> : null}
     <div className="history-react__desktop"><DataTable columns={columns} rows={[...jobs]} getRowKey={(job) => job.id} caption="执行记录列表" emptyState={loading ? '正在读取执行记录…' : '暂无执行记录'} />{jobs.map((job) => expanded.has(job.id) ? <div className="history-react__desktop-output" key={`${job.id}-output`}><div><strong>{job.alias}</strong><Button size="sm" variant="ghost" onClick={() => void toggle(job)}>收起</Button></div><JobOutput detail={details[job.id]} /></div> : null)}</div>
     <div className="history-react__mobile">{jobs.length ? jobs.map((job) => <JobCard key={job.id} job={job} expanded={expanded.has(job.id)} detail={details[job.id]} busy={loading} onToggle={() => void toggle(job)} onCancel={() => void cancel(job)} />) : <EmptyState size="compact" title={loading ? '正在读取执行记录…' : '暂无执行记录'} />}</div>

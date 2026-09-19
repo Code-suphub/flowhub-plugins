@@ -34,7 +34,7 @@ export function Pagination({
         aria-label="上一页"
         onClick={() => onChange(currentPage - 1)}
       >
-        ← 上一页
+        上一页
       </Button>
       <output
         className="min-w-20 text-center font-mono text-xs tracking-[0.08em] text-[#8fa698]"
@@ -50,7 +50,7 @@ export function Pagination({
         aria-label="下一页"
         onClick={() => onChange(currentPage + 1)}
       >
-        下一页 →
+        下一页
       </Button>
     </nav>
   );
