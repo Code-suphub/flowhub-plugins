@@ -146,34 +146,6 @@ ${HELPERS}
   };
 })()`;
 
-const MEASURE_COMMAND = `(() => {
-${HELPERS}
-  const bastion = one('#bastionWorkbench');
-  bastion.hidden = false;
-  const result = {
-    width: Math.round(document.documentElement.clientWidth),
-    pageOverflow: Math.round(document.documentElement.scrollWidth - document.documentElement.clientWidth),
-    directDepth: borderDepth(one('#directCommandPanel')),
-    bastionDepth: borderDepth(bastion),
-    workbenchLeft: contentLeft(one('.command-workspace')),
-    composerLeft: contentLeft(one('#directCommandPanel .composer-tools')),
-    terminalLeft: contentLeft(one('#directCommandPanel .terminal-shell')),
-    bastionHeadLeft: contentLeft(one('#bastionWorkbench > .section-head')),
-    directTerminalHeight: Math.round(one('#consoleOutput').getBoundingClientRect().height),
-    // 两个终端应当是同一种外壳：圆角/底色/上下拼接、输入行内边距、输入框边框
-    directShell: (() => { const style = getComputedStyle(one('#directCommandPanel .terminal-shell')); return style.borderTopLeftRadius + '/' + style.backgroundColor + '/' + style.borderTopWidth; })(),
-    bastionShell: (() => { const style = getComputedStyle(one('#bastionWorkbench .terminal-shell')); return style.borderTopLeftRadius + '/' + style.backgroundColor + '/' + style.borderTopWidth; })(),
-    directOutputTop: parseFloat(getComputedStyle(one('#consoleOutput')).borderTopWidth) || 0,
-    bastionOutputTop: parseFloat(getComputedStyle(one('#bastionOutput')).borderTopWidth) || 0,
-    directInputPadding: getComputedStyle(one('#directCommandPanel .terminal-input')).padding,
-    bastionInputPadding: getComputedStyle(one('#bastionWorkbench .terminal-input')).padding,
-    bastionFieldBorder: parseFloat(getComputedStyle(one('#bastionInput')).borderTopWidth) || 0,
-    tooltips: tooltips(['#commandHelp', '#connectionHelp', '#bastionHelp']).filter(tip => tip.overflow > 0).map(tip => tip.selector + ':' + tip.side + tip.overflow).join(' ') || 'ok'
-  };
-  bastion.hidden = true;
-  return result;
-})()`;
-
 const MEASURE_DISCOVERY = `(() => {
 ${HELPERS}
   return {
@@ -285,35 +257,6 @@ const VIEWS = [
       if (row.mastheadGap !== 'normal') problems.push(`${row.width}px 页面头部 gap 被外部样式表改写为 ${row.mastheadGap}`);
       const heights = [...new Set(Object.values(row.controlHeights).filter(Boolean))];
       if (heights.length > 1 && row.width > 600) problems.push(`${row.width}px 工具栏控件高度不一致：${heights.join(' / ')}`);
-      return problems;
-    }
-  },
-  {
-    label: '命令工作台',
-    show: "document.querySelector('#fleetPanel').hidden=true;document.querySelector('#commandPanel').hidden=false;document.querySelector('#discoveryPanel').hidden=true;",
-    measure: MEASURE_COMMAND,
-    columns: [
-      ['宽度', row => `${row.width}`], ['页溢出', row => `${row.pageOverflow}`],
-      ['容器层数 直连/堡垒', row => `${row.directDepth}/${row.bastionDepth}`],
-      ['内容左边界 工作台/输入/终端/堡垒', row => `${row.workbenchLeft}/${row.composerLeft}/${row.terminalLeft}/${row.bastionHeadLeft}`],
-      ['终端高度', row => `${row.directTerminalHeight}`],
-      ['终端外壳 直连vs堡垒', row => `${row.directShell} | ${row.bastionShell}`],
-      ['输出框上边框 直连/堡垒', row => `${row.directOutputTop}/${row.bastionOutputTop}`],
-      ['输入行内边距 直连/堡垒', row => `${row.directInputPadding} | ${row.bastionInputPadding}`],
-      ['气泡出界', row => `${row.tooltips}`]
-    ],
-    check: row => {
-      const problems = [];
-      if (row.pageOverflow > 0) problems.push(`${row.width}px 命令工作台横向溢出 ${row.pageOverflow}px`);
-      if (row.directDepth > 1) problems.push(`${row.width}px 直连区嵌套了 ${row.directDepth} 层带边框容器`);
-      if (row.bastionDepth > 1) problems.push(`${row.width}px 堡垒机区嵌套了 ${row.bastionDepth} 层带边框容器`);
-      const lefts = [row.composerLeft, row.terminalLeft, row.bastionHeadLeft].filter(value => value !== null);
-      if (lefts.length && Math.max(...lefts) - Math.min(...lefts) > 1) problems.push(`${row.width}px 命令工作台各段左边界不一致：${lefts.join(' / ')}`);
-      if (row.tooltips !== 'ok') problems.push(`${row.width}px 帮助气泡超出视口：${row.tooltips}`);
-      if (row.directShell !== row.bastionShell) problems.push(`${row.width}px 两个终端外壳不一致：${row.directShell} vs ${row.bastionShell}`);
-      if (row.directOutputTop !== row.bastionOutputTop) problems.push(`${row.width}px 两个终端输出框拼接方式不一致：${row.directOutputTop} vs ${row.bastionOutputTop}`);
-      if (row.directInputPadding !== row.bastionInputPadding) problems.push(`${row.width}px 两个终端输入行内边距不一致：${row.directInputPadding} vs ${row.bastionInputPadding}`);
-      if (row.bastionFieldBorder > 0) problems.push(`${row.width}px 堡垒机输入框仍有 ${row.bastionFieldBorder}px 边框，与直连终端不一致`);
       return problems;
     }
   },

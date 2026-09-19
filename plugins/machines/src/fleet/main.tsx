@@ -47,16 +47,12 @@ const commandContainer = document.querySelector('#commandReactRoot');
 if (commandContainer) {
   const mounted = mountCommand(commandContainer, { api: resolveMachinesApi(), run: resolveMachinesRun() });
   window.FlowHubCommand = { mounted: true, setTargets: mounted.setTargets };
-  const legacyCommand = document.querySelector<HTMLElement>('#commandLegacy');
-  if (legacyCommand) legacyCommand.hidden = true;
 }
 
 const historyContainer = document.querySelector('#historyReactRoot');
 if (historyContainer) {
   mountHistory(historyContainer, { api: resolveMachinesApi() });
   window.FlowHubHistory = { mounted: true };
-  const legacyHistory = document.querySelector<HTMLElement>('#historyLegacy');
-  if (legacyHistory) legacyHistory.hidden = true;
 }
 
 function dispatch(detail: FleetAction): void {

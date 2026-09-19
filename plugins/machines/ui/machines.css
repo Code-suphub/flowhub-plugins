@@ -172,8 +172,6 @@ td button { min-height: 28px; padding: 4px 7px; background: transparent; font-si
 .host-form label { display: grid; flex: 1; min-width: 140px; gap: 6px; color: var(--muted); font-size: 11px; }
 .host-form p { width: 100%; margin: 0; font-size: 11px; }
 .host-form .actions { align-self: end; }
-.command-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.command-footer p { font-size: 12px; }
 
 .notice { margin: 0; padding: 10px clamp(20px, 4vw, 56px); border-bottom: 1px solid var(--line); background: #1b2b21; color: var(--accent); white-space: pre-wrap; overflow-wrap: anywhere; }
 .notice:empty { display: none; }
@@ -183,11 +181,7 @@ details { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line)
 summary { color: var(--accent); cursor: pointer; }
 #sourceForm { display: grid; gap: 12px; }
 #sourceForm label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; }
-.job { padding: 9px 0; border-bottom: 1px solid var(--line); }
-.job summary { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 12px; }
-.job summary .time { margin-left: auto; color: var(--muted); font: 10px Menlo, monospace; }
-.job pre, dialog pre { max-height: 280px; padding: 12px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); font: 11px/1.7 Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
-.job details { margin: 0; padding: 0; border: 0; }
+dialog pre { max-height: 280px; padding: 12px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); font: 11px/1.7 Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 
 dialog { width: min(620px, 90vw); padding: 24px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--panel); color: var(--ink); }
 dialog::backdrop { background: #0009; }

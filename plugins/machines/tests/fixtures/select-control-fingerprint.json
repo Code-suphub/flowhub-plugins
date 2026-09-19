@@ -1,7 +1,7 @@
 {
   "machines.html": {
     "700": {
-      "__selects": 15,
+      "__selects": 8,
       "__visibleSelects": 2,
       ".select-shell": null,
       ".select-trigger": {
@@ -183,7 +183,7 @@
       "__menuOpen": true
     },
     "1400": {
-      "__selects": 15,
+      "__selects": 8,
       "__visibleSelects": 2,
       ".select-shell": null,
       ".select-trigger": {

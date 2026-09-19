@@ -107,61 +107,20 @@ test('standalone development adapter simulates execution and never calls a nativ
   assert.throws(() => vm.runInNewContext(source, context), /不能覆盖原生宿主/);
 });
 
-test('commands execute immediately, reject invalid input and prevent duplicate submissions', async () => {
-  const elements = new Map();
-  const element = selector => {
-    if (!elements.has(selector)) elements.set(selector, { value: '', textContent: '', innerHTML: '', options: [{ value: '60' }], classList: { toggle() {} }, listeners: {}, addEventListener(name,fn) {this.listeners[name]=fn;} });
-    return elements.get(selector);
-  };
-  const state = { config: { hosts: [{ id: 'a', alias: 'test-host', name: 'Test', group: '' }], enabled: true, installed: { version: '1', capabilities: [], templates: [] }, interval: 60 }, metrics: {}, active: [], history: [] };
-  const calls = []; let finish, poll;
-  const window = { FlowHubMachines: M, __TAURI__: { core: { invoke: (method, payload) => {
-    if (method === 'machines_api') return Promise.resolve(state);
-    calls.push(payload);
-    return new Promise(resolve => { finish = resolve; });
-  } } } };
-  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../ui/machines.js'), 'utf8'), { window, document: { body: { classList: { contains: () => false, add() {}, toggle() {} } }, querySelector: element, querySelectorAll: () => [] }, TextEncoder, structuredClone, crypto: { randomUUID: () => 'job-id' }, setInterval: fn => { poll = fn; } });
-  const settle = () => new Promise(resolve => setImmediate(resolve));
-  await settle();
-  assert.equal(element('#templatePicker').hidden, true);
-  element('#command').value = 'ls';
-  await element('#runCommand').onclick(); assert.equal(calls.length, 0);
-  element('#targetOptions').onchange({ target: { dataset: { target: 'a' }, checked: true } });
-  for (const command of [' ', '中'.repeat(3000)]) {
-    element('#command').value = command;
-    await element('#runCommand').onclick(); assert.equal(calls.length, 0);
+test('React owns command execution, history and templates without legacy DOM adapters', () => {
+  const html = fs.readFileSync(path.join(__dirname, '../ui/machines.html'), 'utf8');
+  const script = fs.readFileSync(path.join(__dirname, '../ui/machines.js'), 'utf8');
+  const workspace = fs.readFileSync(path.join(__dirname, '../src/command/CommandWorkspace.tsx'), 'utf8');
+  assert.match(html, /id="commandReactRoot"/);
+  assert.match(html, /id="historyReactRoot"/);
+  for (const legacyId of ['commandLegacy', 'historyLegacy', 'templateEditor', 'runCommand', 'consoleOutput', 'historyPageSize']) {
+    assert(!html.includes(`id="${legacyId}"`), `${legacyId} should be physically removed`);
+    assert(!script.includes(`#${legacyId}`), `${legacyId} should have no legacy listener`);
   }
-  element('#command').value = 'ls';
-  Object.assign(element('#consoleOutput'), { scrollHeight: 2000, clientHeight: 300, scrollTop: 0 });
-  const running = element('#runCommand').onclick();
-  assert.equal(element('#consoleOutput').scrollTop, 2000, 'submitting follows latest output even when reading older commands');
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0].hostId, 'a'); assert.equal(calls[0].expectedAlias, 'test-host');
-  assert.equal(calls[0].command, 'ls'); assert.equal(calls[0].kind, 'command');
-  assert.equal(element('#command').value,'');
-  element('#command').value = 'changed';
-  poll(); await settle();
-  assert.equal(element('#runCommand').disabled, true);
-  await element('#runCommand').onclick(); assert.equal(calls.length, 1);
-  finish({ status: 'success', stdout: '<script>remote text</script>', stderr: 'diagnostic', exitCode: 0 }); await running;
-  assert.match(element('#consoleOutput').innerHTML, /&lt;script&gt;remote text&lt;\/script&gt;/);
-  assert.match(element('#consoleOutput').innerHTML, /diagnostic/);
-  element('#clearConsole').onclick();
-  assert(!element('#consoleOutput').innerHTML.includes('remote text'));
-  assert.equal(element('#runCommand').disabled, false);
-  assert.match(element('#notice').textContent, /1 成功/);
-  const key=element('#command').listeners.keydown;
-  key({key:'ArrowUp',preventDefault(){}});assert.equal(element('#command').value,'ls');
-  key({key:'ArrowDown',preventDefault(){}});assert.equal(element('#command').value,'changed');
-  let prevented=false;
-  key({key:'Enter',shiftKey:true,preventDefault(){prevented=true;}});
-  key({key:'Enter',isComposing:true,preventDefault(){prevented=true;}});
-  assert.equal(prevented,false);assert.equal(calls.length,1);
-  state.config.installed.templates = [{ name: 'Disk', command: 'df -h' }];
-  poll(); await settle();
-  assert.equal(element('#templatePicker').hidden, false);
-  element('#template').onchange({ target: { value: '0' } });
-  assert.equal(element('#command').value, 'df -h');
+  assert.match(workspace, /byteLength\(value\) > 8192/);
+  assert.match(workspace, /disabled=\{running \|\| !selectedHosts\.length \|\| !command\.trim\(\)\}/);
+  assert.match(workspace, /api\('templates', \{ templates: next \}\)/);
+  assert.match(workspace, /run\(\{ hostId: job\.hostId, expectedAlias: job\.alias/);
 });
 
 test('instance and SSH discovery filters compose without conflating aliases', () => {
@@ -208,7 +167,7 @@ test('browser preview never invokes SSH or exposes enabled write controls', asyn
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../ui/machines.js'), 'utf8'), context);
   await new Promise(resolve => setImmediate(resolve));
   assert.match(element('#notice').textContent, /只读浏览器预览/);
-  for (const id of ['addHost', 'collectSelected', 'runCommand', 'monitor', 'sshProbe', 'chooseIdentity']) assert.equal(element('#' + id).disabled, true);
+  for (const id of ['addHost', 'collectSelected', 'monitor', 'sshProbe', 'chooseIdentity']) assert.equal(element('#' + id).disabled, true);
   assert.equal(element('main').hidden, true); assert.equal(intervals, 0);
 });
 test('SSH import scans, connects and adopts only on explicit user actions', async () => {
