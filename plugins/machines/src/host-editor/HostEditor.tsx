@@ -1,11 +1,10 @@
-import { useMemo, useRef, type ReactNode, type RefObject } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import {
   Button,
   Checkbox,
   DialogShell,
   Field,
   Input,
-  NumberInput,
   Select,
   Tabs,
   cx,
@@ -176,24 +175,23 @@ function BasicPanel({
         <p id="host-editor-read-only-hint" className="host-editor__hint">启用后不会执行远程写入命令。</p>
       </Section>
 
-      <Section title="连接方式">
-        <Field label="连接类型" htmlFor="host-editor-connection-type" error={errors?.connectionType}>
-          <Select
-            id="host-editor-connection-type"
-            value={value.connectionType}
-            options={[
-              { value: 'ssh', label: '普通 SSH' },
-              { value: 'bastion', label: '堡垒机 / Relay' },
-            ]}
-            onChange={(next) => change('connectionType', next as HostConnectionType)}
-          />
-        </Field>
-      </Section>
     </div>
   );
 }
 
-function EndpointFields({ value, errors, change }: { value: HostEditorValue; errors: HostEditorProps['errors']; change: HostEditorActions['onChange'] }) {
+function EndpointFields({
+  value,
+  errors,
+  change,
+  usesJumpHost,
+  onJumpHostChange,
+}: {
+  value: HostEditorValue;
+  errors: HostEditorProps['errors'];
+  change: HostEditorActions['onChange'];
+  usesJumpHost: boolean;
+  onJumpHostChange: (usesJumpHost: boolean) => void;
+}) {
   return (
     <div className="host-editor__grid host-editor__grid--two">
       <Field label="主机地址" htmlFor="host-editor-hostname" error={errors?.sshHostname}>
@@ -203,30 +201,41 @@ function EndpointFields({ value, errors, change }: { value: HostEditorValue; err
         <Input id="host-editor-user" value={value.sshUser} onChange={(event) => change('sshUser', event.currentTarget.value)} autoComplete="username" placeholder="root 或 ubuntu" />
       </Field>
       <Field label="SSH 端口" htmlFor="host-editor-port" error={errors?.sshPort}>
-        <NumberInput
+        <Input
           id="host-editor-port"
           value={value.sshPort}
-          min={1}
-          max={65535}
-          step={1}
-          decrementAriaLabel="减少 SSH 端口"
-          incrementAriaLabel="增加 SSH 端口"
-          onChange={(event) => change('sshPort', event.currentTarget.value)}
-          onValueChange={(next) => change('sshPort', next)}
+          inputMode="numeric"
+          pattern="[0-9]*"
+          maxLength={5}
+          placeholder="22"
+          onChange={(event) => change('sshPort', event.currentTarget.value.replace(/\D/g, '').slice(0, 5))}
         />
       </Field>
-      <Field label="跳板机别名（可选）" htmlFor="host-editor-proxy-jump" error={errors?.sshJump}>
-        <Input id="host-editor-proxy-jump" value={value.sshJump} onChange={(event) => change('sshJump', event.currentTarget.value)} placeholder="bastion" />
+      <Field label="连接路径" htmlFor="host-editor-path">
+        <Select
+          id="host-editor-path"
+          value={usesJumpHost ? 'jump' : 'direct'}
+          options={[
+            { value: 'direct', label: '直接连接' },
+            { value: 'jump', label: '经 SSH 跳板机' },
+          ]}
+          onChange={(next) => onJumpHostChange(next === 'jump')}
+        />
       </Field>
+      {usesJumpHost ? (
+        <Field label="跳板机 SSH 别名" htmlFor="host-editor-proxy-jump" error={errors?.sshJump} className="host-editor__jump-field">
+          <Input id="host-editor-proxy-jump" value={value.sshJump} onChange={(event) => change('sshJump', event.currentTarget.value)} placeholder="例如 bastion" />
+        </Field>
+      ) : null}
     </div>
   );
 }
 
-function SshPanel({ value, errors, actions, change }: { value: HostEditorValue; errors: HostEditorProps['errors']; actions: HostEditorActions; change: HostEditorActions['onChange'] }) {
+function SshPanel({ value, errors, actions, change, usesJumpHost, onJumpHostChange }: { value: HostEditorValue; errors: HostEditorProps['errors']; actions: HostEditorActions; change: HostEditorActions['onChange']; usesJumpHost: boolean; onJumpHostChange: (usesJumpHost: boolean) => void }) {
   return (
     <>
       <Section title="目标主机">
-        <EndpointFields value={value} errors={errors} change={change} />
+        <EndpointFields value={value} errors={errors} change={change} usesJumpHost={usesJumpHost} onJumpHostChange={onJumpHostChange} />
       </Section>
       <Section title="认证方式" hint="凭证只由上层受控状态管理，本组件不会记录或打印密钥。">
         <div className="host-editor__auth-switch" role="radiogroup" aria-label="认证方式">
@@ -288,10 +297,39 @@ function BastionPanel({ value, errors, change }: { value: HostEditorValue; error
 function ConnectionPanel({ value, errors, actions, loadState, testState, change }: { value: HostEditorValue; errors: HostEditorProps['errors']; actions: HostEditorActions; loadState: HostEditorAsyncState; testState: HostEditorAsyncState; change: HostEditorActions['onChange'] }) {
   const testing = testState.status === 'loading';
   const isSsh = value.connectionType === 'ssh';
+  const [usesJumpHost, setUsesJumpHost] = useState(Boolean(value.sshJump.trim()));
+
+  useEffect(() => {
+    setUsesJumpHost(Boolean(value.sshJump.trim()));
+  }, [value.id]);
+
+  useEffect(() => {
+    if (value.sshJump.trim()) setUsesJumpHost(true);
+  }, [value.sshJump]);
+
+  function handleJumpHostChange(nextUsesJumpHost: boolean): void {
+    setUsesJumpHost(nextUsesJumpHost);
+    if (!nextUsesJumpHost && value.sshJump) change('sshJump', '');
+  }
 
   return (
     <div className="host-editor__panel-grid">
-      {isSsh ? <SshPanel value={value} errors={errors} actions={actions} change={change} /> : <BastionPanel value={value} errors={errors} change={change} />}
+      <Section title="连接方式">
+        <div className="host-editor__connection-type">
+          <Field label="连接类型" htmlFor="host-editor-connection-type" error={errors?.connectionType}>
+            <Select
+              id="host-editor-connection-type"
+              value={value.connectionType}
+              options={[
+                { value: 'ssh', label: '普通 SSH' },
+                { value: 'bastion', label: '堡垒机交互会话' },
+              ]}
+              onChange={(next) => change('connectionType', next as HostConnectionType)}
+            />
+          </Field>
+        </div>
+      </Section>
+      {isSsh ? <SshPanel value={value} errors={errors} actions={actions} change={change} usesJumpHost={usesJumpHost} onJumpHostChange={handleJumpHostChange} /> : <BastionPanel value={value} errors={errors} change={change} />}
       {isSsh ? (
         <div className="host-editor__test-bar">
           <ConnectionStatus loadState={loadState} testState={testState} actions={actions} />
