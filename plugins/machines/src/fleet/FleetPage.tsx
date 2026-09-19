@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 
-import { Button, Checkbox, DataTable, Select, cx } from '@flowhub/plugin-common/react';
+import { Button, Checkbox, DataTable, HelpPopover, Select, cx } from '@flowhub/plugin-common/react';
 
 import {
   fleetMetricStatus,
@@ -436,34 +436,23 @@ export function FleetPage({
 
   return (
     <div className={cx('fleet', className)}>
-      <section className="fleet__overview" aria-label="机器概况">
-        <div className="fleet__stat">
-          <span>机器总数</span>
-          <strong>{total}</strong>
-        </div>
-        <div className="fleet__stat fleet__stat--healthy">
-          <span>最近采集成功</span>
-          <strong>{healthy}</strong>
-        </div>
-        <div className="fleet__stat fleet__stat--problem">
-          <span>异常 / 过期</span>
-          <strong>{problem}</strong>
-        </div>
-        <div className="fleet__stat fleet__stat--active">
-          <span>执行中 / 排队</span>
-          <strong>{snapshot.activeJobs.length}</strong>
-        </div>
-      </section>
-
       <section className="fleet__panel" aria-labelledby="fleet-list-title">
         <header className="fleet__section-head">
           <div>
             <span className="fleet__eyebrow">02 / MANAGED NODES</span>
             <h2 id="fleet-list-title">已纳管机器</h2>
           </div>
-          <Button id="addHost" variant="primary" disabled={!interactive} onClick={actions.onAddHost}>
-            <span aria-hidden="true">＋</span> 添加机器
-          </Button>
+          <div className="fleet__head-actions">
+            <dl className="fleet__summary" aria-label="机器概况">
+              <div><dt>总量</dt><dd>{total}</dd></div>
+              <div className="fleet__summary--healthy"><dt>正常</dt><dd>{healthy}</dd></div>
+              <div className="fleet__summary--problem"><dt>异常</dt><dd>{problem}</dd></div>
+              <div className="fleet__summary--active"><dt>排队</dt><dd>{snapshot.activeJobs.length}</dd></div>
+            </dl>
+            <Button id="addHost" variant="primary" disabled={!interactive} onClick={actions.onAddHost}>
+              <span aria-hidden="true">＋</span> 添加机器
+            </Button>
+          </div>
         </header>
 
         <div className="fleet__toolbar" aria-label="机器筛选与监控设置">
@@ -491,6 +480,7 @@ export function FleetPage({
           </div>
           <Button
             id="collectSelected"
+            className="fleet__collect"
             variant="secondary"
             disabled={!interactive || selectedHostIds.length === 0}
             onClick={() => actions.onCollectSelected(selectedHostIds)}
@@ -518,11 +508,13 @@ export function FleetPage({
               triggerClassName="fleet__select-trigger"
             />
           </div>
+          <div className="fleet__toolbar-help">
+            <span>指标说明</span>
+            <HelpPopover label="机器指标与后台监控说明" panelClassName="fleet__help-panel">
+              Linux / macOS 基础指标。后台监控仅在 FlowHub 运行且电脑保持唤醒时工作；采集失败后会逐步延长重试间隔。
+            </HelpPopover>
+          </div>
         </div>
-        <p className="fleet__caption">
-          <span className="fleet__caption-signal" aria-hidden="true" />
-          Linux / macOS 基础指标 · 后台监控在 FlowHub 运行且电脑唤醒时工作 · 失败后逐步延长重试间隔
-        </p>
 
         <div id="hostRows" className="fleet__table-wrap">
           {visibleHosts.length > 0 ? (

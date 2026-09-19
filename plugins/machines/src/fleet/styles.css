@@ -49,24 +49,7 @@
   font-weight: 650;
 }
 
-.fleet__overview {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 1px;
-  overflow: hidden;
-  border: 1px solid var(--fleet-line);
-  border-radius: 7px;
-  background: var(--fleet-line);
-}
-
-.fleet__overview > * {
-  min-width: 0;
-  padding: 12px 16px;
-  background: var(--fleet-panel);
-}
-
 .fleet__eyebrow,
-.fleet__stat small,
 .fleet__empty-kicker {
   color: var(--fleet-faint);
   font: 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -74,42 +57,8 @@
   text-transform: uppercase;
 }
 
-.fleet__stat {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  min-height: 54px;
-}
-
-.fleet__stat > span {
-  color: var(--fleet-muted);
-  font-size: 11px;
-}
-
-.fleet__stat strong {
-  color: var(--fleet-ink);
-  font: 400 clamp(23px, 2.8vw, 31px)/0.92 ui-monospace, SFMono-Regular, Menlo, monospace;
-  letter-spacing: -0.08em;
-}
-
-.fleet__stat--healthy strong,
-.fleet__stat--healthy small {
-  color: var(--fleet-green);
-}
-
-.fleet__stat--problem strong,
-.fleet__stat--problem small {
-  color: var(--fleet-amber);
-}
-
-.fleet__stat--active strong,
-.fleet__stat--active small {
-  color: var(--fleet-blue);
-}
-
 .fleet__panel {
-  margin-top: 12px;
+  margin-top: 0;
   padding: 18px;
   border: 1px solid var(--fleet-line);
   border-radius: 8px;
@@ -129,28 +78,59 @@
   font-size: 18px;
 }
 
-.fleet__section-head > button {
+.fleet__head-actions {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.fleet__head-actions > button {
   min-height: 36px;
   border-radius: 6px;
 }
 
-.fleet__toolbar {
+.fleet__summary {
   display: flex;
+  align-items: center;
+  gap: 11px;
+  margin: 0;
+}
+
+.fleet__summary > div {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
+}
+
+.fleet__summary dt {
+  color: var(--fleet-faint);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.fleet__summary dd {
+  margin: 0;
+  color: var(--fleet-ink);
+  font: 600 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.fleet__summary--healthy dd { color: var(--fleet-green); }
+.fleet__summary--problem dd { color: var(--fleet-amber); }
+.fleet__summary--active dd { color: var(--fleet-blue); }
+
+.fleet__toolbar {
+  display: grid;
+  grid-template-columns: minmax(190px, 1fr) 118px auto 1px auto 112px auto;
   align-items: flex-end;
-  flex-wrap: wrap;
   gap: 9px;
   padding: 8px;
   border: 1px solid var(--fleet-line);
   background: rgb(9 18 13 / 0.55);
 }
 
-.fleet__toolbar button {
-  flex: 0 0 auto;
-}
-
 .fleet__search {
   position: relative;
-  flex: 1 1 210px;
   min-width: 160px;
 }
 
@@ -193,7 +173,12 @@
 }
 
 .fleet__filter--interval {
-  width: 130px;
+  width: 112px;
+}
+
+.fleet__filter .fh-select {
+  width: 100%;
+  min-width: 0;
 }
 
 .fleet__filter-label {
@@ -223,6 +208,10 @@
   background: var(--fleet-line);
 }
 
+.fleet__collect {
+  min-width: 94px;
+}
+
 .fleet__monitor {
   min-height: 38px !important;
   margin-bottom: 0;
@@ -240,25 +229,30 @@
   font: 10px ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
-.fleet__caption {
+.fleet__toolbar-help {
   display: flex;
   align-items: center;
-  gap: 7px;
-  margin: 9px 1px 12px;
+  align-self: end;
+  gap: 4px;
+  min-height: 38px;
   color: var(--fleet-faint);
-  font-size: 11px;
-  line-height: 1.6;
+  font-size: 10px;
+  white-space: nowrap;
 }
 
-.fleet__caption-signal {
-  width: 6px;
-  height: 6px;
+.fleet__toolbar-help .fh-help__trigger {
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
-  background: var(--fleet-green-strong);
-  box-shadow: 0 0 0 3px rgb(104 200 132 / 0.12);
+}
+
+.fleet__help-panel {
+  right: 0;
+  width: min(310px, calc(100vw - 32px));
 }
 
 .fleet__table-wrap {
+  margin-top: 12px;
   overflow-x: auto;
 }
 
@@ -502,10 +496,16 @@
 }
 
 @media (max-width: 920px) {
-  .fleet__overview {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .fleet__toolbar {
+    grid-template-columns: minmax(180px, 1fr) 118px auto;
   }
 
+  .fleet__search { grid-column: 1; grid-row: 1; }
+  .fleet__filter:not(.fleet__filter--interval) { grid-column: 2; grid-row: 1; }
+  .fleet__collect { grid-column: 3; grid-row: 1; }
+  .fleet__monitor { grid-column: 1; grid-row: 2; }
+  .fleet__filter--interval { grid-column: 2; grid-row: 2; }
+  .fleet__toolbar-help { grid-column: 3; grid-row: 2; }
   .fleet__toolbar-rule {
     display: none;
   }
@@ -516,29 +516,9 @@
     padding: 0;
   }
 
-  .fleet__overview {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .fleet__stat {
-    min-height: 50px;
-    padding: 11px 13px;
-  }
-
   .fleet__section-head {
     flex-wrap: nowrap;
   }
-
-  .fleet__toolbar {
-    align-items: stretch;
-  }
-
-  .fleet__search { flex: 1 1 220px; }
-  .fleet__filter { flex: 0 1 118px; width: 118px; }
-  .fleet__filter--interval { flex-basis: 130px; width: 130px; }
-  .fleet__toolbar > .fh-button,
-  .fleet__toolbar > button { flex: 0 0 auto; }
-  .fleet__monitor { flex: 0 0 auto; }
 
   .fleet__table-wrap {
     display: none;
@@ -604,27 +584,21 @@
 }
 
 @media (max-width: 520px) {
-  .fleet__section-head { flex-wrap: wrap; }
-  .fleet__section-head > button { width: 100%; }
-  .fleet__search,
-  .fleet__filter,
-  .fleet__filter--interval { flex: 1 1 100%; width: auto; }
-  .fleet__toolbar > .fh-button,
-  .fleet__toolbar > button { flex: 1 1 100%; }
-  .fleet__monitor { flex: 1 1 100%; }
+  .fleet__section-head { align-items: stretch; flex-direction: column; }
+  .fleet__head-actions { justify-content: space-between; gap: 10px; }
+  .fleet__summary { gap: 7px; }
+  .fleet__summary > div { gap: 3px; }
+  .fleet__toolbar { grid-template-columns: minmax(0, 1fr) minmax(104px, .72fr); }
+  .fleet__search { grid-column: 1 / -1; grid-row: 1; }
+  .fleet__filter:not(.fleet__filter--interval) { grid-column: 1; grid-row: 2; width: 100%; }
+  .fleet__collect { grid-column: 2; grid-row: 2; width: 100%; }
+  .fleet__monitor { grid-column: 1; grid-row: 3; }
+  .fleet__filter--interval { grid-column: 2; grid-row: 3; width: 100%; }
+  .fleet__toolbar-help { grid-column: 1 / -1; grid-row: 4; justify-self: end; min-height: 28px; }
   .fleet__cards { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 420px) {
-
-  .fleet__stat {
-    min-height: auto;
-  }
-
-  .fleet__stat strong {
-    font-size: 30px;
-  }
-
   .fleet__card-metrics {
     margin-left: 0;
   }
