@@ -86,6 +86,7 @@ export interface HostEditorProps {
   errors?: Partial<Record<HostEditorErrorField, ReactNode>>;
   loadState?: HostEditorAsyncState;
   testState?: HostEditorAsyncState;
+  operationState?: HostEditorAsyncState;
   saving?: boolean;
   saved?: boolean;
   monitoringApi?: HostEditorMachineApi;

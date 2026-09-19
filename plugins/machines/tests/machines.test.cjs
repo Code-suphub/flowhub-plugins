@@ -5,72 +5,23 @@ const path = require('node:path');
 const vm = require('node:vm');
 const M = require('../ui/machines-model.js');
 
-test('host save leaves inherited SSH untouched and writes edited profiles before the host list', async () => {
-  const elements = new Map();
-  const element = key => { if (!elements.has(key)) elements.set(key, { value: '', innerHTML: '', options: [{ value: '60' }], classList: { toggle() {} }, addEventListener() {}, focus() {}, open: false, showModal() { this.open = true; }, close() { this.open = false; } }); return elements.get(key); };
-  const state = { config: { hosts: [], enabled: true, interval: 60, installed: { capabilities: ['ssh:configure'], templates: [] } }, active: [], history: [], metrics: {} };
-  const calls = []; let rejectSave = false;
-  const window = { FlowHubMachines: M, __TAURI__: { core: { invoke: async (_, { action, payload }) => {
-    calls.push({ action, payload });
-    if (action === 'sshRead') return { revision: 'revision' };
-    if (action === 'sshSave') { if (rejectSave) throw Error('revision conflict'); return { revision: 'new' }; }
-    if (action === 'hosts') state.config.hosts = payload.hosts;
-    return state;
-  } } } };
-  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../ui/machines.js'), 'utf8'), { window, document: { body: { classList: { contains: () => false, add() {}, toggle() {} } }, querySelector: element, querySelectorAll: () => [] }, structuredClone, crypto: { randomUUID: () => 'new' }, setInterval() {} });
-  const settle = () => new Promise(resolve => setImmediate(resolve)); await settle();
-  element('#addHost').onclick(); element('#hostName').value = 'Test'; element('#hostAlias').value = 'demo';
-  element('#hostForm').onsubmit({ preventDefault() {} }); await settle();
-  assert(!calls.some(c => c.action === 'sshSave' || c.action === 'sshRead'));
-  element('#addHost').onclick(); element('#hostName').value = 'Test'; element('#hostAlias').value = 'demo'; element('#sshHostname').value = 'example.test';
-  calls.length = 0;
-  element('#hostForm').onsubmit({ preventDefault() {} }); await settle();
-  assert(!calls.some(c => c.action === 'sshSave' || c.action === 'hosts'));
-  assert.match(element('#notice').textContent, /请填写登录用户名/);
-  assert(!element('#notice').textContent.includes('Error:'));
-  element('#sshUser').value = 'root';
-  calls.length = 0; rejectSave = true;
-  element('#hostForm').onsubmit({ preventDefault() {} }); await settle();
-  assert(!calls.some(c => c.action === 'hosts')); assert.equal(element('#hostDialog').open, true);
-  rejectSave = false; calls.length = 0;
-  element('#hostForm').onsubmit({ preventDefault() {} }); await settle();
-  assert.deepEqual(calls.map(c => c.action), ['sshSave', 'hosts', 'state']);
-  assert.equal(calls[0].payload.profile.hostname, 'example.test');
-  assert.equal(element('#hostDialog').open, false);
-  calls.length = 0;
-  element('#addHost').onclick(); element('#hostConnectionType').value = 'bastion';
-  element('#hostName').value = 'Gateway'; element('#hostAlias').value = 'vm-01';
-  element('#relayScript').value = '/tmp/relay'; element('#relayCommand').value = 'n';
-  element('#sshHostname').value = 'ignored.example';
-  element('#hostForm').onsubmit({ preventDefault() {} }); await settle();
-  assert.deepEqual(calls.map(c => c.action), ['hosts', 'state']);
-  assert.equal(calls[0].payload.hosts[0].bastion.script, '/tmp/relay');
-});
+test('React host editor owns machine and SSH persistence without a legacy form bridge', () => {
+  const html = fs.readFileSync(path.join(__dirname, '../ui/machines.html'), 'utf8');
+  const script = fs.readFileSync(path.join(__dirname, '../ui/machines.js'), 'utf8');
+  const controller = fs.readFileSync(path.join(__dirname, '../src/host-editor/HostEditorController.tsx'), 'utf8');
 
-test('editing loads SSH configuration and blocks failed or stale loads from saving', async () => {
-  const elements = new Map();
-  const element = key => { if (!elements.has(key)) elements.set(key, { value: '', innerHTML: '', options: [], classList: { toggle() {} }, addEventListener() {}, focus() {}, open: false, showModal() { this.open = true; }, close() { this.open = false; } }); return elements.get(key); };
-  const host = { id: 'one', name: 'One', alias: 'one', group: '' };
-  const state = { config: { hosts: [host], enabled: true, interval: 60, installed: { capabilities: ['ssh:configure'], templates: [] } }, active: [], history: [], metrics: {} };
-  let resolveRead, rejectRead; const calls = [];
-  const window = { FlowHubMachines: M, __TAURI__: { core: { invoke: async (_, { action }) => {
-    calls.push(action);
-    if (action === 'sshRead') return new Promise((resolve, reject) => { resolveRead = resolve; rejectRead = reject; });
-    return state;
-  } } } };
-  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../ui/machines.js'), 'utf8'), { window, document: { body: { classList: { contains: () => false, add() {}, toggle() {} } }, querySelector: element, querySelectorAll: () => [] }, structuredClone, setInterval() {} });
-  const settle = () => new Promise(resolve => setImmediate(resolve)); await settle();
-  const edit = () => element('#hostRows').onclick({ target: { closest: () => ({ dataset: { hostAction: 'edit', id: 'one' } }) } });
-  edit(); assert.equal(element('#saveHost').disabled, true);
-  rejectRead(Error('unavailable')); await settle();
-  element('#hostForm').onsubmit({ preventDefault() {} }); await settle();
-  assert(!calls.includes('hosts')); assert.equal(element('#retrySshLoad').hidden, false);
-  const profile = { hostname: 'one.example', user: 'ubuntu', port: 2222, proxyJump: '', identityFile: '' };
-  element('#retrySshLoad').onclick(); resolveRead({ profile, revision: 'one' }); await settle();
-  assert.equal(element('#sshHostname').value, 'one.example'); assert.equal(element('#saveHost').disabled, false);
-  edit(); element('#cancelHost').onclick(); element('#addHost').onclick();
-  resolveRead({ profile, revision: 'old' }); await settle();
-  assert.equal(element('#sshHostname').value, ''); assert.equal(element('#saveHost').disabled, false);
+  assert.match(html, /id="hostEditorReactRoot"/);
+  for (const legacyId of ['hostDialog', 'hostForm', 'hostName', 'hostAlias', 'sshHostname', 'sshPassword', 'retrySshLoad']) {
+    assert(!html.includes(`id="${legacyId}"`), `${legacyId} should be physically removed`);
+    assert(!script.includes(`#${legacyId}`), `${legacyId} should have no legacy listener`);
+  }
+  assert.match(controller, /api\('sshRead', \{ alias \}\)/);
+  assert.match(controller, /api\('sshSave', \{ profile:/);
+  assert.match(controller, /await api\('hosts', \{ hosts:/);
+  assert.match(controller, /Boolean\(value\.id && loadedAlias\.current !== value\.alias\.trim\(\)\)/);
+  assert.match(controller, /loadVersion\.current/);
+  assert.match(controller, /loadState\.status === 'error'/);
+  assert.match(controller, /savedSsh \? 'SSH 配置已保存，但机器清单保存失败：'/);
 });
 
 test('standalone development adapter simulates execution and never calls a native bridge', async () => {
@@ -167,7 +118,7 @@ test('browser preview never invokes SSH or exposes enabled write controls', asyn
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../ui/machines.js'), 'utf8'), context);
   await new Promise(resolve => setImmediate(resolve));
   assert.match(element('#notice').textContent, /只读浏览器预览/);
-  for (const id of ['addHost', 'collectSelected', 'monitor', 'sshProbe', 'chooseIdentity']) assert.equal(element('#' + id).disabled, true);
+  for (const id of ['addHost', 'collectSelected', 'monitor']) assert.equal(element('#' + id).disabled, true);
   assert.equal(element('main').hidden, true); assert.equal(intervals, 0);
 });
 test('SSH import scans, connects and adopts only on explicit user actions', async () => {

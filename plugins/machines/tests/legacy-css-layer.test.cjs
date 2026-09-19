@@ -7,7 +7,6 @@ const repositoryRoot = path.resolve(pluginRoot, '..', '..');
 const legacyStyles = [
   path.join(repositoryRoot, 'plugins/common/ui/flowhub-common.css'),
   path.join(pluginRoot, 'ui/machines.css'),
-  path.join(pluginRoot, 'ui/ssh/ssh-fields.css'),
   path.join(pluginRoot, 'ui/machine-controls.css'),
   path.join(pluginRoot, 'ui/widget/widget-settings.css'),
   path.join(pluginRoot, 'ui/backup/backup.css'),

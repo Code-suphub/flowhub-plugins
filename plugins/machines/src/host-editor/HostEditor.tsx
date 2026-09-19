@@ -383,6 +383,7 @@ export function HostEditor({
   errors = {},
   loadState = { status: 'idle' },
   testState = { status: 'idle' },
+  operationState = { status: 'idle' },
   saving = false,
   saved = Boolean(value.id),
   monitoringApi,
@@ -437,6 +438,7 @@ export function HostEditor({
           </Tabs.Panel>
         </Tabs>
         {loadState.status === 'loading' ? <span className="host-editor__sr-status" role="status" aria-live="polite">正在加载机器配置</span> : null}
+        {operationState.status !== 'idle' ? <StatusLine state={operationState} label="保存" /> : null}
       </div>
     </DialogShell>
   );

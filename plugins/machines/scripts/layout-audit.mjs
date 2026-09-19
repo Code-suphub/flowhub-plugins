@@ -156,50 +156,24 @@ ${HELPERS}
   };
 })()`;
 
-const MEASURE_DIALOG = `(() => {
-${HELPERS}
-  const dialog = one('#hostDialog');
-  dialog.setAttribute('open', '');
-  const direct = one('#directSshFields'), bastion = one('#bastionFields');
-  if (direct) direct.hidden = false;
-  if (bastion) bastion.hidden = true;
-  const body = one('#hostDialog .host-dialog-body');
-  return {
-    width: Math.round(document.documentElement.clientWidth),
-    height: Math.round(document.documentElement.clientHeight),
-    pageOverflow: Math.round(document.documentElement.scrollWidth - document.documentElement.clientWidth),
-    dialogHeight: Math.round(dialog.getBoundingClientRect().height),
-    dialogWidth: Math.round(dialog.getBoundingClientRect().width),
-    bodyHeight: body ? Math.round(body.getBoundingClientRect().height) : null,
-    headHeight: Math.round(one('#hostDialog .host-dialog-head').getBoundingClientRect().height),
-    footHeight: Math.round(one('#hostDialog .host-dialog-foot').getBoundingClientRect().height),
-    formHeight: Math.round(one('#hostForm').getBoundingClientRect().height)
-  };
-})()`;
-
 const MEASURE_DIALOG_FAMILY = `(() => {
  ${HELPERS}
   const box = element => element ? element.getBoundingClientRect() : null;
   const sizeOf = element => { const rect = box(element); return rect ? { w: Math.round(rect.width), h: Math.round(rect.height) } : null; };
   const shells = window.__auditDialogs || {};
-  const edit = one('#hostDialog');
-  edit.setAttribute('open', '');
   shells.netdata.showModal();
   shells.traffic.showModal();
   const measure = element => { const rect = sizeOf(element); return rect ? rect.w + 'x' + rect.h : null; };
   const rows = {
     width: Math.round(document.documentElement.clientWidth),
     height: Math.round(document.documentElement.clientHeight),
-    edit: measure(edit),
     netdata: measure(shells.netdata),
     traffic: measure(shells.traffic)
   };
-  // 「编辑机器」用 height:min(calc(100vh - 24px),920px) 撑满可用高度，同族弹窗必须一起等高。
   const expected = Math.round(Math.min(document.documentElement.clientHeight - 24, 920));
   rows.expected = expected;
   shells.netdata.close();
   shells.traffic.close();
-  edit.removeAttribute('open');
   return rows;
 })()`;
 
@@ -209,30 +183,6 @@ const widthPart = value => Number(String(value).split('x')[0]);
 const heightPart = value => Number(String(value).split('x')[1]);
 
 const VIEWS = [
-  {
-    label: '编辑机器弹窗',
-    sizes: [[980, 560], [980, 600], [900, 520], [1200, 800]],
-    show: "for (const p of document.querySelectorAll('[role=\"tabpanel\"]')) p.hidden = p.id !== 'fleetPanel';",
-    measure: MEASURE_DIALOG,
-    columns: [
-      ['视口', row => `${row.width}x${row.height}`],
-      ['弹窗高/宽', row => `${row.dialogHeight}/${row.dialogWidth}`],
-      ['内容区高', row => `${row.bodyHeight}`],
-      ['头/底', row => `${row.headHeight}/${row.footHeight}`],
-      ['表单高', row => `${row.formHeight}`],
-      ['页溢出', row => `${row.pageOverflow}`]
-    ],
-    check: row => {
-      const problems = [];
-      const expected = Math.min(row.height - 24, 920);
-      if (row.dialogHeight < expected - 1) problems.push(`${row.width}x${row.height} 弹窗只用了 ${row.dialogHeight}px，可用高度 ${expected}px`);
-      if (row.bodyHeight !== null && row.bodyHeight < (row.height >= 520 ? 320 : 260)) {
-        problems.push(`${row.width}x${row.height} 弹窗内容区只剩 ${row.bodyHeight}px`);
-      }
-      if (row.pageOverflow > 0) problems.push(`${row.width}x${row.height} 弹窗撑出横向溢出 ${row.pageOverflow}px`);
-      return problems;
-    }
-  },
   {
     label: '机器列表',
     show: "document.querySelector('#fleetPanel').hidden=false;document.querySelector('#commandPanel').hidden=true;document.querySelector('#discoveryPanel').hidden=true;",
@@ -262,7 +212,7 @@ const VIEWS = [
   },
   {
     label: '弹窗尺寸一致性',
-    // 编辑机器 / Netdata / 云流量是同一族弹窗，宽高都应来自同一套约束：
+    // Netdata / 云流量仍由旧静态样式驱动；React 机器编辑器由组件测试与浏览器验证覆盖。
     //  - 宽度：.netdata-dialog 的 min(820px,94vw)。谁单独写死一个更小的值，宽窗口下就会比兄弟弹窗窄
     //    （云流量曾单独写 780px，比另两个窄 40px）。
     //  - 高度：撑满 min(calc(100vh - 24px),920px)。.netdata-dialog 只有 max-height:88vh，没有 height，
@@ -288,31 +238,25 @@ const VIEWS = [
     columns: [
       ['视口', row => `${row.width}x${row.height}`],
       ['应达高度', row => `${row.expected}`],
-      ['编辑机器', row => `${row.edit}`],
       ['Netdata', row => `${row.netdata}`],
       ['云流量', row => `${row.traffic}`]
     ],
     check: row => {
       const problems = [];
-      const values = [['编辑机器', row.edit], ['Netdata', row.netdata], ['云流量', row.traffic]];
+      const values = [['Netdata', row.netdata], ['云流量', row.traffic]];
       const limit = Math.min(Math.round(row.width * 0.94), 820);
       for (const [label, value] of values) {
         if (value === null) { problems.push(`${row.width}px ${label}弹窗量不到尺寸`); continue; }
         const width = widthPart(value);
         const height = heightPart(value);
         if (width < Math.min(row.width * 0.94, 820) - 1) problems.push(`${row.width}px ${label}弹窗只有 ${width}px 宽，窄于设计上限 ${limit}px`);
-        // Netdata 面板内容是自适应的，只约束宽度；云流量与编辑机器都用满可用高度。
+        // Netdata 面板内容是自适应的，只约束宽度；云流量使用满可用高度。
         if (label !== 'Netdata' && height < row.expected - 1) problems.push(`${row.width}x${row.height} ${label}弹窗只有 ${height}px 高，未撑满可用高度 ${row.expected}px`);
       }
       const widths = values.map(([, value]) => widthPart(value));
       if (widths.every(Number.isFinite)) {
         const spread = Math.max(...widths) - Math.min(...widths);
         if (spread > 0 && row.width * 0.94 > 820) problems.push(`${row.width}px 三个弹窗宽度不一致，相差 ${spread}px：${values.map(([label, value]) => label + ' ' + value).join(' / ')}`);
-      }
-      const editable = values.filter(([label]) => label !== 'Netdata').map(([, value]) => heightPart(value));
-      if (editable.every(Number.isFinite)) {
-        const spread = Math.max(...editable) - Math.min(...editable);
-        if (spread > 1) problems.push(`${row.width}x${row.height} 编辑机器与云流量高度不一致，相差 ${spread}px：${values.map(([label, value]) => label + ' ' + value).join(' / ')}`);
       }
       return problems;
     }

@@ -42,12 +42,6 @@
 .select-trigger::after { content: ""; position: absolute; top: calc(50% - 4px); right: 13px; width: 6px; height: 6px; border-right: 1.5px solid var(--muted); border-bottom: 1.5px solid var(--muted); transform: rotate(45deg); pointer-events: none; }
 .select-trigger[aria-expanded="true"]::after { top: calc(50% - 1px); transform: rotate(225deg); }
 
-.host-form > label { align-content: start; min-width: 0; flex: 0 0 calc((100% - 36px) / 4); }
-.host-form .select-shell { display: block; width: 100%; min-width: 0; }
-.host-form .select-trigger { height: var(--control-h); min-height: var(--control-h); padding-left: 10px; border-radius: 6px; background: #0f1712; font-weight: 400; }
-.host-form .select-trigger:hover { border-color: #52705b; background: #152019; }
-.host-form input:not([type="hidden"]) { width: 100%; min-width: 0; height: var(--control-h); }
-.host-form .select-menu { width: 100%; min-width: 100%; max-width: 100%; }
 .select-menu { position: absolute; top: calc(100% + 5px); left: 0; z-index: 30; width: max-content; min-width: 100%; max-width: min(400px, 80vw); max-height: 260px; padding: 4px; overflow: auto; border: 1px solid #405748; border-radius: 7px; background: #1a261e; box-shadow: 0 12px 30px #0006; }
 .select-menu > button { display: block; width: 100%; border: 0; border-radius: 4px; background: transparent; text-align: left; white-space: normal; }
 .select-menu > button[aria-selected="true"] { background: #293e30; color: var(--accent); }
@@ -57,10 +51,6 @@
 .filter-bar label { display: grid; min-width: 140px; max-width: 100%; gap: 6px; }
 .filter-bar select { max-width: 420px; }
 #fleetPanel .toolbar { flex-wrap: wrap; }
-.identity-input { display: flex; align-items: center; min-width: 0; gap: 7px; }
-.identity-input input { flex: 1; min-width: 0; }
-.identity-input button { flex: none; }
-.host-save-actions { width: 100%; justify-content: flex-end; padding-top: 11px; border-top: 1px solid var(--line); }
 
 .discovery-heading { display: flex; align-items: center; gap: 9px; }
 .discovery-heading .help-content { right: auto; left: 0; }
@@ -81,8 +71,6 @@
 @media (max-width: 600px) {
   .select-shell { min-width: 120px; }
 }
-
-@media (max-width: 480px) { .host-form > label { flex-basis: 100%; } }
 
 .select-menu .select-search { position: sticky; top: 0; z-index: 1; display: block; width: 100%; min-width: 0; margin: 0 0 5px; padding: 8px 9px; background: var(--panel, #17231c); font: inherit; }
 .select-menu [role="status"] { display: block; padding: 9px; color: var(--muted, #99aa9e); }
