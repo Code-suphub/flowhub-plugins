@@ -93,7 +93,7 @@ function TargetRail({ hosts, selected, disabled, onChange }: {
   }
 
   return <aside className="command-react__targets" aria-label="目标机器">
-    <div className="command-react__target-head"><div><span>01 / TARGETS</span><strong>目标机器</strong></div><em>{selected.size}/16</em></div>
+    <div className="command-react__target-head"><strong>目标机器</strong><div><em>已选 {selected.size}/16</em>{selected.size ? <Button size="sm" variant="ghost" onClick={() => onChange(new Set())}>清空</Button> : null}</div></div>
     <Input type="search" aria-label="搜索目标机器" placeholder="搜索名称、别名或分组…" value={query} onChange={(event) => setQuery(event.target.value)} />
     <div className="command-react__target-list">
       {visible.map((host) => <label key={host.id} className="command-react__target" data-selected={selected.has(host.id) || undefined}>
@@ -103,7 +103,6 @@ function TargetRail({ hosts, selected, disabled, onChange }: {
       </label>)}
       {!visible.length ? <p>没有匹配的机器</p> : null}
     </div>
-    <Button size="sm" variant="ghost" disabled={!selected.size} onClick={() => onChange(new Set())}>清空选择</Button>
   </aside>;
 }
 
@@ -275,7 +274,7 @@ export function CommandWorkspace({ api, run }: CommandWorkspaceProps) {
   if (!state) return <section className="command-react"><EmptyState title={error || '正在读取命令工作台…'} /></section>;
 
   return <section className="command-react" aria-labelledby="command-react-title">
-    <header className="command-react__head"><div><span>03 / REMOTE OPS</span><div className="command-react__title"><h2 id="command-react-title">远程命令</h2><HelpPopover label="命令执行说明">每条命令独立执行，不保留目录或环境变量。每批最多 16 台，并发由插件调度，超时 60 秒；取消本地 SSH 后，远端进程仍可能继续。</HelpPopover></div><p>选择目标、执行查询，并在同一工作区查看本次会话输出。</p></div><div className="command-react__head-status"><span className={selectedHosts.length ? 'is-ready' : ''}>{selectedHosts.length ? `已选 ${selectedHosts.length} 台` : '等待选择'}</span></div></header>
+    <header className="command-react__head"><div><div className="command-react__title"><h2 id="command-react-title">远程命令</h2><HelpPopover label="命令执行说明">每条命令独立执行，不保留目录或环境变量。每批最多 16 台，并发由插件调度，超时 60 秒；取消本地 SSH 后，远端进程仍可能继续。</HelpPopover></div><p>选择目标、输入命令并查看本次会话输出。</p></div><div className="command-react__head-status"><span className={selectedHosts.length ? 'is-ready' : ''}>{selectedHosts.length ? `已选 ${selectedHosts.length} 台` : '尚未选择目标'}</span></div></header>
     <div className="command-react__layout">
       <TargetRail hosts={hosts} selected={selected} disabled={!state.config.enabled} onChange={updateSelection} />
       <main className="command-react__main">
@@ -287,11 +286,13 @@ export function CommandWorkspace({ api, run }: CommandWorkspaceProps) {
             <section className="command-react__terminal"><header><div><span className="command-react__lamp" aria-hidden="true" />SHARED TERMINAL</div><span>{bastionBusy ? '通信中…' : bastion.connected ? '会话在线' : '等待连接'}</span></header><pre className="command-react__bastion-output" tabIndex={0}>{bastion.output}</pre><div className="command-react__session-input"><Input type={secret ? 'password' : 'text'} aria-label="终端输入" value={sessionInput} disabled={!bastion.connected || bastionBusy || !!bastionHost.readOnly} placeholder="输入内容后按 Enter 发送" onChange={(event) => setSessionInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); const value = sessionInput; setSessionInput(''); void sessionAction('bastionSend', { text: value }); } }} /><Button disabled={!bastion.connected || bastionBusy || !!bastionHost.readOnly} onClick={() => { const value = sessionInput; setSessionInput(''); void sessionAction('bastionSend', { text: value }); }}>发送并回车</Button><Button variant="ghost" disabled={!bastion.connected || bastionBusy || !!bastionHost.readOnly} onClick={() => void sessionAction('bastionSend', { key: 'Enter' })}>仅回车</Button></div></section>
           </>}
         </section> : <>
-          <section className="command-react__settings"><div><span>CONNECTION</span><strong>连接偏好</strong><HelpPopover label="SSH 连接说明">复用连接适合频繁执行命令。首次需要密码或验证码时，请先从机器菜单打开系统终端完成认证；共享连接不继承 Shell 目录。</HelpPopover></div><Select aria-label="SSH 连接方式" value={state.config.reuseConnections ? 'reuse' : 'independent'} options={[{ value: 'independent', label: '每次独立连接' }, { value: 'reuse', label: '复用已认证连接' }]} onChange={(value) => void saveConnection(value === 'reuse', state.config.connectionIdleSeconds ?? 28800)} />{state.config.reuseConnections ? <Select aria-label="连接空闲保留" value={String(state.config.connectionIdleSeconds ?? 28800)} options={IDLE_OPTIONS} onChange={(value) => void saveConnection(true, Number(value))} /> : null}</section>
-          <div className="command-react__composer-tools"><div><span>02 / COMMAND</span><strong>命令输入</strong></div><div>{templates.length ? <Select aria-label="选择命令模板" value="" placeholder="选择命令模板" options={[{ value: '', label: '选择命令模板' }, ...templates.map((template, index) => ({ value: String(index), label: template.name }))]} onChange={(value) => { if (value) setCommand(templates[Number(value)]?.command ?? ''); }} /> : null}<Button variant="secondary" onClick={() => setTemplateOpen(true)}>管理模板</Button></div></div>
-          <JobConsole jobs={jobs} selectedHosts={selectedHosts} onCancel={(job) => void api('cancel', { id: job.id }).catch((reason) => setError(errorText(reason)))} onClear={() => setJobs((current) => current.filter((job) => !job.finishedAt))} />
+          <div className="command-react__controls" aria-label="命令设置">
+            <div className="command-react__control-group"><span>连接</span><Select className="command-react__connection-select" aria-label="SSH 连接方式" value={state.config.reuseConnections ? 'reuse' : 'independent'} options={[{ value: 'independent', label: '每次独立连接' }, { value: 'reuse', label: '复用已认证连接' }]} onChange={(value) => void saveConnection(value === 'reuse', state.config.connectionIdleSeconds ?? 28800)} />{state.config.reuseConnections ? <Select className="command-react__idle-select" aria-label="连接空闲保留" value={String(state.config.connectionIdleSeconds ?? 28800)} options={IDLE_OPTIONS} onChange={(value) => void saveConnection(true, Number(value))} /> : null}<HelpPopover label="SSH 连接说明">复用连接适合频繁执行命令。首次需要密码或验证码时，请先从机器菜单打开系统终端完成认证；共享连接不继承 Shell 目录。</HelpPopover></div>
+            <div className="command-react__control-group command-react__template-controls"><span>模板</span>{templates.length ? <Select className="command-react__template-select" aria-label="选择命令模板" value="" placeholder="选择模板" options={[{ value: '', label: '选择模板' }, ...templates.map((template, index) => ({ value: String(index), label: template.name }))]} onChange={(value) => { if (value) setCommand(templates[Number(value)]?.command ?? ''); }} /> : <span className="command-react__no-templates">无模板</span>}<Button size="sm" variant="ghost" onClick={() => setTemplateOpen(true)}>管理</Button></div>
+          </div>
           <div className="command-react__composer"><span aria-hidden="true">{selectedHosts.length === 1 ? `${selectedHosts[0]?.alias} $` : selectedHosts.length ? `${selectedHosts.length} 台 $` : '$'}</span><Textarea rows={1} spellCheck={false} autoComplete="off" placeholder="输入命令，回车执行" value={command} onChange={(event) => setCommand(event.target.value)} onKeyDown={commandKeyDown} /><Button variant="primary" disabled={running || !selectedHosts.length || !command.trim()} onClick={submitCommand}>{running ? '执行中…' : '执行 ↵'}</Button></div>
           <footer className="command-react__footer"><span>{selectedHosts.length ? selectedHosts.map((host) => host.name).join('、') : '尚未选择机器'}</span><span>Enter 执行 · Shift+Enter 换行 · ↑↓ 历史</span></footer>
+          <JobConsole jobs={jobs} selectedHosts={selectedHosts} onCancel={(job) => void api('cancel', { id: job.id }).catch((reason) => setError(errorText(reason)))} onClear={() => setJobs((current) => current.filter((job) => !job.finishedAt))} />
         </>}
         {notice ? <p className="command-react__notice" role="status">{notice}</p> : null}
         {error ? <p className="command-react__error" role="alert">{error}</p> : null}
