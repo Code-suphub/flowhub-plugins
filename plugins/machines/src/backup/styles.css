@@ -1,0 +1,14 @@
+dialog.backup-workspace { width: min(540px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); }
+.backup-workspace__shell { max-height: calc(100dvh - 24px); grid-template-rows: auto minmax(0, 1fr) auto; }
+.backup-workspace__heading { position: relative; }
+.backup-workspace__help { position: absolute; right: 0; top: 2px; }
+.backup-workspace .fh-tabs__list { padding-right: 38px; }
+.backup-workspace__fields { display: grid; gap: 16px; padding-top: 18px; }
+.backup-workspace .fh-input:focus-visible { outline: none; box-shadow: 0 0 0 1px #a9e0b8; }
+.backup-workspace__preview { border-top: 1px solid #294336; padding-top: 14px; }
+.backup-workspace__preview dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 16px; margin: 0; font-size: 12px; }
+.backup-workspace__preview dt { color: #91a99a; }
+.backup-workspace__preview dd { margin: 0; overflow-wrap: anywhere; }
+.backup-workspace__preview p { color: #e7bb73; font-size: 12px; line-height: 1.7; }
+.backup-workspace__status { margin: 0; color: #a9e0b8; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.7; }
+.backup-workspace__status[data-error="true"] { color: #ff9fa8; }

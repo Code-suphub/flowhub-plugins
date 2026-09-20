@@ -7,6 +7,7 @@ import { HostEditorController, type HostEditorControllerHandle } from '../host-e
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import { createRef } from 'react';
+import { BackupWorkspace, type BackupApi } from '../backup/BackupWorkspace';
 import type { FleetActions, FleetPageProps } from './types';
 import { mountFleet } from './mount';
 
@@ -28,6 +29,15 @@ declare global {
 }
 
 const commandContainer = document.querySelector('#commandReactRoot');
+const backupContainer = document.querySelector('#backupReactRoot');
+if (backupContainer) {
+  const invoke = window.FlowHubPlugin?.invoke ?? window.__TAURI__?.core?.invoke;
+  const api: BackupApi | null = invoke
+    ? (action, password, token) => invoke('backup_api', { action, password, token }) as ReturnType<BackupApi>
+    : null;
+  createRoot(backupContainer).render(<BackupWorkspace api={api} />);
+}
+
 if (commandContainer) {
   const mounted = mountCommand(commandContainer, { api: resolveMachinesApi(), run: resolveMachinesRun() });
   window.FlowHubCommand = { mounted: true, setTargets: mounted.setTargets };

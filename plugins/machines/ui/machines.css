@@ -193,7 +193,6 @@ dialog p { overflow-wrap: anywhere; }
 .traffic-target { margin: 0 0 10px; color: var(--muted); font-size: 12px; }
 .traffic-target strong { color: var(--ink); font-weight: 600; }
 
-#backupDialog pre:empty { display: none; }
 .machine-tabs [data-machine-tab="discovery"], #discoveryPanel { display: none !important; }
 
 /* 开发预览是宿主注入的辅助信息，保持轻量且不改变普通业务 panel。 */
