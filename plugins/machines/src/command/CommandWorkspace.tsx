@@ -127,9 +127,9 @@ function JobConsole({ jobs, selectedHosts, onCancel, onClear }: {
   </section>;
 }
 
-export function CommandWorkspace({ api, run, active = true }: CommandWorkspaceProps) {
+export function CommandWorkspace({ api, run, active = true, selectedHostIds, onSelectionChange }: CommandWorkspaceProps) {
   const [state, setState] = useState<CommandState | null>(null);
-  const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set());
+  const selected = useMemo(() => new Set(selectedHostIds), [selectedHostIds]);
   const [command, setCommand] = useState('');
   const [jobs, setJobs] = useState<readonly CommandJob[]>([]);
   const [running, setRunning] = useState(false);
@@ -155,18 +155,10 @@ export function CommandWorkspace({ api, run, active = true }: CommandWorkspacePr
       const next = await api('state') as CommandState;
       if (version !== loadVersion.current) return;
       setState(next);
-      setSelected((current) => new Set([...current].filter((id) => next.config.hosts.some((host) => host.id === id))));
       setError('');
     } catch (reason) { if (version === loadVersion.current) setError(errorText(reason)); }
   }, [api]);
 
-  useEffect(() => {
-    const onTargets = (event: Event) => setSelected(new Set((event as CustomEvent<{ hostIds?: readonly string[] }>).detail?.hostIds ?? []));
-    window.addEventListener('flowhub:command-targets', onTargets);
-    return () => {
-      window.removeEventListener('flowhub:command-targets', onTargets);
-    };
-  }, []);
   useEffect(() => {
     if (active) void load();
     return () => { loadVersion.current++; };
@@ -193,8 +185,7 @@ export function CommandWorkspace({ api, run, active = true }: CommandWorkspacePr
   }, [bastionHost?.id, pollBastion]);
 
   function updateSelection(next: ReadonlySet<string>) {
-    setSelected(next);
-    window.dispatchEvent(new CustomEvent('flowhub:command-selection', { detail: { hostIds: [...next] } }));
+    onSelectionChange([...next]);
   }
 
   async function saveConnection(reuse: boolean, idleSeconds: number) {

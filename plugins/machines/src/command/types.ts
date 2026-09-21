@@ -47,6 +47,8 @@ export interface BastionState {
 }
 
 export interface CommandWorkspaceProps {
+  selectedHostIds: readonly string[];
+  onSelectionChange: (hostIds: readonly string[]) => void;
   active?: boolean;
   api: MachinesApi | null;
   run: MachinesRun | null;

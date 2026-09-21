@@ -55,16 +55,11 @@ export function FleetController({ api, run }: { api: MachinesApi | null; run: Ma
     };
     refresh.current = request;
     const changed = () => { void request().catch(report); };
-    const selection = (event: Event) => {
-      const ids = (event as CustomEvent<{ hostIds?: string[] }>).detail?.hostIds ?? [];
-      setSelected(ids.filter(id => current.current.config.hosts.some(host => host.id === id)));
-    };
     const poll = async () => {
       try { if (!document.hidden) await request(); } catch (error) { report(error); }
       if (!disposed) timer = setTimeout(poll, 2000);
     };
     window.addEventListener('flowhub:hosts-changed', changed);
-    window.addEventListener('flowhub:command-selection', selection);
     void (async () => {
       try {
         await request();
@@ -83,7 +78,6 @@ export function FleetController({ api, run }: { api: MachinesApi | null; run: Ma
       alive.current = false;
       clearTimeout(timer);
       window.removeEventListener('flowhub:hosts-changed', changed);
-      window.removeEventListener('flowhub:command-selection', selection);
     };
   }, [api]);
 
@@ -99,7 +93,6 @@ export function FleetController({ api, run }: { api: MachinesApi | null; run: Ma
   const select = (ids: readonly string[]) => {
     const valid = ids.filter(id => current.current.config.hosts.some(host => host.id === id));
     setSelected(valid);
-    window.FlowHubCommand?.setTargets(valid);
   };
   const collect = async (ids: readonly string[]) => {
     if (!enabled || !run) return;
@@ -138,6 +131,8 @@ export function FleetController({ api, run }: { api: MachinesApi | null; run: Ma
     },
   };
   return <MachineShell
+    selectedHostIds={selected}
+    onSelectionChange={select}
     api={api}
     run={run}
     available={!!state.config.installed && state.config.enabled}

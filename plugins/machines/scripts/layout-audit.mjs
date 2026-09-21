@@ -237,6 +237,16 @@ async function main() {
           if (roots.some((root, i) => document.getElementById(['fleet', 'command', 'history'][i] + 'ReactRoot') !== root)) throw Error('Navigation remounted an island');
         };
         window.FlowHubMachineTabs.show('fleet', true); await frame(); verify(0);
+        const fleetChoice = document.querySelector('#fleetReactRoot input[data-select="demo-app"]');
+        if (!fleetChoice) throw Error('Fleet selection missing');
+        fleetChoice.click(); await frame();
+        window.FlowHubMachineTabs.show('command'); await frame();
+        for (let attempt = 0; attempt < 50 && !document.querySelector('.command-react__target input'); attempt++) await frame();
+        const commandChoice = document.querySelector('.command-react__target input');
+        if (!commandChoice?.checked) throw Error('Fleet selection did not reach command page');
+        commandChoice.click(); await frame();
+        window.FlowHubMachineTabs.show('fleet', true); await frame();
+        if (fleetChoice.checked) throw Error('Command deselection did not reach fleet');
         for (const [key, index] of [['ArrowRight', 1], ['End', 2], ['ArrowRight', 0], ['ArrowLeft', 2], ['Home', 0]]) {
           document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
           await frame(); verify(index);

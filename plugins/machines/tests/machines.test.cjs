@@ -4,6 +4,16 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
+test('fleet and command share controlled selection without event bridges', () => {
+  for (const file of ['fleet/FleetController.tsx', 'fleet/MachineWorkspace.tsx', 'fleet/main.tsx', 'command/CommandWorkspace.tsx']) {
+    const source = fs.readFileSync(path.join(__dirname, '../src', file), 'utf8');
+    assert(!/FlowHubCommand|flowhub:command-selection|flowhub:command-targets/.test(source));
+  }
+  const command = fs.readFileSync(path.join(__dirname, '../src/command/CommandWorkspace.tsx'), 'utf8');
+  assert.match(command, /new Set\(selectedHostIds\)/);
+  assert.match(command, /onSelectionChange\(\[\.\.\.next\]\)/);
+});
+
 test('command and history receive navigation as props without independent roots', () => {
   for (const area of ['command', 'history']) {
     assert(!fs.existsSync(path.join(__dirname, `../src/${area}/mount.tsx`)));
@@ -95,9 +105,11 @@ test('controller coalesces refreshes and ignores responses after unmount', async
   await tick();
   assert.equal(h.states[0].config.hosts.length, 0, 'stale response must not publish');
   assert.equal(pending.length, 2);
+  h.states[1] = ['fresh', 'removed'];
   pending[1](state('fresh'));
   await tick();
   assert.equal(h.states[0].config.hosts[0].id, 'fresh');
+  assert.equal(JSON.stringify(h.states[1]), '["fresh"]', 'removed machines must leave the shared selection');
   assert.equal(h.timers.size, 1);
   h.listeners.get('flowhub:hosts-changed')();
   await tick();
@@ -279,7 +291,7 @@ test('fleet controller owns lifecycle and physically replaces the legacy orchest
   assert.match(source, /if \(disposed \|\| !api\) return/);
   assert.match(source, /clearTimeout\(timer\)/);
   assert.match(source, /removeEventListener\('flowhub:hosts-changed'/);
-  assert.match(source, /removeEventListener\('flowhub:command-selection'/);
+  assert(!source.includes('flowhub:command-selection'));
   assert.match(source, /if \(pending\) continue/);
   assert.match(source, /只读浏览器预览/);
 });

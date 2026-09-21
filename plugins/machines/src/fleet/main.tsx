@@ -15,7 +15,6 @@ declare global {
   interface Window {
     FlowHubHostEditor?: { open: (hostId?: string, options?: { copy?: boolean }) => Promise<void>; close: () => void };
     FlowHubCollections?: ReturnType<typeof mountCollections>;
-    FlowHubCommand?: { mounted: true; setTargets: (hostIds: readonly string[]) => void };
   }
 }
 
