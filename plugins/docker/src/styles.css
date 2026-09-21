@@ -1,0 +1,123 @@
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+@source "../../common/src/react";
+
+@layer base {
+  :root {font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; color: var(--fh-text); background: var(--fh-surface-soft)}
+  body {margin: 0}
+  *, ::before, ::after {box-sizing: border-box}
+  button, input, textarea {font: inherit}
+  button {cursor: pointer}
+  button:disabled {cursor: not-allowed}
+}
+
+.docker-page {
+  --docker-ink: var(--fh-text, #dcebe2);
+  --docker-muted: var(--fh-muted, #88a294);
+  --docker-line: var(--fh-border, #294336);
+  --docker-panel: var(--fh-canvas, #0b1711);
+  --docker-panel-raised: var(--fh-surface, #101f17);
+  --docker-accent: var(--fh-accent, #a9e8bc);
+  --docker-danger: var(--fh-danger, #ff9fa8);
+  min-width: 0;
+  padding: clamp(16px, 3vw, 32px);
+  color: var(--docker-ink);
+}
+.docker-page h1, .docker-page h2, .docker-page h3, .docker-page p {margin: 0}
+.docker-page p {color: var(--docker-muted); line-height: 1.65}
+.docker-header {display:flex; align-items:flex-start; justify-content:space-between; gap:24px}
+.docker-eyebrow {display:inline-flex; color:var(--docker-accent); font:700 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing:.16em; text-transform:uppercase}
+.docker-header h1 {margin-top:7px; font-size:clamp(21px, 3vw, 29px); letter-spacing:-.04em}
+.docker-context {display:inline-block; margin-left:8px; border:1px solid var(--docker-line); border-radius:6px; padding:5px 8px; color:var(--docker-muted); font:500 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing:0}
+.docker-header p {display:flex; align-items:center; gap:6px; margin-top:8px; font-size:12px}
+.docker-header-actions {display:flex; flex-wrap:wrap; justify-content:flex-end; gap:8px; flex-shrink:0}
+.docker-preview, .docker-alert, .docker-notice {margin-top:16px; border:1px solid var(--docker-line); border-radius:10px; padding:11px 14px; white-space:pre-wrap; overflow-wrap:anywhere; font-size:12px; line-height:1.6}
+.docker-preview {background:color-mix(in srgb, var(--fh-accent, #a9e8bc) 9%, transparent); color:var(--docker-accent)}
+.docker-alert {border-color:color-mix(in srgb, var(--docker-danger) 55%, var(--docker-line)); background:color-mix(in srgb, var(--docker-danger) 9%, transparent); color:var(--docker-danger)}
+.docker-notice {background:color-mix(in srgb, var(--fh-warning, #f2cf88) 10%, transparent); color:var(--fh-warning, #f2cf88)}
+.docker-stats {margin:22px 0 16px}
+.docker-scope-nav {display:flex; flex-wrap:wrap; gap:2px; margin-bottom:16px; border-bottom:1px solid var(--docker-line)}
+.docker-scope-nav button {min-height:42px; border:0; border-bottom:2px solid transparent; border-radius:0; background:transparent; padding:0 13px; color:var(--docker-muted); font-size:12px; font-weight:650; letter-spacing:.08em}
+.docker-scope-nav button:hover {background:var(--docker-panel-raised); color:var(--docker-ink)}
+.docker-scope-nav button.is-active {border-bottom-color:var(--docker-accent); color:var(--docker-accent)}
+.docker-scope-nav button:focus-visible, .docker-project-link:focus-visible, .docker-fold:focus-visible, .docker-resource-row:focus-visible, .docker-member-row:focus-visible {outline:2px solid var(--docker-accent); outline-offset:2px}
+.docker-workspace {display:grid; grid-template-columns:minmax(235px, 34%) minmax(0, 1fr); min-height:510px; overflow:hidden; border:1px solid var(--docker-line); border-radius:14px; background:var(--docker-panel)}
+.docker-sidebar {min-width:0; border-right:1px solid var(--docker-line); padding:16px 14px}
+.docker-list-heading {display:flex; align-items:center; justify-content:space-between; gap:8px; margin:0 4px 14px}
+.docker-list-heading h2 {font-size:14px}
+.docker-list-heading span {color:var(--docker-muted); font:10px ui-monospace, SFMono-Regular, Menlo, monospace}
+.docker-resource-list {max-height:590px; margin-top:14px; overflow:auto}
+.docker-resource-group {margin-top:15px}
+.docker-group-heading {display:flex; align-items:center; gap:5px; min-width:0; padding:0 5px 5px; color:var(--docker-muted); font-size:11px}
+.docker-group-heading small {margin-left:auto; white-space:nowrap}
+.docker-fold {width:24px; min-height:28px; border:0; background:transparent; color:var(--docker-muted)}
+.docker-project-link {min-width:0; overflow-wrap:anywhere; border:0; background:transparent; padding:5px 2px; color:var(--docker-accent); text-align:left; font-size:12px}
+.docker-resource-row {display:flex; width:100%; min-width:0; gap:10px; align-items:flex-start; border:0; border-left:2px solid transparent; border-radius:8px; background:transparent; padding:10px 8px; color:var(--docker-ink); text-align:left}
+.docker-resource-row:hover {background:var(--docker-panel-raised)}
+.docker-resource-row.is-selected {border-left-color:var(--docker-accent); background:color-mix(in srgb, var(--docker-accent) 10%, transparent)}
+.docker-status-dot {width:7px; height:7px; margin-top:5px; border-radius:999px; flex-shrink:0; background:var(--docker-muted)}
+.docker-status-dot.running {background:var(--docker-accent)}
+.docker-status-dot.restarting, .docker-status-dot.dead, .docker-status-dot.unhealthy {background:var(--fh-warning, #f2cf88)}
+.docker-resource-copy {display:block; min-width:0}
+.docker-resource-copy strong, .docker-resource-copy small {display:block; overflow-wrap:anywhere}
+.docker-resource-copy strong {font-size:12px}
+.docker-resource-copy small {margin-top:4px; color:var(--docker-muted); font-size:10px; line-height:1.5}
+.docker-detail {min-width:0; padding:24px}
+.docker-detail-heading {display:flex; align-items:flex-start; justify-content:space-between; gap:16px}
+.docker-detail-heading h2 {margin:7px 0; overflow-wrap:anywhere; font-size:22px; letter-spacing:-.03em}
+.docker-detail-heading p {font:11px ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap:anywhere}
+.docker-badge {max-width:170px; border:1px solid var(--docker-line); border-radius:7px; background:var(--docker-panel-raised); padding:6px 9px; color:var(--docker-accent); font-size:11px; text-align:right}
+.docker-actions {display:flex; flex-wrap:wrap; gap:7px; margin:20px 0}
+.docker-project-note {padding:12px 0}
+.docker-loading {padding:24px 0}
+.docker-overview-content h3 {margin:24px 0 10px; font-size:13px}
+.docker-metrics {display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:10px; margin-bottom:22px}
+.docker-metrics > div {min-width:0; border:1px solid var(--docker-line); border-radius:9px; background:var(--docker-panel-raised); padding:13px}
+.docker-metrics span {display:block; color:var(--docker-muted); font-size:10px}
+.docker-metrics strong {display:block; margin-top:7px; overflow-wrap:anywhere; font:600 16px ui-monospace, SFMono-Regular, Menlo, monospace}
+.docker-detail-grid {display:grid; grid-template-columns:100px minmax(0, 1fr); gap:12px 16px; margin:0; font-size:12px}
+.docker-detail-grid dt {color:var(--docker-muted)}
+.docker-detail-grid dd {margin:0; overflow-wrap:anywhere; white-space:pre-wrap; line-height:1.6}
+.docker-member-row {display:flex; width:100%; justify-content:space-between; gap:16px; border:1px solid var(--docker-line); border-radius:8px; background:var(--docker-panel-raised); margin:7px 0; padding:11px 12px; color:var(--docker-ink); text-align:left}
+.docker-member-row:hover {border-color:var(--fh-accent, #a9e8bc)}
+.docker-member-row small {flex-shrink:0; color:var(--docker-muted)}
+.docker-muted {color:var(--docker-muted); font-size:12px}
+.docker-error {margin-top:14px; color:var(--docker-danger)!important}
+.docker-log-tools {display:flex; align-items:center; flex-wrap:wrap; gap:9px}
+.docker-log-tools .fh-input {min-width:140px; flex:1}
+.docker-log-output {height:300px; min-height:260px; margin-top:13px; resize:vertical; background:var(--docker-panel)!important; color:var(--docker-ink)!important; font:11px/1.8 ui-monospace, SFMono-Regular, Menlo, monospace!important}
+.docker-settings {max-width:900px; border:1px solid var(--docker-line); border-radius:14px; background:var(--docker-panel); padding:22px}
+.docker-settings-heading {display:flex; align-items:flex-start; justify-content:space-between; gap:16px; border-bottom:1px solid var(--docker-line); padding-bottom:18px; margin-bottom:20px}
+.docker-settings-label {display:flex; align-items:center; gap:6px; color:var(--docker-ink); font-size:14px; font-weight:650}
+.docker-settings-heading p {font-size:12px}
+.docker-success {min-height:20px; color:var(--docker-accent); font-size:12px}
+.docker-settings-form {display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:16px}
+.docker-settings-form fieldset {height:100%}
+.docker-settings-actions {grid-column:1/-1; display:flex; gap:8px; border-top:1px solid var(--docker-line); padding-top:18px}
+.docker-settings-note {display:grid; grid-template-columns:140px minmax(0, 1fr); gap:7px 18px; margin-top:22px; border-radius:9px; background:var(--docker-panel-raised); padding:14px; font-size:12px}
+.docker-settings-note span {overflow-wrap:anywhere; font:11px ui-monospace, SFMono-Regular, Menlo, monospace}
+.docker-settings-note small {grid-column:2; color:var(--docker-muted); font-size:10px; line-height:1.5}
+.docker-confirm-text {white-space:pre-wrap; overflow-wrap:anywhere; font-size:13px}
+.docker-footer {display:flex; justify-content:space-between; gap:12px; margin-top:14px; color:var(--docker-muted); font-size:10px}
+
+@media (max-width: 760px) {
+  .docker-header {flex-wrap:wrap}
+  .docker-header-actions {justify-content:flex-start}
+  .docker-workspace {grid-template-columns:1fr}
+  .docker-sidebar {border-right:0; border-bottom:1px solid var(--docker-line)}
+  .docker-resource-list {max-height:250px}
+  .docker-detail {padding:18px}
+}
+@media (max-width: 520px) {
+  .docker-page {padding:14px}
+  .docker-scope-nav {gap:0}
+  .docker-scope-nav button {padding:0 9px; font-size:11px}
+  .docker-settings {padding:16px}
+  .docker-settings-form {grid-template-columns:1fr}
+  .docker-settings-actions {grid-column:auto}
+  .docker-settings-note {grid-template-columns:1fr}
+  .docker-settings-note small {grid-column:auto}
+  .docker-footer {display:block}
+  .docker-footer span {display:block; margin-top:4px}
+}

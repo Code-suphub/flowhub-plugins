@@ -152,27 +152,9 @@ function HostActions({ host, disabled, onCollect, onAction }: HostActionsProps) 
   const cancelRef = useRef<HTMLButtonElement>(null);
   return (
     <div className="fleet__row-actions">
-      <Button
-        data-host-action="collect"
-        data-id={host.id}
-        size="sm"
-        variant="ghost"
-        disabled={disabled}
-        onClick={() => onCollect(host.id)}
-      >
-        采集
-      </Button>
-      <Button
-        data-host-action="edit"
-        data-id={host.id}
-        size="sm"
-        variant="ghost"
-        disabled={disabled}
-        onClick={() => onAction('edit', host)}
-      >
-        编辑
-      </Button>
       <DropdownMenu label="更多" ariaLabel={`打开 ${host.name} 的更多操作`} items={[
+        { id: 'collect', label: '采集', disabled, onSelect: () => onCollect(host.id) },
+        { id: 'edit', label: '编辑', disabled, onSelect: () => onAction('edit', host) },
         { id: 'collections', label: '采集记录', onSelect: () => onAction('collections', host) },
         { id: 'command', label: '命令', disabled, onSelect: () => onAction('command', host) },
         { id: 'terminal', label: '系统终端', disabled: disabled || host.readOnly, onSelect: () => onAction('terminal', host) },
@@ -390,6 +372,8 @@ export function FleetPage({
       },
       {
         key: 'load',
+        className: 'fleet__secondary-column',
+        headerClassName: 'fleet__secondary-column',
         header: '负载 / 运行',
         render: (host: FleetHost) => {
           const values = metricValue(snapshot, config, now, host).values;
@@ -529,46 +513,6 @@ export function FleetPage({
             />
           ) : null}
         </div>
-        {visibleHosts.length > 0 ? (
-          <div className="fleet__cards" aria-label="已纳管机器列表">
-            {visibleHosts.map((host) => {
-              const metric = snapshot.metrics[host.id];
-              const status = statusByHost.get(host.id) || 'unknown';
-              const values = metricValue(snapshot, config, now, host).values;
-              return (
-                <article className="fleet__card" key={host.id}>
-                  <header className="fleet__card-head">
-                    <FleetCheckbox
-                      dataSelect={host.id}
-                      ariaLabel={`选择 ${host.name}`}
-                      checked={selectedIds.has(host.id)}
-                      disabled={!interactive}
-                      label=""
-                      onChange={(checked) => toggleHost(host.id, checked)}
-                    />
-                    <HostIdentity host={host} />
-                    <StatusBadge status={status} error={metric?.error} />
-                  </header>
-                  <div className="fleet__card-metrics">
-                    <div><span>CPU</span><MetricValue value={values?.cpu} unit="%" muted={!values} /></div>
-                    <div><span>内存</span><MetricValue value={values?.memory} unit="%" muted={!values} /></div>
-                    <div><span>磁盘</span><MetricValue value={values?.disk} unit="%" muted={!values} /></div>
-                    <div><span>负载</span><MetricValue value={values?.load} unit="" muted={!values} /></div>
-                  </div>
-                  <footer className="fleet__card-foot">
-                    <span>{formatTime(metric?.at)} · 运行 {formatUptime(values?.uptime)}</span>
-                    <HostActions
-                      host={host}
-                      disabled={!interactive}
-                      onCollect={actions.onCollectHost}
-                      onAction={actions.onHostAction}
-                    />
-                  </footer>
-                </article>
-              );
-            })}
-          </div>
-        ) : null}
         <FleetEmptyState
           hasHosts={total > 0}
           hidden={visibleHosts.length > 0}

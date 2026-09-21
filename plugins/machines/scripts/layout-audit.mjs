@@ -49,6 +49,8 @@ const MEASURE_FLEET = `(() => {
     pageOverflow: document.documentElement.scrollWidth - innerWidth,
     machines: visible('.fleet__identity').length,
     layout: visible('.fleet__card').length ? 'cards' : 'table',
+    cardNodes: root.querySelectorAll('.fleet__card, .fleet__cards').length,
+    tableRows: visible('.fh-table tbody tr').length,
     legacyNodes: document.querySelectorAll('#discoveryPanel, .overview, .panel.fleet').length,
     controlsOverflow: controls.some(el => { const r=el.getBoundingClientRect(); return r.left < 0 || r.right > innerWidth; }),
     summary: visible('.fleet__summary').length
@@ -65,6 +67,7 @@ const VIEWS = [
       const problems = [];
       if (row.pageOverflow > 0) problems.push('页面横向溢出');
       if (row.machines !== 2) problems.push('模拟机器未正确显示');
+      if (row.cardNodes || row.tableRows !== 2) problems.push('必须只有一套表格，不保留卡片布局');
       if (row.legacyNodes) problems.push('旧列表或导入节点残留');
       if (row.controlsOverflow) problems.push('操作控件超出视口');
       if (row.summary !== 1) problems.push('紧凑统计缺失');
@@ -87,7 +90,9 @@ const VIEWS = [
         previous.querySelector('button[aria-label="关闭"]').click();
         await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
       }
-      const edit = [...document.querySelectorAll('#fleetReactRoot button')].find(el => el.textContent.trim() === '编辑' && el.getBoundingClientRect().width);
+      document.querySelector('#fleetReactRoot .fleet__row-actions button[aria-haspopup="menu"]').click();
+      await wait('[role="menu"]');
+      const edit = [...document.querySelectorAll('[role="menuitem"]')].find(el => el.textContent.trim() === '编辑' && el.getBoundingClientRect().width);
       if (!edit) throw Error('机器编辑入口缺失');
       edit.click();
       await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));

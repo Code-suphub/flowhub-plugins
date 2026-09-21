@@ -12,7 +12,7 @@
     "build": "node scripts/run-all.mjs build",
     "check": "node scripts/check-plugins.mjs",
     "test": "node scripts/check-plugins.mjs && npm run test:common && node scripts/run-all.mjs test",
-    "test:common": "npm --prefix plugins/common run check && node --test scripts/common-assets.test.mjs",
+    "test:common": "npm --prefix plugins/common run check && node --test scripts/common-assets.test.mjs scripts/check-built-ui.test.mjs",
     "build:machines": "npm --prefix plugins/machines run build",
     "build:docker": "npm --prefix plugins/docker run build",
     "build:social-hub": "npm --prefix plugins/social-hub run build",

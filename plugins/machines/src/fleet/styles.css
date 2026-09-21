@@ -435,10 +435,6 @@ dialog.fleet__remove-dialog { width: min(420px, calc(100vw - 24px)); }
   color: var(--fleet-ink) !important;
 }
 
-.fleet__cards {
-  display: none;
-}
-
 .fleet__empty {
   display: grid;
   justify-items: center;
@@ -525,67 +521,12 @@ dialog.fleet__remove-dialog { width: min(420px, calc(100vw - 24px)); }
     flex-wrap: nowrap;
   }
 
-  .fleet__table-wrap {
-    display: none;
-  }
-
-  .fleet__cards {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px;
-  }
-
-  .fleet__card {
-    padding: 14px;
-    border: 1px solid var(--fleet-line);
-    background: color-mix(in srgb, var(--fh-canvas,#09120d) 48%, transparent);
-  }
-
-  .fleet__card-head {
-    display: flex;
-    align-items: flex-start;
-    gap: 9px;
-  }
-
-  .fleet__card-head .fleet__identity {
-    flex: 1;
-  }
-
-  .fleet__card-head > .fleet__status {
-    margin-top: 3px;
-  }
-
-  .fleet__card-metrics {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 7px;
-    margin: 15px 0 12px 25px;
-    padding: 10px 0;
-    border-block: 1px solid color-mix(in srgb, var(--fh-border,#2a3d31) 70%, transparent);
-  }
-
-  .fleet__card-metrics div {
-    display: grid;
-    gap: 5px;
-  }
-
-  .fleet__card-metrics div > span {
-    color: var(--fleet-faint);
-    font-size: 10px;
-  }
-
-  .fleet__card-foot {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    margin-left: 25px;
-  }
-
-  .fleet__card-foot > span {
-    color: var(--fleet-faint);
-    font: 10px ui-monospace, SFMono-Regular, Menlo, monospace;
-  }
+  .fleet__table-wrap .fh-table { min-width: 580px; }
+  .fleet__table-wrap .fh-table th,
+  .fleet__table-wrap .fh-table td { padding: 9px 8px; }
+  .fleet__host-cell { min-width: 140px; max-width: 180px; }
+  .fleet__identity small { max-width: 170px; }
+  .fleet__secondary-column { display: none; }
 }
 
 @media (max-width: 650px) {
@@ -602,19 +543,6 @@ dialog.fleet__remove-dialog { width: min(420px, calc(100vw - 24px)); }
   .fleet__filter--interval { flex: 1 1 92px; width: auto; }
   .fleet__collect { flex: 1 1 90px; }
   .fleet__toolbar-help { min-height: 28px; }
-  .fleet__cards { grid-template-columns: 1fr; }
-}
-
-@media (max-width: 420px) {
-  .fleet__card-metrics {
-    margin-left: 0;
-  }
-
-  .fleet__card-foot {
-    align-items: flex-start;
-    flex-direction: column;
-    margin-left: 0;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
