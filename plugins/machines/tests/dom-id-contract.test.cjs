@@ -17,8 +17,13 @@ for (const page of pages) {
   const scripts = [...html.matchAll(/<script[^>]*src="([^"]+)"/g)].map(match => match[1]);
   for (const script of scripts) {
     const file = path.join(ui, script);
-    if (!fs.existsSync(file)) { problems.push(`${page}: 脚本不存在 ${script}`); continue; }
-    const source = fs.readFileSync(file, 'utf8');
+    const sourceFile = !fs.existsSync(file) && script === 'widget/card.js'
+      ? path.resolve(__dirname, '..', 'src/widget/card.tsx')
+      : !fs.existsSync(file) && script === 'widget/detail.js'
+        ? path.resolve(__dirname, '..', 'src/widget/detail.tsx')
+        : file;
+    if (!fs.existsSync(sourceFile)) { problems.push(`${page}: 脚本不存在 ${script}`); continue; }
+    const source = fs.readFileSync(sourceFile, 'utf8');
     // 脚本自己生成的元素（模板字符串里的 id="..."）也算存在
     const generated = new Set([...source.matchAll(/id="([A-Za-z0-9_-]+)"/g)].map(match => match[1]));
     const referenced = new Set([

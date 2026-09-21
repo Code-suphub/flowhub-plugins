@@ -9,6 +9,10 @@ const required = [
   'react/fleet.css',
   'react/widget-editor.js',
   'react/widget-editor.css',
+  'widget/card.js',
+  'widget/card.css',
+  'widget/detail.js',
+  'widget/detail.css',
 ];
 for (const relative of required) {
   if (!fs.existsSync(path.join(ui, relative))) throw new Error(`React 构建缺少 ${relative}`);
