@@ -3,6 +3,7 @@ import './styles.css';
 import { resolveMachinesApi, resolveMachinesRun } from '../api/machines';
 import { mountCommand } from '../command/mount';
 import { mountHistory } from '../history/mount';
+import { mountCollections } from '../collections/mount';
 import { HostEditorController, type HostEditorControllerHandle } from '../host-editor/HostEditorController';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
@@ -24,11 +25,14 @@ declare global {
     FlowHubFleet?: { update: (props: FleetBridgeProps) => void };
     FlowHubHostEditor?: { open: (hostId?: string, options?: { copy?: boolean }) => Promise<void>; close: () => void };
     FlowHubHistory?: { mounted: true };
+    FlowHubCollections?: ReturnType<typeof mountCollections>;
     FlowHubCommand?: { mounted: true; setTargets: (hostIds: readonly string[]) => void };
   }
 }
 
 const commandContainer = document.querySelector('#commandReactRoot');
+const collectionsContainer = document.querySelector('#collectionsReactRoot');
+if (collectionsContainer) window.FlowHubCollections = mountCollections(collectionsContainer, resolveMachinesApi());
 const backupContainer = document.querySelector('#backupReactRoot');
 if (backupContainer) {
   const invoke = window.FlowHubPlugin?.invoke ?? window.__TAURI__?.core?.invoke;

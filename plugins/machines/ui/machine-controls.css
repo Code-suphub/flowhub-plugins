@@ -4,34 +4,6 @@
 .help-content { position: absolute; top: calc(100% + 8px); right: 0; z-index: 45; width: min(320px, 65vw); padding: 12px; border: 1px solid #4a6151; border-radius: 7px; background: #243329; box-shadow: 0 8px 26px #0006; color: var(--ink); font-size: 12px; font-weight: 400; line-height: 1.75; white-space: normal; }
 .help-content::before { content: ""; position: absolute; top: -9px; right: 0; left: 0; height: 9px; }
 
-.collection-dialog { width: min(680px, 92vw); max-height: min(760px, 88vh); padding: 22px; }
-.dialog-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 4px; }
-.dialog-heading h2 { margin-top: 6px; }
-.dialog-heading button { padding: 5px 9px; font-size: 12px; }
-.collection-job { margin: 9px 0; overflow: hidden; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
-.collection-job details { margin: 0; padding: 0; border: 0; }
-.collection-job summary { display: flex; align-items: center; gap: 10px; padding: 11px 12px; color: var(--ink); list-style: none; }
-.collection-job summary::-webkit-details-marker { display: none; }
-.collection-job summary .status { font-weight: 600; }
-.collection-time { margin-left: auto; color: var(--muted); font: 10px Menlo, monospace; }
-.collection-chevron { color: var(--muted); transition: transform .18s ease; }
-.collection-job details[open] .collection-chevron { transform: rotate(180deg); }
-.collection-output { padding: 0 12px 12px; }
-.collection-loading, .collection-running { display: block; padding: 13px; border-radius: 6px; background: var(--panel); color: var(--muted); font-size: 12px; }
-.collection-explanation { display: flex; gap: 12px; padding: 14px; border: 1px solid #3d5e48; border-radius: 8px; background: #1d2b22; color: var(--ink); line-height: 1.7; }
-.explanation-icon { display: grid; place-items: center; flex: 0 0 28px; height: 28px; border-radius: 7px; background: #304c39; color: var(--accent); font-size: 18px; }
-.collection-explanation strong { font-size: 13px; }
-.collection-explanation p { margin: 5px 0; color: var(--muted); font-size: 12px; }
-.explanation-actions { padding-top: 7px; color: var(--accent); font-size: 11px; }
-.raw-error { margin-top: 9px; padding: 0; border-top: 0; }
-.raw-error summary { padding: 6px 0; color: var(--muted); font-size: 11px; }
-.raw-error pre { max-height: 120px; margin: 5px 0 0; }
-.collection-empty { padding: 34px 10px; color: var(--muted); text-align: center; }
-.collection-empty span { display: block; margin-bottom: 8px; color: #577663; font: 32px Menlo, monospace; }
-.collection-empty p { margin: 0; }
-.collection-job.is-failed summary { border-left: 3px solid var(--bad); }
-
-
 .select-trigger { min-height: var(--control-h); }
 .select-shell { position: relative; display: inline-block; min-width: 150px; max-width: 100%; vertical-align: middle; }
 .select-trigger { position: relative; display: flex; align-items: center; justify-content: space-between; width: 100%; padding-right: 33px; background: #1c2921; text-align: left; font-weight: 400; }

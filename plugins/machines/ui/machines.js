@@ -1,7 +1,6 @@
 (function () {
   "use strict";
   const $ = selector => document.querySelector(selector);
-  const esc = value => String(value ?? "").replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
   const embedded = window.parent && window.parent !== window && new URLSearchParams(window.location.search).has("embedded");
   const invoke = window.FlowHubPlugin?.invoke || window.__TAURI__?.core?.invoke;
   const readonly = !invoke;
@@ -12,10 +11,6 @@
   let selection = new Set();
   let busy = false;
   let refreshVersion = 0;
-  const jobDetails = new Map();
-  let collectionHost = null;
-  let lastCollections = "";
-  const labels = { interrupted: "结果未知", success: "成功", failed: "失败", timeout: "超时", cancelled: "已取消", running: "执行中", queued: "排队", stale: "已过期", unknown: "未采集" };
   const errorText = error => String(error?.message || error).replace(/^(?:Error:\s*)+/, "");
   const message = (text, error = false) => { $("#notice").textContent = error ? errorText(text) : text; $("#notice").classList.toggle("error", error); };
 
@@ -68,26 +63,11 @@
     $("#version").textContent = config.installed ? `v${config.installed.version}${config.enabled ? "" : " · 已停用"}` : "未安装";
     $("main").hidden = !config.installed || !config.enabled;
     $("#unavailable").hidden = !!config.installed && config.enabled;
-    renderHosts(); renderCollections(); window.FlowHubSelects?.sync();
+    renderHosts(); window.FlowHubCollections?.update([...state.active, ...state.history]); window.FlowHubSelects?.sync();
   }
 
   function renderHosts() {
     reactFleet?.update({ snapshot: { hosts: state.config.hosts, metrics: state.metrics, activeJobs: state.active }, config: { enabled: !readonly && !!state.config.enabled, monitoring: !!state.config.monitoring, intervalSeconds: state.config.interval || 60 }, selectedHostIds: [...selection], now: Date.now() });
-  }
-
-  function renderCollections() {
-    if (!collectionHost) return;
-    const jobs = [...state.active, ...state.history].filter(job => job.kind === "collect" && job.hostId === collectionHost.id); const signature = JSON.stringify(jobs);
-    if (signature === lastCollections) return; lastCollections = signature; $("#collectionTitle").textContent = `${collectionHost.name} · 采集记录`;
-    $("#collectionRows").innerHTML = jobs.map(job => `<div class="collection-job ${job.status === "failed" ? "is-failed" : ""}"><details data-job="${esc(job.id)}"><summary><span class="status ${esc(job.status)}">${labels[job.status] || esc(job.status)}</span><span class="collection-time">${new Date(job.startedAt).toLocaleString()}</span><span class="collection-chevron" aria-hidden="true">⌄</span></summary>${job.finishedAt ? '<div class="collection-output" data-job-output><span class="collection-loading">展开以加载采集详情</span></div>' : '<p class="collection-running">正在采集…</p>'}</details></div>`).join("") || '<div class="collection-empty"><span>⌁</span><p>暂无该机器的采集记录。</p></div>';
-  }
-  async function loadJob(details) {
-    const output = details.querySelector("[data-job-output]"); if (!details.open || !output) return;
-    try {
-      const job = jobDetails.get(details.dataset.job) || await api("job", { id: details.dataset.job }); jobDetails.set(job.id, job);
-      if (/仅支持 Linux|基础指标采集当前/i.test(job.stderr || "")) output.innerHTML = `<div class="collection-explanation"><div class="explanation-icon">⌁</div><div><strong>这台机器暂不支持基础指标</strong><p>当前采集脚本依赖 Linux 内核指标，而目标机器返回了非 Linux 系统。SSH 连接本身正常，只有 CPU、内存、磁盘和负载采集失败。</p><div class="explanation-actions"><span>建议：在目标机配置 Node Exporter 后，前往监控设置填写 metrics 地址。</span></div></div></div><details class="raw-error"><summary>查看原始错误</summary><pre>${esc(job.stderr)}</pre></details>`;
-      else output.textContent = `${job.command ? "[command]\n" + job.command + "\n\n" : ""}${job.stdout || "（无标准输出）"}${job.stderr ? "\n\n[stderr]\n" + job.stderr : ""}${job.truncated ? "\n\n[输出已截断]" : ""}`;
-    } catch (error) { output.textContent = String(error); }
   }
 
   async function batch(hosts, kind, command) {
@@ -100,7 +80,7 @@
   function submit(hosts, kind, command) { batch(hosts, kind, command).catch(error => message(String(error), true)).finally(() => refresh().catch(error => message(String(error), true))); }
 
   function runHostAction(host, action) {
-    if (action === "collections") { collectionHost = host; lastCollections = ""; renderCollections(); $("#collectionDialog").showModal(); return; }
+    if (action === "collections") { window.FlowHubCollections?.open(host); return; }
     if (action === "edit") { void reactHostEditor?.open(host.id); return; }
     if (action === "copy") { void reactHostEditor?.open(host.id, { copy: true }); return; }
     if (action === "command") { selection = new Set([host.id]); renderHosts(); reactCommand?.setTargets([host.id]); window.FlowHubMachineTabs?.show("command", true); return; }
@@ -128,8 +108,6 @@
     runHostAction(host, action);
   }
 
-  $("#collectionRows").addEventListener("toggle", event => { if (event.target.matches("details")) loadJob(event.target); }, true);
-  $("#closeCollections").onclick = () => $("#collectionDialog").close(); $("#collectionDialog").onclose = () => { collectionHost = null; lastCollections = ""; };
   hostMenu.onclick = event => { const item = event.target.closest("[data-host-action]"); if (!item) return; const host = state.config.hosts.find(entry => entry.id === hostMenu.dataset.id); closeHostMenu(); if (host) runHostAction(host, item.dataset.hostAction); };
   document.addEventListener?.("click", event => { if (!hostMenu.hidden && !event.target.closest("#hostMenu") && !event.target.closest('[data-host-action="more"]')) closeHostMenu(); }); document.addEventListener?.("keydown", event => { if (event.key === "Escape") closeHostMenu(); });
   window.addEventListener?.("resize", closeHostMenu); window.addEventListener?.("scroll", closeHostMenu, true); window.addEventListener?.("flowhub:hosts-changed", () => refresh().catch(error => message(String(error), true)));

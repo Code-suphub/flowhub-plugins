@@ -1,0 +1,16 @@
+dialog.collections { width: min(660px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); }
+.collections__shell { max-height: calc(100dvh - 24px); grid-template-rows: auto minmax(0, 1fr); }
+.collections__meta { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #91a99a; font-size: 12px; }
+.collections__list { list-style: none; margin: 10px 0 0; padding: 0; }
+.collections__row { border-bottom: 1px solid #294336; }
+.collections__row:last-child { border-bottom: 0; }
+.collections__toggle { display: flex; align-items: center; width: 100%; gap: 12px; padding: 12px 0; background: transparent; border: 0; border-radius: 0; color: #dce9e0; text-align: left; font: inherit; cursor: pointer; }
+.collections__toggle:focus-visible { outline: 1px solid #a9e0b8; outline-offset: 2px; }
+.collections__toggle time { flex: 1; min-width: 0; color: #91a99a; font-size: 12px; overflow-wrap: anywhere; }
+.collections__status { min-width: 4em; font-size: 12px; }
+.collections__status[data-status="success"] { color: #a9e0b8; }
+.collections__status[data-status="failed"], .collections__status[data-status="timeout"] { color: #ff9fa8; }
+.collections__status[data-status="running"], .collections__status[data-status="queued"] { color: #e7bb73; }
+.collections__output { padding-bottom: 12px; color: #91a99a; font-size: 12px; }
+.collections__output pre { margin: 0; padding: 12px; max-height: 300px; overflow: auto; border: 0; border-radius: 6px; background: #07100b; color: #dce9e0; font: 12px/1.7 Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.collections__hint { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; color: #e7bb73; }

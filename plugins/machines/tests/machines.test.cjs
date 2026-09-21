@@ -4,6 +4,27 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
+test('collection records use React/common without the old dialog or output renderer', () => {
+  const html = fs.readFileSync(path.join(__dirname, '../ui/machines.html'), 'utf8');
+  const script = fs.readFileSync(path.join(__dirname, '../ui/machines.js'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '../ui/machine-controls.css'), 'utf8');
+  const workspace = fs.readFileSync(path.join(__dirname, '../src/collections/CollectionWorkspace.tsx'), 'utf8');
+  assert.match(html, /id="collectionsReactRoot"/);
+  for (const id of ['collectionDialog', 'collectionRows', 'closeCollections']) {
+    assert(!html.includes(`id="${id}"`));
+    assert(!script.includes(`#${id}`));
+  }
+  assert(!script.includes('renderCollections'));
+  assert(!css.includes('.collection-job'));
+  assert.match(script, /FlowHubCollections\?\.update/);
+  assert.match(script, /FlowHubCollections\?\.open\(host\)/);
+  assert.match(workspace, /DialogShell/);
+  assert.match(workspace, /if \(!expanded \|\| !job.finishedAt \|\| detail \|\| !api\) return/);
+  assert.match(workspace, /disposed = true/);
+  assert.match(workspace, /job.kind === 'collect' && job.hostId === host.id/);
+  assert(!workspace.includes('dangerouslySetInnerHTML'));
+});
+
 test('fleet has one React renderer and no hidden legacy import or table', () => {
   const html = fs.readFileSync(path.join(__dirname, '../ui/machines.html'), 'utf8');
   const script = fs.readFileSync(path.join(__dirname, '../ui/machines.js'), 'utf8');
