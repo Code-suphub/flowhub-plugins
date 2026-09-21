@@ -23,7 +23,10 @@ function copyTree(source, target) {
   }
   if (!stat.isFile()) throw new Error(`不支持的构建文件：${path.relative(pluginRoot, source)}`);
   fs.mkdirSync(path.dirname(target), {recursive: true});
-  if (source.endsWith('.html')) fs.writeFileSync(target, inlineCommonHtml(fs.readFileSync(source, 'utf8')));
+  if (source.endsWith('.html')) {
+    const scriptPrefix = path.relative(path.dirname(target), path.join(output, 'ui', '_common')).split(path.sep).join('/');
+    fs.writeFileSync(target, inlineCommonHtml(fs.readFileSync(source, 'utf8'), {scriptPrefix}));
+  }
   else fs.copyFileSync(source, target);
   fs.chmodSync(target, stat.mode & 0o777);
 }
@@ -32,6 +35,12 @@ fs.rmSync(output, {recursive: true, force: true});
 fs.mkdirSync(output, {recursive: true});
 fs.writeFileSync(path.join(output, 'flowhub-plugin.json'), `${JSON.stringify(manifest, null, 2)}\n`);
 copyTree(sourceUi, path.join(output, 'ui'));
+const commonOutput = path.join(output, 'ui', '_common');
+if (fs.existsSync(commonOutput)) throw new Error('ui/_common 是公共构建资源保留目录');
+fs.mkdirSync(commonOutput);
+for (const name of ['flowhub-common.js', 'flowhub-theme.js']) {
+  fs.copyFileSync(path.join(root, 'plugins', 'common', 'ui', name), path.join(commonOutput, name));
+}
 const binary = path.join(pluginRoot, manifest.executable);
 if (!fs.existsSync(binary)) throw new Error(`后端构建产物不存在：${manifest.executable}`);
 copyTree(binary, path.join(output, manifest.executable));

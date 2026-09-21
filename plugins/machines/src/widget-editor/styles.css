@@ -2,14 +2,14 @@
 @source "../../../common/src/react";
 
 :root {
-  color-scheme: dark;
-  --widget-accent: #f7a454;
-  --widget-border: #514951;
-  --widget-panel: rgb(54 48 55 / 82%);
-  --widget-text: #f5f1ed;
-  --widget-muted: #b9afb8;
-  --widget-success: #9fd4b4;
-  --widget-error: #ef968b;
+  color-scheme:dark;
+  --widget-accent:var(--fh-danger,#f7a454);
+  --widget-border:var(--fh-border,#514951);
+  --widget-panel:rgb(54 48 55 / 82%);
+  --widget-text:var(--fh-text,#f5f1ed);
+  --widget-muted:var(--fh-muted,#b9afb8);
+  --widget-success:var(--fh-positive,#9fd4b4);
+  --widget-error:var(--fh-danger,#ef968b);
 }
 
 * {
@@ -18,8 +18,8 @@
 
 body {
   margin: 0;
-  background: transparent;
-  color: var(--widget-muted);
+  background:transparent;
+  color:var(--widget-muted);
   font: 12px/1.5 "PingFang SC", "Microsoft YaHei", sans-serif;
 }
 
@@ -38,12 +38,12 @@ input {
   min-width: 0;
   margin: 0;
   padding: 0;
-  border: 0;
+  border:0;
 }
 
 .widget-editor__metrics legend {
   margin-bottom: 8px;
-  color: var(--widget-muted);
+  color:var(--widget-muted);
 }
 
 .widget-editor__metric-grid {
@@ -59,7 +59,7 @@ input {
 
 .widget-editor__hint {
   padding-top: 2px;
-  color: color-mix(in srgb, var(--widget-muted) 78%, transparent);
+  color:color-mix(in srgb, var(--widget-muted) 78%, transparent);
 }
 
 .widget-editor__status {
@@ -68,10 +68,10 @@ input {
   gap: 7px;
   min-height: 32px;
   padding: 7px 9px;
-  border: 1px solid var(--widget-border);
-  border-radius: 8px;
-  background: var(--widget-panel);
-  color: var(--widget-muted);
+  border:1px solid var(--widget-border);
+  border-radius:8px;
+  background:var(--widget-panel);
+  color:var(--widget-muted);
 }
 
 .widget-editor__status-dot {
@@ -79,17 +79,17 @@ input {
   width: 6px;
   height: 6px;
   margin-top: 6px;
-  border-radius: 50%;
-  background: currentColor;
-  box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 16%, transparent);
+  border-radius:50%;
+  background:currentColor;
+  box-shadow:0 0 0 3px color-mix(in srgb, currentColor 16%, transparent);
 }
 
 .widget-editor__status[data-tone='success'] {
-  color: var(--widget-success);
+  color:var(--widget-success);
 }
 
 .widget-editor__status[data-tone='error'] {
-  color: var(--widget-error);
+  color:var(--widget-error);
 }
 
 @media (max-width: 280px) {

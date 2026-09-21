@@ -157,7 +157,7 @@ export const TabsList = forwardRef<HTMLDivElement, TabsListProps>(function TabsL
       role="tablist"
       aria-orientation={orientation}
       className={cx(
-        "fh-tabs__list flex min-w-0 gap-1 border-b border-[#294336]",
+        "fh-tabs__list flex min-w-0 gap-1 border-b border-[var(--fh-border,#294336)]",
         orientation === "vertical" &&
           "flex-col border-b-0 border-r pr-1",
         className,
@@ -195,8 +195,8 @@ export const TabsTrigger = forwardRef<HTMLButtonElement, TabsTriggerProps>(
         tabIndex={selected ? 0 : -1}
         data-tabs-value={value}
         className={cx(
-          "fh-tabs__trigger relative inline-flex min-h-11 shrink-0 items-center justify-center gap-2 border-b-2 border-transparent px-3 text-xs font-semibold uppercase tracking-[0.1em] text-[#789082] transition-[background-color,border-color,color] duration-150 hover:bg-[#12251a] hover:text-[#dcebe1] motion-reduce:transition-none focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#b9f2ca] focus-visible:ring-offset-2 focus-visible:ring-offset-[#09130e] disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-40",
-          selected && "border-[#a9e8bc] text-[#b9efc9]",
+          "fh-tabs__trigger relative inline-flex min-h-11 shrink-0 items-center justify-center gap-2 border-b-2 border-transparent px-3 text-xs font-semibold uppercase tracking-[0.1em] text-[var(--fh-muted,#789082)] transition-[background-color,border-color,color] duration-150 hover:bg-[var(--fh-surface,#12251a)] hover:text-[var(--fh-text,#dcebe1)] motion-reduce:transition-none focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--fh-accent,#b9f2ca)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--fh-canvas,#09130e)] disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-40",
+          selected && "border-[var(--fh-accent,#a9e8bc)] text-[var(--fh-accent,#b9efc9)]",
           className,
         )}
         onClick={(event) => {
@@ -237,7 +237,7 @@ export function TabsPanel({
       hidden={!selected}
       tabIndex={0}
       className={cx(
-        "fh-tabs__panel min-w-0 outline-none focus-visible:ring-2 focus-visible:ring-[#b9f2ca] focus-visible:ring-offset-2 focus-visible:ring-offset-[#09130e]",
+        "fh-tabs__panel min-w-0 outline-none focus-visible:ring-2 focus-visible:ring-[var(--fh-accent,#b9f2ca)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--fh-canvas,#09130e)]",
         className,
       )}
     >

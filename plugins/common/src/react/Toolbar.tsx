@@ -23,7 +23,7 @@ export function Toolbar({
       role="toolbar"
       aria-label={props["aria-label"] ?? label}
       className={cx(
-        "fh-toolbar flex min-w-0 flex-wrap items-center justify-between gap-2 rounded-[10px] border border-[#294336] bg-[#101f17] text-sm",
+        "fh-toolbar flex min-w-0 flex-wrap items-center justify-between gap-2 rounded-[10px] border border-[var(--fh-border,#294336)] bg-[var(--fh-surface,#101f17)] text-sm",
         density === "compact" ? "p-1.5" : "p-2.5",
         className,
       )}

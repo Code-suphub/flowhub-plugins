@@ -39,12 +39,16 @@ function server() {
   const instance = createServer(async (request, response) => {
     const name = decodeURIComponent(new URL(request.url, 'http://x').pathname).replace(/^\/+/, '') || 'machines.html';
     const generated = /^(?:react\/widget-editor|widget\/(?:card|detail))\.(?:js|css)$/.test(name);
-    const base = generated ? buildUi : ui;
-    const path = resolve(base, name);
+    const common = name.startsWith('_common/');
+    const base = common ? resolve(here, '../../common/ui') : generated ? buildUi : ui;
+    const path = resolve(base, common ? name.slice('_common/'.length) : name);
     if (!path.startsWith(base + '/') || !existsSync(path)) { response.writeHead(404).end(); return; }
-    response.writeHead(200, { 'content-type': TYPES[extname(name)] || 'application/octet-stream', 'cache-control': 'no-store' });
+    const source = `http://127.0.0.1:${instance.address().port}`;
+    response.writeHead(200, { 'content-type': TYPES[extname(name)] || 'application/octet-stream', 'cache-control': 'no-store',
+      // Standalone fixtures need same-origin JSON; script restrictions match the desktop.
+      'content-security-policy': `default-src 'none'; script-src ${source}; style-src ${source} 'unsafe-inline'; img-src ${source} data:; font-src ${source}; connect-src ${source}; base-uri 'none'; form-action 'none'` });
     const raw = await readFile(path, 'utf8');
-    response.end(extname(name) === '.html' ? inlineCommonHtml(raw) : raw);
+    response.end(extname(name) === '.html' ? inlineCommonHtml(raw, {scriptPrefix:'_common'}) : raw);
   });
   return new Promise(resolve => instance.listen(0, '127.0.0.1', () => resolve(instance)));
 }
@@ -200,14 +204,16 @@ async function main() {
   try {
     await client.send('Page.enable');
     await client.send('Runtime.enable');
-    for (const page of PAGES) {
-      fingerprint[page] = {};
+    for (const theme of ['dark', 'light']) for (const page of PAGES) {
+      const key = `${theme}/${page}`;
+      fingerprint[key] = {};
       for (const width of WIDTHS) {
         await client.send('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: false });
         await client.load(`http://127.0.0.1:${port}/${page}`);
+        await client.send('Runtime.evaluate', { expression: `window.FlowHubTheme.set('${theme}')` });
         const { result, exceptionDetails } = await client.send('Runtime.evaluate', { expression: EXPRESSION, returnByValue: true, awaitPromise: true });
         if (exceptionDetails) throw new Error(`${page} @${width}: ${exceptionDetails.exception?.description || exceptionDetails.text}`);
-        fingerprint[page][width] = result.value;
+        fingerprint[key][width] = result.value;
         if (width === 380 && process.argv.includes('--screenshots')) {
           const folder = await mkdtemp(join(tmpdir(), 'flowhub-widget-review-'));
           const shot = await client.send('Page.captureScreenshot', { format: 'png' });
@@ -219,6 +225,28 @@ async function main() {
         if (interaction.exceptionDetails) throw Error(`${page} @${width}: ${interaction.exceptionDetails.exception?.description || interaction.exceptionDetails.text}`);
       }
     }
+    for (const theme of ['light','dark']) for (const [width,height] of [[220,130],[184,184],[320,184]]) {
+      await client.send('Emulation.setDeviceMetricsOverride', {width,height,deviceScaleFactor:1,mobile:false});
+      await client.load(`http://127.0.0.1:${port}/widget-card.html`);
+      const compact = await client.send('Runtime.evaluate', {awaitPromise:true,returnByValue:true,expression:`(async () => {
+        window.FlowHubTheme.set('${theme}');
+        window.postMessage({type:'flowhub:widget-init',token:null,context:{
+          title:'tencent-sh',config:{row:'a',metrics:['cpu','memory','disk','traffic','tx','rx','load','uptime']},
+          snapshot:{rows:[{id:'a',status:'healthy',expiresAt:Date.now()+354*86400000,
+            values:{cpu:3,memory:33,disk:34,tx:9.8,rx:1.8,load:0.1,uptime:86400*25}}]}
+        }}, '*');
+        await new Promise(resolve=>setTimeout(resolve,80));
+        const body=document.querySelector('.card-body');
+        const footer=document.querySelector('.widget-foot');
+        const gauge=document.querySelector('.fh-gauge svg');
+        if(!footer?.textContent.includes('运行') || !footer.querySelector('.expiry'))throw Error('底部内容缺失');
+        if(body.scrollHeight>body.clientHeight+1 || footer.getBoundingClientRect().bottom>innerHeight-3)throw Error('小卡片内容被裁切');
+        if(gauge.getBoundingClientRect().height<32)throw Error('仪表图被过度压缩: '+JSON.stringify([...document.querySelectorAll('.card-head,.card-body,.gauges,.network-row,.widget-foot')].map(e=>[e.className,e.getBoundingClientRect().height])));
+        return true;
+      })()`});
+      if(compact.exceptionDetails)throw Error(`${theme} ${width}×${height}: ${compact.exceptionDetails.exception?.description}`);
+    }
+    console.log('PASS: 深浅主题的小卡片 220×130、184×184、320×184 完整展示');
   } finally {
     await client.close();
     instance.close();

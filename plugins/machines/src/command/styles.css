@@ -4,7 +4,7 @@
 .command-react {
   display: grid;
   gap: 12px;
-  color: var(--fleet-ink, #e6efe9);
+  color: var(--fleet-ink, var(--fh-text,#e6efe9));
   font-size: 13px;
 }
 
@@ -12,45 +12,31 @@
 .command-react h3,
 .command-react p { margin: 0; }
 
-.command-react__head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 20px;
-  padding: 2px 0 4px;
-}
-
 .command-react__control-group > span:first-child,
 .command-react__bastion header > div > span {
   display: block;
-  color: var(--fleet-faint, #5c7264);
+  color: var(--fleet-faint, var(--fh-muted,#5c7264));
   font: 700 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
   letter-spacing: .16em;
 }
 
-.command-react__title { display: flex; align-items: center; gap: 8px; }
-.command-react__title h2 { font-size: 21px; letter-spacing: -.035em; }
-.command-react__title .fh-help__content { left: 0; }
-.command-react__head p { margin-top: 5px; color: var(--fleet-muted, #8da497); line-height: 1.55; }
-.command-react__head-status span,
 .command-react__bastion header > span {
   display: inline-flex;
   align-items: center;
   min-height: 28px;
   padding: 0;
   border: 0;
-  color: #91a69a;
+  color: var(--fh-muted,#91a69a);
   font: 700 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
   letter-spacing: .08em;
 }
-.command-react__head-status .is-ready,
-.command-react__bastion header > .is-connected { color: #a9e0b8; }
+.command-react__bastion header > .is-connected { color: var(--fh-accent,#a9e0b8); }
 
 .command-react__workspace-tabs { min-width: 0; }
 .command-react__subtabs {
   gap: 18px !important;
   margin-bottom: 12px;
-  border-bottom-color: var(--fleet-line, #2a3d31) !important;
+  border-bottom-color: var(--fleet-line, var(--fh-border,#2a3d31)) !important;
 }
 .command-react__subtab {
   min-height: 36px !important;
@@ -60,24 +46,25 @@
   border-radius: 0 !important;
   background: transparent !important;
   box-shadow: none !important;
-  color: #7f9689 !important;
+  color: var(--fh-muted,#7f9689) !important;
   font-size: 11px !important;
   letter-spacing: .04em !important;
   text-transform: none !important;
 }
-.command-react__subtab:hover { background: transparent !important; color: #dce9e0 !important; }
-.command-react__subtab[aria-selected="true"] { border-bottom-color: #a9e8bc !important; color: #b9efc9 !important; }
-.command-react__subtab:focus-visible { outline: none !important; box-shadow: inset 0 -2px #a9e8bc !important; }
+.command-react__subtab:hover { background: transparent !important; color: var(--fh-text,#dce9e0) !important; }
+.command-react__subtab[aria-selected="true"] { border-bottom-color: var(--fh-accent,#a9e8bc) !important; color: var(--fh-accent,#b9efc9) !important; }
+.command-react__subtab:focus-visible { outline: none !important; box-shadow: inset 0 -2px var(--fh-accent,#a9e8bc) !important; }
 .command-react__workspace-panel:focus-visible { outline: none; box-shadow: none; }
 
 .command-react__layout {
   display: grid;
-  grid-template-columns: minmax(210px, 260px) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   min-height: 520px;
-  border: 1px solid var(--fleet-line, #2a3d31);
+  border: 1px solid var(--fleet-line, var(--fh-border,#2a3d31));
   border-radius: 8px;
-  overflow: hidden;
-  background: rgb(13 22 17 / 92%);
+  overflow: visible;
+  background: color-mix(in srgb, var(--fh-canvas,#0d1611) 92%, transparent);
 }
 
 .command-react__targets {
@@ -86,42 +73,15 @@
   flex-direction: column;
   gap: 10px;
   padding: 14px;
-  border-right: 1px solid var(--fleet-line, #2a3d31);
-  background: rgb(17 29 22 / 90%);
+  border-bottom: 1px solid var(--fleet-line, var(--fh-border,#2a3d31));
+  background: color-mix(in srgb, var(--fh-surface,#111d16) 90%, transparent);
 }
 .command-react__target-head { display: flex; min-height: 28px; align-items: center; justify-content: space-between; gap: 12px; }
-.command-react__target-head > div { display: flex; align-items: center; gap: 5px; }
-.command-react__target-head button { min-height: 28px !important; padding-inline: 7px !important; border-radius: 5px !important; }
 .command-react__target-head strong,
-.command-react__control-group > span:first-child { color: #8da497; font: 600 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .08em; }
-.command-react__target-head strong { display: block; color: #e9f2ec; font-size: 13px; }
-.command-react__target-head em { color: #8fa698; font: normal 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; }
-.command-react__targets .fh-input { min-height: 38px; border-radius: 6px; font-size: 12px; }
-.command-react__target-list { display: flex; flex: 1; min-height: 0; max-height: 490px; flex-direction: column; gap: 5px; overflow: auto; }
-.command-react__target-list > p { padding: 16px 4px; color: var(--fleet-muted, #8da497); }
-.command-react__target {
-  display: grid;
-  grid-template-columns: 18px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 9px;
-  min-height: 52px;
-  padding: 8px 6px;
-  border: 0;
-  border-bottom: 1px solid #21372b;
-  border-radius: 0;
-  background: transparent;
-  cursor: pointer;
-  transition: border-color .15s, background-color .15s;
-}
-.command-react__target:hover { background: #102018; }
-.command-react__target[data-selected] { background: #14271c; box-shadow: inset 2px 0 #79b58c; }
-.command-react__target input { width: 17px; height: 17px; accent-color: #a9e8bc; }
-.command-react__target span { min-width: 0; }
-.command-react__target strong,
-.command-react__target small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.command-react__target strong { color: #dce9e0; font-size: 12px; }
-.command-react__target small { margin-top: 3px; color: #71887b; font: 10px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace; }
-.command-react__target i { display: grid; width: 20px; height: 20px; place-items: center; border: 1px solid #6c5d38; border-radius: 4px; color: #e5b36f; font: normal 10px/1 monospace; }
+.command-react__control-group > span:first-child { color: var(--fh-muted,#8da497); font: 600 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .08em; }
+.command-react__target-head strong { display: block; color: var(--fh-text,#e9f2ec); font-size: 13px; }
+.command-react__target-head em { color: var(--fh-muted,#8fa698); font: normal 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; }
+.command-react__targets .fh-combobox { width: min(100%, 480px); }
 
 .command-react__main { min-width: 0; padding: 14px; }
 .command-react__controls {
@@ -132,7 +92,7 @@
   gap: 8px 14px;
   margin-bottom: 10px;
   padding-bottom: 10px;
-  border-bottom: 1px solid #263d30;
+  border-bottom: 1px solid var(--fh-border,#263d30);
 }
 .command-react__control-group { display: flex; min-width: 0; align-items: center; gap: 7px; }
 .command-react__control-group .fh-help { flex: 0 0 auto; }
@@ -146,62 +106,62 @@
 .command-react__control-group .fh-combobox__input,
 .command-react__control-group .fh-combobox__toggle { min-height: 36px; }
 
-.command-react__terminal { overflow: hidden; border: 1px solid #314b3c; border-radius: 7px; background: #07100b; }
-.command-react__terminal > header { display: flex; min-height: 38px; align-items: center; gap: 14px; padding: 0 10px 0 13px; border-bottom: 1px solid #263d30; background: #101c15; color: #789082; font: 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .08em; }
-.command-react__terminal > header > div { display: flex; align-items: center; gap: 8px; margin-right: auto; color: #b8c9bf; font-weight: 700; }
+.command-react__terminal { overflow: hidden; border: 1px solid var(--fh-border,#314b3c); border-radius: 7px; background: var(--fh-canvas,#07100b); }
+.command-react__terminal > header { display: flex; min-height: 38px; align-items: center; gap: 14px; padding: 0 10px 0 13px; border-bottom: 1px solid var(--fh-border,#263d30); background: var(--fh-canvas,#101c15); color: var(--fh-muted,#789082); font: 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .08em; }
+.command-react__terminal > header > div { display: flex; align-items: center; gap: 8px; margin-right: auto; color: var(--fh-accent,#b8c9bf); font-weight: 700; }
 .command-react__terminal > header button { min-height: 30px; padding-inline: 8px; }
-.command-react__lamp { width: 7px; height: 7px; border-radius: 50%; background: #68c884; box-shadow: 0 0 10px rgb(104 200 132 / 55%); }
+.command-react__lamp { width: 7px; height: 7px; border-radius: 50%; background: var(--fh-muted,#68c884); box-shadow: 0 0 10px color-mix(in srgb, var(--fh-muted,#68c884) 55%, transparent); }
 .command-react__output { height: clamp(220px, 28vh, 300px); overflow: auto; padding: 12px; }
-.command-react__console-empty { display: flex; min-height: 190px; align-items: center; justify-content: center; gap: 10px; color: #566d60; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
-.command-react__console-empty > span { color: #8dba9c; }
-.command-react__job { padding: 10px 4px 13px; border-bottom: 1px solid #18291f; }
+.command-react__console-empty { display: flex; min-height: 190px; align-items: center; justify-content: center; gap: 10px; color: var(--fh-muted,#566d60); font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.command-react__console-empty > span { color: var(--fh-muted,#8dba9c); }
+.command-react__job { padding: 10px 4px 13px; border-bottom: 1px solid var(--fh-border,#18291f); }
 .command-react__job:last-child { border-bottom: 0; }
-.command-react__job > div { display: flex; align-items: center; gap: 9px; color: #778e80; font: 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
-.command-react__job > div strong { color: #b9cbbf; }
+.command-react__job > div { display: flex; align-items: center; gap: 9px; color: var(--fh-muted,#778e80); font: 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.command-react__job > div strong { color: var(--fh-accent,#b9cbbf); }
 .command-react__job > div time { margin-left: auto; }
 .command-react__job > div button { min-height: 28px; padding-inline: 7px; }
 .command-react__job pre,
-.command-react__bastion-output { margin: 8px 0 0; overflow-wrap: anywhere; white-space: pre-wrap; color: #a9bcb0; font: 11px/1.62 ui-monospace, SFMono-Regular, Menlo, monospace; }
-.command-react__job pre b { color: #dbe9df; font-weight: 500; }
-.command-react__job-status { padding: 3px 5px; border-radius: 3px; color: #98a99f; background: #18241d; }
-.command-react__job-status--success { color: #9edbb0; background: #143020; }
+.command-react__bastion-output { margin: 8px 0 0; overflow-wrap: anywhere; white-space: pre-wrap; color: var(--fh-accent,#a9bcb0); font: 11px/1.62 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.command-react__job pre b { color: var(--fh-text,#dbe9df); font-weight: 500; }
+.command-react__job-status { padding: 3px 5px; border-radius: 3px; color: var(--fh-muted,#98a99f); background: var(--fh-surface,#18241d); }
+.command-react__job-status--success { color: var(--fh-accent,#9edbb0); background: var(--fh-surface,#143020); }
 .command-react__job-status--failed,
 .command-react__job-status--timeout,
-.command-react__job-status--interrupted { color: #f2a49d; background: #351d1d; }
+.command-react__job-status--interrupted { color: var(--fh-danger,#f2a49d); background: var(--fh-danger-soft,#351d1d); }
 .command-react__job-status--running,
-.command-react__job-status--queued { color: #91c5d8; background: #142b34; }
+.command-react__job-status--queued { color: var(--fh-accent,#91c5d8); background: var(--fh-surface,#142b34); }
 
-.command-react__composer { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: end; gap: 10px; padding: 9px 10px; border: 1px solid #314b3c; border-radius: 7px; background: #0b1711; }
-.command-react__composer > span { align-self: center; color: #87b397; font: 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; }
+.command-react__composer { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: end; gap: 10px; padding: 9px 10px; border: 1px solid var(--fh-border,#314b3c); border-radius: 7px; background: var(--fh-canvas,#0b1711); }
+.command-react__composer > span { align-self: center; color: var(--fh-muted,#87b397); font: 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; }
 .command-react__composer textarea { min-height: 40px; max-height: 150px; resize: vertical; border: 0; border-radius: 4px; background: transparent; padding: 10px 4px; box-shadow: none; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .command-react__composer button { min-height: 40px; }
-.command-react__footer { display: flex; justify-content: space-between; gap: 12px; padding: 6px 2px 10px; color: #6f8679; font-size: 10px; }
+.command-react__footer { display: flex; justify-content: space-between; gap: 12px; padding: 6px 2px 10px; color: var(--fh-muted,#6f8679); font-size: 10px; }
 .command-react__footer span:first-child { max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .command-react__notice,
-.command-react__error { margin-top: 10px !important; padding: 9px 11px; border-radius: 5px; color: #abc6b5; background: #12281b; font-size: 11px; }
-.command-react__error { color: #ffc4c7; background: #351c20; }
+.command-react__error { margin-top: 10px !important; padding: 9px 11px; border-radius: 5px; color: var(--fh-accent,#abc6b5); background: var(--fh-surface,#12281b); font-size: 11px; }
+.command-react__error { color: var(--fh-danger,#ffc4c7); background: var(--fh-danger-soft,#351c20); }
 
-.command-react__bastion > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 14px; padding: 4px 2px 12px; border-bottom: 1px solid #293f33; }
-.command-react__bastion h3 { margin-top: 4px; color: #edf5ef; font-size: 18px; }
-.command-react__bastion header p { margin-top: 4px; color: #80978a; }
+.command-react__bastion > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 14px; padding: 4px 2px 12px; border-bottom: 1px solid var(--fh-border,#293f33); }
+.command-react__bastion h3 { margin-top: 4px; color: var(--fh-text,#edf5ef); font-size: 18px; }
+.command-react__bastion header p { margin-top: 4px; color: var(--fh-muted,#80978a); }
 .command-react__actionbar,
 .command-react__query { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; }
 .command-react__actionbar button,
 .command-react__query button { min-height: 38px; }
-.command-react__confirm { color: #e5b36f; font-size: 11px; }
+.command-react__confirm { color: var(--fh-danger,#e5b36f); font-size: 11px; }
 .command-react__query .fh-select { min-width: 180px; }
 .command-react__query .fh-checkbox { margin-left: auto; }
-.command-react__bastion-output { min-height: 340px; max-height: 480px; margin: 0; overflow: auto; padding: 14px; color: #b7cabc; outline: none; }
-.command-react__session-input { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; padding: 10px; border-top: 1px solid #263d30; background: #0b1711; }
+.command-react__bastion-output { min-height: 340px; max-height: 480px; margin: 0; overflow: auto; padding: 14px; color: var(--fh-accent,#b7cabc); outline: none; }
+.command-react__session-input { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; padding: 10px; border-top: 1px solid var(--fh-border,#263d30); background: var(--fh-canvas,#0b1711); }
 .command-react__session-input input,
 .command-react__session-input button { min-height: 40px; }
 
 .command-react__template-manager {
   overflow: hidden;
-  border: 1px solid var(--fleet-line, #2a3d31);
+  border: 1px solid var(--fleet-line, var(--fh-border,#2a3d31));
   border-radius: 8px;
-  background: rgb(13 22 17 / 92%);
+  background: color-mix(in srgb, var(--fh-canvas,#0d1611) 92%, transparent);
 }
 .command-react__template-manager > header {
   display: flex;
@@ -209,43 +169,38 @@
   justify-content: space-between;
   gap: 16px;
   padding: 16px;
-  border-bottom: 1px solid var(--fleet-line, #2a3d31);
+  border-bottom: 1px solid var(--fleet-line, var(--fh-border,#2a3d31));
 }
-.command-react__template-manager > header h3 { color: #edf5ef; font-size: 16px; }
-.command-react__template-manager > header p { margin-top: 4px; color: #80978a; font-size: 11px; }
-.command-react__template-manager > header > div:last-child { display: flex; align-items: center; gap: 7px; }
+.command-react__template-manager > header h3 { margin: 0; color: var(--fh-text,#edf5ef); font-size: 16px; }
+.command-react__template-heading { display: flex; align-items: center; gap: 7px; }
 .command-react__template-manager > header button { min-height: 34px !important; border-radius: 6px !important; }
 .command-react__template-list { display: grid; }
 .command-react__template-row {
   display: grid;
-  grid-template-columns: 28px minmax(140px, .55fr) minmax(240px, 1.45fr) auto;
-  align-items: end;
+  grid-template-columns: minmax(100px, .6fr) minmax(0, 1.4fr) auto;
+  align-items: center;
   gap: 12px;
   padding: 14px 16px;
-  border-bottom: 1px solid #243a2e;
+  border-bottom: 1px solid var(--fh-border,#243a2e);
 }
-.command-react__template-row:last-child { border-bottom: 0; }
-.command-react__template-index { align-self: center; color: #5e7768; font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; }
-.command-react__template-row label span { display: block; margin-bottom: 5px; color: #8fa698; font-size: 11px; }
-.command-react__template-row textarea { min-height: 58px; resize: vertical; }
-.command-react__template-row > button { min-height: 34px !important; margin-bottom: 5px; padding-inline: 8px !important; border-radius: 6px !important; color: #df9b9f; }
+.command-react__template-row strong, .command-react__template-row code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.command-react__template-row code { color: var(--fh-muted,#8fa698); }
+.command-react__template-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; flex-wrap: wrap; }
+.command-react__template-editor { display: grid; gap: 12px; padding: 16px; border-bottom: 1px solid var(--fh-border,#243a2e); background: var(--fh-surface,#101f17); }
+.command-react__template-editor label span { display: block; margin-bottom: 5px; color: var(--fh-muted,#8fa698); font-size: 11px; }
+.command-react__template-editor textarea { min-height: 90px; max-height: 320px; resize: vertical; }
 .command-react__template-list > .fh-empty-state { margin: 20px; }
 .command-react__template-manager > .command-react__error { margin: 0 16px 16px !important; }
 
 @media (max-width: 760px) {
   .command-react__layout { grid-template-columns: 1fr; }
-  .command-react__targets { border-right: 0; border-bottom: 1px solid var(--fleet-line, #2a3d31); }
-  .command-react__target-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); max-height: 180px; }
+  .command-react__targets { border-right: 0; border-bottom: 1px solid var(--fleet-line, var(--fh-border,#2a3d31)); }
   .command-react__controls { align-items: flex-start; }
-  .command-react__head p { max-width: 34rem; }
 }
 
 @media (max-width: 520px) {
-  .command-react__head { padding: 2px 0 10px; }
-  .command-react__head-status { display: none; }
   .command-react__main,
   .command-react__targets { padding: 12px; }
-  .command-react__target-list { grid-template-columns: 1fr; }
   .command-react__controls { display: grid; }
   .command-react__control-group { display: grid; grid-template-columns: 42px minmax(0, 1fr) auto; }
   .command-react__control-group .fh-select { width: auto; }
@@ -257,13 +212,10 @@
   .command-react__footer span { display: block; max-width: none !important; margin-top: 4px; }
   .command-react__session-input { grid-template-columns: 1fr 1fr; }
   .command-react__session-input input { grid-column: 1 / -1; }
-  .command-react__template-manager > header { align-items: stretch; flex-direction: column; padding: 12px; }
-  .command-react__template-manager > header > div:last-child { justify-content: flex-end; }
-  .command-react__template-row { grid-template-columns: 22px minmax(0, 1fr); gap: 9px; padding: 12px; }
-  .command-react__template-row label,
-  .command-react__template-row > button { grid-column: 2; }
-  .command-react__template-index { grid-row: 1; }
-  .command-react__template-row > button { justify-self: start; margin-bottom: 0; }
+  .command-react__template-manager > header { align-items: center; padding: 12px; }
+  .command-react__template-row { grid-template-columns: minmax(0, 1fr) auto; gap: 6px 9px; padding: 10px 12px; }
+  .command-react__template-row code { grid-column: 1; grid-row: 2; }
+  .command-react__template-row > .command-react__template-actions { grid-column: 2; grid-row: 1 / 3; max-width: 140px; }
   .command-react__query .fh-select { flex: 1 1 150px; min-width: 0; }
   .command-react__query .fh-checkbox { width: 100%; margin-left: 0; }
 }

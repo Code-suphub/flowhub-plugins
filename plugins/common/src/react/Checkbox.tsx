@@ -40,7 +40,7 @@ export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(function Che
     <label
       htmlFor={inputId}
       className={cx(
-        "fh-checkbox inline-flex min-h-11 cursor-pointer items-center gap-3 text-sm text-[#c7d6cd]",
+        "fh-checkbox inline-flex min-h-11 cursor-pointer items-center gap-3 text-sm text-[var(--fh-text,#c7d6cd)]",
         disabled && "cursor-not-allowed opacity-45",
         containerClassName,
       )}
@@ -54,11 +54,11 @@ export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(function Che
         disabled={disabled}
         onChange={handleChange}
         className={cx(
-          "peer h-5 w-5 shrink-0 cursor-pointer appearance-none rounded-[5px] border border-[#496354] bg-[#0b1711] shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] transition-colors checked:border-[#a9e8bc] checked:bg-[#a9e8bc] checked:bg-[linear-gradient(135deg,transparent_44%,#08140d_44%,#08140d_56%,transparent_56%),linear-gradient(45deg,transparent_48%,#08140d_48%,#08140d_58%,transparent_58%)] checked:bg-[length:7px_12px,5px_7px] checked:bg-[position:8px_2px,4px_7px] checked:bg-no-repeat motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#b9f2ca] focus-visible:ring-offset-2 focus-visible:ring-offset-[#09130e] disabled:cursor-not-allowed",
+          "peer h-5 w-5 shrink-0 cursor-pointer appearance-none rounded-[5px] border border-[var(--fh-border,#496354)] bg-[var(--fh-canvas,#0b1711)] shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] transition-colors checked:border-[var(--fh-accent,#a9e8bc)] checked:bg-[var(--fh-accent,#a9e8bc)] checked:bg-[linear-gradient(135deg,transparent_44%,#08140d_44%,#08140d_56%,transparent_56%),linear-gradient(45deg,transparent_48%,#08140d_48%,#08140d_58%,transparent_58%)] checked:bg-[length:7px_12px,5px_7px] checked:bg-[position:8px_2px,4px_7px] checked:bg-no-repeat motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--fh-accent,#b9f2ca)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--fh-canvas,#09130e)] disabled:cursor-not-allowed",
           className,
         )}
       />
-      <span className="leading-5 peer-focus-visible:text-[#eef8f1]">{label}</span>
+      <span className="leading-5 peer-focus-visible:text-[var(--fh-text,#eef8f1)]">{label}</span>
     </label>
   );
 });

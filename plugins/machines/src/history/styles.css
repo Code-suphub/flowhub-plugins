@@ -4,32 +4,6 @@
   color: var(--fleet-ink);
 }
 
-.history-react__head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 2px 0 12px;
-  border-bottom: 1px solid var(--fleet-line);
-}
-
-.history-react__head h2 {
-  margin: 0;
-  font-size: 22px;
-}
-
-.history-react__head p {
-  margin: 5px 0 0;
-  color: var(--fleet-muted);
-  font-size: 12px;
-}
-
-.history-react__head > button {
-  min-height: 34px !important;
-  padding-inline: 10px !important;
-  border-radius: 6px !important;
-}
-
 .history-react__toolbar {
   justify-content: flex-start !important;
   padding: 0 !important;
@@ -75,20 +49,20 @@
 }
 
 .history-react__status--success {
-  border-color: rgb(104 200 132 / .45);
+  border-color: color-mix(in srgb, var(--fh-muted,#68c884) 45%, transparent);
   color: var(--fleet-green);
 }
 
 .history-react__status--running,
 .history-react__status--queued {
-  border-color: rgb(145 197 216 / .45);
+  border-color: color-mix(in srgb, var(--fh-accent,#91c5d8) 45%, transparent);
   color: var(--fleet-blue);
 }
 
 .history-react__status--failed,
 .history-react__status--timeout,
 .history-react__status--interrupted {
-  border-color: rgb(238 154 142 / .45);
+  border-color: color-mix(in srgb, var(--fh-danger,#ee9a8e) 45%, transparent);
   color: var(--fleet-red);
 }
 
@@ -121,7 +95,7 @@
   padding: 12px;
   border: 1px solid var(--fleet-line);
   border-radius: 8px;
-  background: #0b1711;
+  background: var(--fh-canvas,#0b1711);
 }
 
 .history-react__desktop-output > div {
@@ -141,10 +115,10 @@
   overflow: auto;
   margin: 0;
   padding: 10px;
-  border: 1px solid #22392d;
+  border: 1px solid var(--fh-border,#22392d);
   border-radius: 6px;
-  background: #07100b;
-  color: #bcd0c3;
+  background: var(--fh-canvas,#07100b);
+  color: var(--fh-accent,#bcd0c3);
   font: 11px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -185,20 +159,12 @@
   margin: 0;
   padding: 10px 12px;
   border-left: 2px solid var(--fleet-red);
-  background: rgb(238 154 142 / .07);
+  background: color-mix(in srgb, var(--fh-danger,#ee9a8e) 7%, transparent);
   color: var(--fleet-red);
   font-size: 12px;
 }
 
 @media (max-width: 640px) {
-  .history-react__head {
-    gap: 10px;
-  }
-
-  .history-react__head p {
-    max-width: 230px;
-  }
-
   .history-react__filters {
     width: 100%;
   }
@@ -226,7 +192,7 @@
     padding: 10px;
     border: 1px solid var(--fleet-line);
     border-radius: 8px;
-    background: #0d1b13;
+    background: var(--fh-canvas,#0d1b13);
   }
 
   .history-react__card-main {

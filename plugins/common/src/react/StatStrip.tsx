@@ -28,7 +28,7 @@ export function StatStrip({
       {...props}
       role="list"
       className={cx(
-        "fh-stat-strip grid grid-cols-1 overflow-hidden rounded-[12px] border border-[#294336] bg-[#0b1711]",
+        "fh-stat-strip grid grid-cols-1 overflow-hidden rounded-[12px] border border-[var(--fh-border,#294336)] bg-[var(--fh-canvas,#0b1711)]",
         columnClasses[columns],
         className,
       )}
@@ -48,10 +48,10 @@ export interface StatItemProps extends HTMLAttributes<HTMLDivElement> {
 }
 
 const toneClasses: Record<StatTone, string> = {
-  neutral: "text-[#e8f2eb]",
-  positive: "text-[#a9e8bc]",
-  warning: "text-[#f2cf88]",
-  danger: "text-[#ff9fa8]",
+  neutral: "text-[var(--fh-text,#e8f2eb)]",
+  positive: "text-[var(--fh-accent,#a9e8bc)]",
+  warning: "text-[var(--fh-warning,#f2cf88)]",
+  danger: "text-[var(--fh-danger,#ff9fa8)]",
 };
 
 export function StatItem({
@@ -69,16 +69,16 @@ export function StatItem({
       {...props}
       role="listitem"
       className={cx(
-        "fh-stat-item min-w-0 border-b border-[#22392d] px-4 py-3 last:border-b-0 sm:border-b-0 sm:border-r sm:last:border-r-0",
+        "fh-stat-item min-w-0 border-b border-[var(--fh-border,#22392d)] px-4 py-3 last:border-b-0 sm:border-b-0 sm:border-r sm:last:border-r-0",
         className,
       )}
     >
       <div className="flex items-start justify-between gap-3">
-        <span className="truncate text-[10px] font-semibold uppercase tracking-[0.14em] text-[#789082]">
+        <span className="truncate text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--fh-muted,#789082)]">
           {label}
         </span>
         {icon ? (
-          <span aria-hidden="true" className="shrink-0 text-[#719782]">
+          <span aria-hidden="true" className="shrink-0 text-[var(--fh-muted,#719782)]">
             {icon}
           </span>
         ) : null}
@@ -87,9 +87,9 @@ export function StatItem({
         <strong className={cx("truncate font-mono text-xl font-semibold tracking-[-0.03em]", toneClasses[tone])}>
           {value}
         </strong>
-        {trend ? <span className="shrink-0 text-xs text-[#8fa698]">{trend}</span> : null}
+        {trend ? <span className="shrink-0 text-xs text-[var(--fh-muted,#8fa698)]">{trend}</span> : null}
       </div>
-      {detail ? <p className="mt-1 truncate text-xs text-[#71877a]">{detail}</p> : null}
+      {detail ? <p className="mt-1 truncate text-xs text-[var(--fh-muted,#71877a)]">{detail}</p> : null}
     </div>
   );
 }

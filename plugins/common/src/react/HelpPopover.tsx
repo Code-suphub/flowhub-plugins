@@ -118,7 +118,7 @@ export function HelpPopover({
       <button
         ref={triggerRef}
         type="button"
-        className="fh-help__trigger inline-flex h-7 w-7 items-center justify-center rounded-full border border-[#3c5b49] bg-[#101f17] text-xs font-bold text-[#a9c0b2] transition-colors hover:border-[#79a087] hover:text-white motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#b9f2ca] focus-visible:ring-offset-2 focus-visible:ring-offset-[#09130e]"
+        className="fh-help__trigger inline-flex h-7 w-7 items-center justify-center rounded-md border-0 bg-transparent p-0 text-sm font-medium normal-case tracking-normal text-[var(--fh-muted,#a9c0b2)] transition-colors hover:text-[var(--fh-text,#ffffff)] motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--fh-accent,#b9f2ca)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--fh-canvas,#09130e)]"
         aria-label={label}
         aria-expanded={open}
         aria-controls={panelId}
@@ -134,7 +134,7 @@ export function HelpPopover({
           aria-label={label}
           style={panelStyle}
           className={cx(
-            "fh-help__content fixed rounded-[10px] border border-[#355442] bg-[#0c1912] p-4 text-left text-sm leading-6 text-[#bed0c4] shadow-[0_18px_50px_rgba(0,0,0,0.46)]",
+            "fh-help__content fixed rounded-[10px] border border-[var(--fh-border,#355442)] bg-[var(--fh-surface,#0c1912)] px-3 py-2.5 text-left text-sm font-normal normal-case tracking-normal leading-6 text-[var(--fh-text,#bed0c4)] shadow-[0_6px_20px_rgba(0,0,0,0.16)]",
             panelClassName,
           )}
         >

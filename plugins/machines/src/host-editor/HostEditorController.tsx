@@ -108,6 +108,8 @@ export const HostEditorController = forwardRef<HostEditorControllerHandle, HostE
   const [saving, setSaving] = useState(false);
   const revision = useRef('');
   const loadedAlias = useRef('');
+  const sshAlias = useRef('');
+  const bastionTarget = useRef('');
   const baseline = useRef(profileSignature(EMPTY_VALUE));
   const loadVersion = useRef(0);
 
@@ -128,11 +130,13 @@ export const HostEditorController = forwardRef<HostEditorControllerHandle, HostE
 
   async function openEditor(hostId?: string, options?: { copy?: boolean }): Promise<void> {
     const version = ++loadVersion.current;
+    sshAlias.current = `flowhub-${crypto.randomUUID()}`;
+    bastionTarget.current = '';
     setOpen(true); setTab('basic'); setErrors({}); setTestState(idle('尚未测试当前连接')); setOperationState(idle()); setSaving(false);
     revision.current = ''; loadedAlias.current = ''; baseline.current = profileSignature(EMPTY_VALUE);
     const regions = window.FlowHubMachineRegions;
     setResolvedCountryOptions(countryOptions ?? (regions?.length ? [{ value: '', label: '不设置' }, ...regions.map((region) => ({ value: region.code, label: region.label, search: region.search }))] : undefined));
-    if (!api) { setValue(EMPTY_VALUE); return; }
+    if (!api) { setValue({ ...EMPTY_VALUE, alias: sshAlias.current }); return; }
     try {
       const state = await api('state') as MachineState;
       if (version !== loadVersion.current) return;
@@ -144,13 +148,18 @@ export const HostEditorController = forwardRef<HostEditorControllerHandle, HostE
         name: options?.copy ? `${host.name} 副本` : host.name, alias: options?.copy ? '' : host.alias,
         groupChoice: host.group ?? '', group: host.group ?? '', countryCode: host.countryCode ?? '', expiresLocal: localExpiry(host.expiresAt),
         readOnly: Boolean(host.readOnly), relayScript: host.bastion?.script ?? '', relayCommand: host.bastion?.command ?? 'n',
-      } : { ...EMPTY_VALUE };
+      } : { ...EMPTY_VALUE, alias: sshAlias.current };
+      if (host?.bastion) bastionTarget.current = next.alias;
+      else {
+        if (host && !options?.copy) sshAlias.current = host.alias;
+        next.alias = sshAlias.current;
+      }
       setValue(next);
       if (host && !host.bastion) {
         try {
           next = await readSsh(host.alias, next);
           if (version !== loadVersion.current) return;
-          if (options?.copy) { next = { ...next, id: '', alias: '' }; loadedAlias.current = ''; }
+          if (options?.copy) { next = { ...next, id: '', alias: sshAlias.current }; loadedAlias.current = ''; }
           setValue(next);
         } catch (reason) {
           if (version === loadVersion.current) setLoadState({ status: 'error', message: `配置加载失败：${errorText(reason)}。请重试后保存。` });
@@ -165,10 +174,17 @@ export const HostEditorController = forwardRef<HostEditorControllerHandle, HostE
   useImperativeHandle(ref, () => ({ open: openEditor, close }));
 
   const change: HostEditorActions['onChange'] = (field, next) => {
+    if (field === 'connectionType') {
+      if (value.connectionType === 'ssh') sshAlias.current = value.alias;
+      else bastionTarget.current = value.alias;
+    }
     setValue((current) => {
       const updated = { ...current, [field]: next } as HostEditorValue;
       if (field === 'groupChoice' && next !== '__new') updated.group = String(next);
-      if (field === 'connectionType') { setLoadState(idle()); setTestState(idle('尚未测试当前连接')); }
+      if (field === 'connectionType') {
+        updated.alias = next === 'ssh' ? sshAlias.current : bastionTarget.current;
+        setLoadState(idle()); setTestState(idle('尚未测试当前连接'));
+      }
       return updated;
     });
     setErrors((current) => { const updated = { ...current }; delete updated[field]; return updated; });
@@ -177,10 +193,10 @@ export const HostEditorController = forwardRef<HostEditorControllerHandle, HostE
 
   async function save(): Promise<void> {
     if (!api || saving) return;
-    const changedProfile = value.connectionType === 'ssh' && (profileSignature(value) !== baseline.current || Boolean(value.id && loadedAlias.current !== value.alias.trim()) || Boolean(value.sshPassword));
+    const changedProfile = value.connectionType === 'ssh' && (!value.id || profileSignature(value) !== baseline.current || loadedAlias.current !== value.alias.trim() || Boolean(value.sshPassword));
     const nextErrors = validate(value, changedProfile);
     setErrors(nextErrors);
-    if (Object.keys(nextErrors).length) { setTab(nextErrors.relayScript || nextErrors.sshHostname || nextErrors.sshUser || nextErrors.sshPort ? 'connection' : 'basic'); return; }
+    if (Object.keys(nextErrors).length) { setTab(nextErrors.name || nextErrors.group || nextErrors.expiresLocal ? 'basic' : 'connection'); return; }
     if (value.connectionType === 'ssh' && loadState.status === 'loading') return;
     if (value.connectionType === 'ssh' && value.id && loadState.status === 'error') { setOperationState({ status: 'error', message: '请先重新加载 SSH 配置。' }); setTab('connection'); return; }
     setSaving(true); setOperationState({ status: 'loading', message: '正在保存机器配置…' });
@@ -213,7 +229,7 @@ export const HostEditorController = forwardRef<HostEditorControllerHandle, HostE
 
   async function probe(): Promise<void> {
     if (!api || testState.status === 'loading') return;
-    const changedProfile = profileSignature(value) !== baseline.current;
+    const changedProfile = !value.id || loadedAlias.current !== value.alias.trim() || profileSignature(value) !== baseline.current;
     const nextErrors = validate(value, changedProfile);
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length) { setTab('connection'); return; }

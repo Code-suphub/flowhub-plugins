@@ -2,35 +2,35 @@
 @layer flowhub-legacy {
 /* Theme-neutral primitives. Each plugin supplies --line, --muted, --ink and --accent. */
 .fh-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.fh-button{font:inherit;border:1px solid var(--line,#2b3a31);border-radius:7px;background:var(--control-bg,#1e2a22);color:var(--ink,#e1ece5);padding:9px 13px;cursor:pointer;white-space:nowrap}
-.fh-button:hover{background:var(--control-hover,#2a3c30)}
+.fh-button{font:inherit;border:1px solid var(--line,var(--fh-border,#2b3a31));border-radius:7px;background:var(--control-bg,var(--fh-surface,#1e2a22));color:var(--ink,var(--fh-text,#e1ece5));padding:9px 13px;cursor:pointer;white-space:nowrap}
+.fh-button:hover{background:var(--control-hover,var(--fh-surface-soft,#2a3c30))}
 .fh-button:disabled{opacity:.4;cursor:not-allowed}
-.fh-button--primary{background:var(--accent,#a9d5b8);border-color:var(--accent,#a9d5b8);color:var(--accent-ink,#14231a);font-weight:650}
-.fh-button--danger{color:var(--bad,#ef9e91)}
+.fh-button--primary{background:var(--accent,var(--fh-surface-soft,#a9d5b8));border-color:var(--accent,var(--fh-border,#a9d5b8));color:var(--accent-ink,var(--fh-text,#14231a));font-weight:650}
+.fh-button--danger{color:var(--bad,var(--fh-danger,#ef9e91))}
 .fh-help{display:inline-flex;position:relative;flex:none}
-.fh-help__trigger{display:grid;place-items:center;width:22px;height:22px;min-height:0;padding:0;border-radius:50%;font:inherit;font-size:12px;color:var(--muted,#8a9e90);background:transparent}
-.fh-help__content{position:absolute;right:0;top:calc(100% + 8px);z-index:45;width:min(320px,65vw);padding:14px;background:var(--help-bg,#243329);border:1px solid var(--help-line,#4a6151);border-radius:8px;box-shadow:0 8px 26px #0006;font:12px/1.8 inherit;color:var(--ink,#e1ece5);white-space:normal}
+.fh-help__trigger{display:grid;place-items:center;width:22px;height:22px;min-height:0;padding:0;border-radius:50%;font:inherit;font-size:12px;color:var(--muted,var(--fh-muted,#8a9e90));background:transparent}
+.fh-help__content{position:absolute;right:0;top:calc(100% + 8px);z-index:45;width:min(320px,65vw);padding:14px;background:var(--help-bg,var(--fh-surface,#243329));border:1px solid var(--help-line,var(--fh-border,#4a6151));border-radius:8px;box-shadow:0 8px 26px #0006;font:12px/1.8 inherit;color:var(--ink,var(--fh-text,#e1ece5));white-space:normal}
 .fh-help__content::before{content:"";position:absolute;top:-9px;left:0;right:0;height:9px}
 .fh-select__trigger::after{content:none!important}
-.fh-field{display:grid;gap:7px;min-width:0;color:var(--muted,#8a9e90);font-size:12px}
+.fh-field{display:grid;gap:7px;min-width:0;color:var(--muted,var(--fh-muted,#8a9e90));font-size:12px}
 .fh-field__label{display:block}
-.fh-field__hint{color:var(--muted,#8a9e90);font-size:11px;line-height:1.6}
+.fh-field__hint{color:var(--muted,var(--fh-muted,#8a9e90));font-size:11px;line-height:1.6}
 .fh-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 16px}
-.fh-checkbox{display:flex;align-items:center;gap:8px;color:var(--muted,#8a9e90);font-size:12px;cursor:pointer}
-.fh-checkbox input{margin:0;accent-color:var(--accent,#a9d5b8)}
+.fh-checkbox{display:flex;align-items:center;gap:8px;color:var(--muted,var(--fh-muted,#8a9e90));font-size:12px;cursor:pointer}
+.fh-checkbox input{margin:0;accent-color:var(--accent,var(--fh-accent,#a9d5b8))}
 .fh-number-control{position:relative;display:block;width:100%}
 .fh-number-control>input{width:100%;padding-right:54px;appearance:textfield;-moz-appearance:textfield}
 .fh-number-control>input::-webkit-inner-spin-button,.fh-number-control>input::-webkit-outer-spin-button{margin:0;appearance:none}
-.fh-number-control__buttons{position:absolute;right:1px;top:1px;bottom:1px;display:flex;flex-direction:column;width:34px;overflow:hidden;border-left:1px solid var(--line,#2b3a31);border-radius:0 5px 5px 0}
-.fh-number-step{flex:1;min-height:0;padding:0;border:0;border-radius:0;background:transparent;color:var(--muted,#8a9e90);font:inherit;font-size:13px;line-height:1;cursor:pointer}
-.fh-number-step+.fh-number-step{border-top:1px solid var(--line,#2b3a31)}
-.fh-number-step:hover{background:var(--control-hover,#2a3c30);color:var(--ink,#e1ece5)}
+.fh-number-control__buttons{position:absolute;right:1px;top:1px;bottom:1px;display:flex;flex-direction:column;width:34px;overflow:hidden;border-left:1px solid var(--line,var(--fh-border,#2b3a31));border-radius:0 5px 5px 0}
+.fh-number-step{flex:1;min-height:0;padding:0;border:0;border-radius:0;background:transparent;color:var(--muted,var(--fh-muted,#8a9e90));font:inherit;font-size:13px;line-height:1;cursor:pointer}
+.fh-number-step+.fh-number-step{border-top:1px solid var(--line,var(--fh-border,#2b3a31))}
+.fh-number-step:hover{background:var(--control-hover,var(--fh-surface-soft,#2a3c30));color:var(--ink,var(--fh-text,#e1ece5))}
 .fh-table-wrap{max-width:100%;overflow:auto}
-.fh-table{width:100%;border-collapse:collapse;text-align:left;color:var(--ink,#e1ece5)}
-.fh-table th{padding:10px;color:var(--muted,#8a9e90);font-size:11px;font-weight:500;border-block:1px solid var(--line,#2b3a31)}
-.fh-table td{padding:12px 10px;border-bottom:1px solid var(--line,#2b3a31);font-size:12px}
-.fh-table__empty{text-align:center;color:var(--muted,#8a9e90)}
+.fh-table{width:100%;border-collapse:collapse;text-align:left;color:var(--ink,var(--fh-text,#e1ece5))}
+.fh-table th{padding:10px;color:var(--muted,var(--fh-muted,#8a9e90));font-size:11px;font-weight:500;border-block:1px solid var(--line,var(--fh-border,#2b3a31))}
+.fh-table td{padding:12px 10px;border-bottom:1px solid var(--line,var(--fh-border,#2b3a31));font-size:12px}
+.fh-table__empty{text-align:center;color:var(--muted,var(--fh-muted,#8a9e90))}
 .fh-pagination{display:flex;align-items:center;justify-content:flex-end;gap:10px;flex-wrap:wrap}
-.fh-pagination [data-page-info]{color:var(--muted,#8a9e90);font-size:11px}
+.fh-pagination [data-page-info]{color:var(--muted,var(--fh-muted,#8a9e90));font-size:11px}
 @media(max-width:760px){.fh-help__content{position:fixed;left:12px;right:12px;bottom:12px;top:auto;width:auto;max-width:none}.fh-form-grid{grid-template-columns:1fr}}
 }

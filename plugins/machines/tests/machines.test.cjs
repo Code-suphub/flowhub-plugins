@@ -44,6 +44,7 @@ test('React shell owns availability, escaped notices and embedded layout', () =>
     if (name === './MachineWorkspace') return { MachineWorkspace: ({ fleet }) => fleet };
     if (name === '../monitoring/MonitorSettings') return { MonitorSettings: () => null };
     if (name === '../backup/BackupWorkspace') return { BackupWorkspace: () => null };
+    if (name === './ThemeSwitch') return { ThemeSwitch: () => null };
     return require(name);
   } });
   const render = props => renderToStaticMarkup(React.createElement(exports.MachineShell, props));
@@ -308,7 +309,7 @@ test('React host editor owns machine and SSH persistence without a legacy form b
   assert.match(controller, /api\('sshRead', \{ alias \}\)/);
   assert.match(controller, /api\('sshSave', \{ profile:/);
   assert.match(controller, /await api\('hosts', \{ hosts:/);
-  assert.match(controller, /Boolean\(value\.id && loadedAlias\.current !== value\.alias\.trim\(\)\)/);
+  assert.match(controller, /loadedAlias\.current !== value\.alias\.trim\(\)/);
   assert.match(controller, /loadVersion\.current/);
   assert.match(controller, /loadState\.status === 'error'/);
   assert.match(controller, /savedSsh \? 'SSH 配置已保存，但机器清单保存失败：'/);

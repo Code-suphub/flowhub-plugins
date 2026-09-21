@@ -231,12 +231,16 @@ async function main() {
     if (!ready) throw new Error('React 机器列表未挂载');
 
     // Exercise the real common Tabs at desktop and narrow widths without executing commands.
-    for (const width of [1400, 600, 380]) {
+    for (const theme of ['dark', 'light']) for (const width of [1400, 600, 380]) {
+      const themeResult = await client.send('Runtime.evaluate', { expression: `(() => { if (document.documentElement.dataset.theme !== '${theme}') document.querySelector('#themeSwitch').click(); return document.documentElement.dataset.theme === '${theme}' && localStorage.getItem('flowhub.theme') !== '${theme === 'light' ? 'dark' : 'light'}'; })()`, returnByValue: true });
+      if (!themeResult.result.value) throw Error('Theme switching or persistence failed');
       await client.send('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: false });
       const navigation = await client.send('Runtime.evaluate', { awaitPromise: true, returnByValue: true, expression: `(async () => {
         const frame = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
         const roots = ['fleet', 'command', 'history'].map(name => document.getElementById(name + 'ReactRoot'));
         const tabs = [...document.querySelectorAll('.machine-tabs [role="tab"]')];
+        if (tabs.some(tab => !tab.title)) throw Error('Page tabs must expose help on hover');
+        if (document.querySelector('.command-react__head, .history-react__head')) throw Error('Redundant page headings remain');
         const verify = index => {
           const tab = tabs[index], panel = document.getElementById(tab.getAttribute('aria-controls'));
           if (tab.getAttribute('aria-selected') !== 'true' || panel.hidden || panel.getAttribute('aria-labelledby') !== tab.id) throw Error('Tab ARIA/visibility mismatch');
@@ -249,10 +253,13 @@ async function main() {
         if (!fleetChoice) throw Error('Fleet selection missing');
         fleetChoice.click(); await frame();
         showTab('command'); await frame();
-        for (let attempt = 0; attempt < 50 && !document.querySelector('.command-react__target input'); attempt++) await frame();
-        const commandChoice = document.querySelector('.command-react__target input');
-        if (!commandChoice?.checked) throw Error('Fleet selection did not reach command page');
+        for (let attempt = 0; attempt < 50 && !document.querySelector('#command-targets')?.value; attempt++) await frame();
+        document.querySelector('.command-react__targets .fh-combobox__toggle').click(); await frame();
+        const commandChoice = document.querySelector('#command-targets-listbox [aria-selected="true"]');
+        if (!commandChoice) throw Error('Fleet selection did not reach command page');
         commandChoice.click(); await frame();
+        if (document.querySelector('#command-targets').getAttribute('aria-expanded') !== 'true') throw Error('Multi selection should keep menu open');
+        document.querySelector('#command-targets').dispatchEvent(new KeyboardEvent('keydown', {key:'Escape', bubbles:true})); await frame();
         showTab('fleet', true); await frame();
         if (fleetChoice.checked) throw Error('Command deselection did not reach fleet');
         for (const [key, index] of [['ArrowRight', 1], ['End', 2], ['ArrowRight', 0], ['ArrowLeft', 2], ['Home', 0]]) {
@@ -272,6 +279,24 @@ async function main() {
         showTab('command'); await frame(); verify(1);
         if (document.querySelector('#commandReactRoot textarea') !== draft || draft.value !== 'audit draft — never execute') throw Error('Navigation discarded command draft');
         setDraft(''); await frame();
+        const templateTab = document.querySelector('.command-react__subtabs [data-tabs-value="templates"]');
+        templateTab.click(); await frame();
+        const manager = document.querySelector('.command-react__template-manager');
+        const templateButton = text => [...manager.querySelectorAll('button')].find(button => button.textContent === text);
+        if (manager.querySelector('input, textarea')) throw Error('Templates should start as compact summaries');
+        templateButton('编辑').click(); await frame();
+        if (manager.querySelectorAll('form').length !== 1) throw Error('Expected one inline template editor');
+        templateButton('取消').click(); await frame();
+        if (manager.querySelector('form')) throw Error('Template cancel did not close editor');
+        templateButton('新建模板').click(); await frame();
+        templateButton('保存').click(); await frame();
+        if (!manager.querySelector('[role="alert"]') || !manager.querySelector('form')) throw Error('Invalid template must retain editor');
+        templateButton('取消').click(); await frame();
+        templateButton('编辑').click(); await frame();
+        templateButton('保存').click(); await frame();
+        for (let attempt = 0; attempt < 50 && manager.querySelector('form'); attempt++) await frame();
+        if (manager.querySelector('form')) throw Error('Template save did not close editor');
+        document.querySelector('.command-react__subtabs [data-tabs-value="execute"]').click(); await frame();
         showTab('fleet'); await frame(); verify(0);
         for (const selector of ['#monitorSettingsReactRoot button', '#openBackup']) {
           const trigger = document.querySelector(selector);
@@ -296,6 +321,12 @@ async function main() {
         document.querySelector('#addHost').click(); await frame();
         for (let attempt = 0; attempt < 50 && !document.querySelector('#host-editor-name'); attempt++) await frame();
         if (document.querySelector('#host-editor-name')?.value !== '') throw Error('New machine retained old values');
+        const editorHeader = document.querySelector('.host-editor__shell > header');
+        if (!editorHeader || editorHeader.getBoundingClientRect().height > 90) throw Error('Host editor header is too tall');
+        if (editorHeader.textContent.includes('MACHINE / HOST EDITOR') || editorHeader.textContent.includes('上层受控')) throw Error('Host editor retains developer copy');
+        if (!editorHeader.querySelector('button[aria-label="机器字段说明"]')) throw Error('Host editor help missing');
+        if (document.querySelector('label[for="host-editor-name"]')?.textContent !== '显示名称' || document.querySelector('#host-editor-alias')) throw Error('Basic information must not contain connection alias');
+        if (document.querySelectorAll('.host-editor__tab-panel .host-editor__section').length !== 1) throw Error('Basic information should have one section');
         const country = document.querySelector('#host-editor-country');
         if (country?.getAttribute('role') !== 'combobox') throw Error('Country must be searchable');
         const filterCountry = async (text) => {
@@ -320,11 +351,16 @@ async function main() {
         await filterCountry('不设置');
         document.querySelector('#host-editor-country-listbox [role="option"]').click(); await frame();
         if (country.value !== '不设置') throw Error('Country clear option missing');
+        const connectionTab = () => [...document.querySelectorAll('dialog.host-editor [role="tab"]')].find(button => button.textContent === '连接配置');
+        connectionTab().click(); await frame();
+        if (document.querySelector('#host-editor-alias')) throw Error('Ordinary SSH should not ask for an alias');
         document.querySelector('dialog.host-editor button[aria-label="关闭"]').click(); await frame();
         more.click(); await frame();
         [...document.querySelectorAll('[role="menuitem"]')].find(item => item.textContent.trim() === '复制').click(); await frame();
         for (let attempt = 0; attempt < 50 && !document.querySelector('#host-editor-name')?.value.endsWith('副本'); attempt++) await frame();
-        if (!document.querySelector('#host-editor-name')?.value.endsWith('副本') || document.querySelector('#host-editor-alias')?.value !== '') throw Error('Copy machine did not reset identity');
+        if (!document.querySelector('#host-editor-name')?.value.endsWith('副本')) throw Error('Copy machine did not reset name');
+        connectionTab().click(); await frame();
+        if (document.querySelector('#host-editor-alias')) throw Error('Copied SSH machine should not ask for an alias');
         document.querySelector('dialog.host-editor button[aria-label="关闭"]').click(); await frame();
         return true;
       })()` });

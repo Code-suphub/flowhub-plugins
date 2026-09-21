@@ -9,13 +9,13 @@
   justify-content: space-between;
   padding: 24px clamp(20px, 4vw, 56px) 17px;
   border-bottom: 1px solid var(--line);
-  background: rgba(13, 20, 16, .72);
+  background: color-mix(in srgb, var(--fh-canvas,#0d1410) 72%, transparent);
 }
 .version { margin-left: 12px; padding: 3px 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--accent); font: 10px Menlo, monospace; vertical-align: middle; }
 main { width: min(100%, 1440px); margin: 0 auto; padding: 18px clamp(20px, 4vw, 56px) 40px; }
-.notice { margin: 0; padding: 10px clamp(20px, 4vw, 56px); border-bottom: 1px solid var(--line); background: #1b2b21; color: var(--accent); white-space: pre-wrap; overflow-wrap: anywhere; }
+.notice { margin: 0; padding: 10px clamp(20px, 4vw, 56px); border-bottom: 1px solid var(--line); background: var(--fh-surface,#1b2b21); color: var(--accent); white-space: pre-wrap; overflow-wrap: anywhere; }
 .notice:empty { display: none; }
-.notice.error { background: #2b201d; color: var(--bad); }
+.notice.error { background: var(--fh-danger-soft,#2b201d); color: var(--bad); }
 
 @media (max-width: 850px) {
   .masthead { padding: 20px 20px 14px; }

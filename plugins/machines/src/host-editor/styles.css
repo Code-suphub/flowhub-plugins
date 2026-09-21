@@ -1,16 +1,16 @@
 /* Scoped styles only: this island intentionally does not enable Tailwind preflight. */
 .host-editor {
-  --host-editor-bg: #0b1711;
-  --host-editor-panel: #101f17;
-  --host-editor-raised: #14251b;
-  --host-editor-line: #294336;
-  --host-editor-line-bright: #42634f;
-  --host-editor-ink: #e6f0e9;
-  --host-editor-muted: #91a99a;
-  --host-editor-faint: #668073;
-  --host-editor-green: #a9e8bc;
-  --host-editor-amber: #e7bb73;
-  --host-editor-red: #ff9fa8;
+  --host-editor-bg: var(--fh-canvas,#0b1711);
+  --host-editor-panel: var(--fh-surface,#101f17);
+  --host-editor-raised: var(--fh-surface,#14251b);
+  --host-editor-line: var(--fh-border,#294336);
+  --host-editor-line-bright: var(--fh-border,#42634f);
+  --host-editor-ink: var(--fh-text,#e6f0e9);
+  --host-editor-muted: var(--fh-muted,#91a99a);
+  --host-editor-faint: var(--fh-muted,#668073);
+  --host-editor-green: var(--fh-accent,#a9e8bc);
+  --host-editor-amber: var(--fh-danger,#e7bb73);
+  --host-editor-red: var(--fh-danger,#ff9fa8);
   color: var(--host-editor-ink);
   font-size: 13px;
 }
@@ -34,6 +34,19 @@ dialog.host-editor {
 }
 
 .host-editor .select-trigger::after { content: none; }
+
+.host-editor__shell > header {
+  align-items: center;
+  padding: 12px 20px;
+}
+
+.host-editor__shell > header h2 { margin: 0; }
+
+.host-editor__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
 
 .host-editor__body {
   min-width: 0;
@@ -140,7 +153,7 @@ dialog.host-editor {
   padding: 0.75rem 0.85rem;
   border: 1px solid var(--host-editor-line);
   border-radius: 0.55rem;
-  background: #0d1b13;
+  background: var(--fh-canvas,#0d1b13);
 }
 
 .monitor-workspace__intro span {
@@ -173,10 +186,6 @@ dialog.host-editor {
 
 .host-editor__grid--two {
   grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.host-editor__connection-type {
-  width: min(100%, 20rem);
 }
 
 .host-editor__jump-field {
@@ -212,7 +221,7 @@ dialog.host-editor {
   padding: 0.25rem;
   border: 1px solid var(--host-editor-line);
   border-radius: 0.55rem;
-  background: #0b1711;
+  background: var(--fh-canvas,#0b1711);
 }
 
 .host-editor__choice {
@@ -293,7 +302,7 @@ dialog.host-editor {
   box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 14%, transparent);
 }
 
-.host-editor__status--success { color: var(--host-editor-green); }
+.host-editor__status--success { color: var(--fh-positive, var(--host-editor-green)); }
 .host-editor__status--loading { color: var(--host-editor-amber); }
 .host-editor__status--error { color: var(--host-editor-red); }
 .host-editor__status-actions { display: flex; flex-wrap: wrap; gap: 0.25rem; margin-top: 0.2rem; margin-left: 0.95rem; }
@@ -309,7 +318,7 @@ dialog.host-editor {
   padding: 0.8rem;
   border: 1px solid var(--host-editor-line);
   border-radius: 0.55rem;
-  background: #0d1b13;
+  background: var(--fh-canvas,#0d1b13);
 }
 
 
@@ -343,7 +352,7 @@ dialog.host-editor {
 .host-editor__locked-note {
   padding: 0.7rem 0.85rem;
   border-left: 2px solid var(--host-editor-amber);
-  background: rgb(231 187 115 / 0.06);
+  background: color-mix(in srgb, var(--fh-danger,#e7bb73) 6%, transparent);
 }
 
 .host-editor__sr-status {

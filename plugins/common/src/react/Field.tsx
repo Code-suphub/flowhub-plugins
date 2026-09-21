@@ -45,7 +45,7 @@ export function Field({
     <div className={cx("fh-field grid min-w-0 gap-2", className)}>
       <label
         htmlFor={htmlFor}
-        className="fh-field__label text-xs font-semibold uppercase tracking-[0.12em] text-[#9db3a6]"
+        className="fh-field__label text-sm font-medium normal-case tracking-normal text-[var(--fh-muted,#9db3a6)]"
       >
         {label}
       </label>
@@ -53,7 +53,7 @@ export function Field({
       {error ? (
         <p
           id={messageId}
-          className="fh-field__error text-xs leading-5 text-[#ff9fa8]"
+          className="fh-field__error text-xs leading-5 text-[var(--fh-danger,#ff9fa8)]"
           role="alert"
         >
           {error}
@@ -61,7 +61,7 @@ export function Field({
       ) : hint ? (
         <p
           id={messageId}
-          className="fh-field__hint text-xs leading-5 text-[#789082]"
+          className="fh-field__hint text-xs leading-5 text-[var(--fh-muted,#789082)]"
         >
           {hint}
         </p>

@@ -96,13 +96,13 @@ export const NumberInput = forwardRef<HTMLInputElement, NumberInputProps>(
     }
 
     const buttonClassName =
-      "inline-flex min-h-11 w-11 shrink-0 items-center justify-center border-[#304b3c] bg-[#102019] text-lg leading-none text-[#b9efc9] transition-[background-color,border-color,color] hover:border-[#557462] hover:bg-[#183024] hover:text-white focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#b9f2ca] focus-visible:ring-offset-2 focus-visible:ring-offset-[#09130e] disabled:cursor-not-allowed disabled:opacity-45 motion-reduce:transition-none";
+      "inline-flex min-h-11 w-11 shrink-0 items-center justify-center border-[var(--fh-border,#304b3c)] bg-[var(--fh-surface,#102019)] text-lg leading-none text-[var(--fh-accent,#b9efc9)] transition-[background-color,border-color,color] hover:border-[var(--fh-border,#557462)] hover:bg-[var(--fh-surface,#183024)] hover:text-[var(--fh-text,#ffffff)] focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--fh-accent,#b9f2ca)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--fh-canvas,#09130e)] disabled:cursor-not-allowed disabled:opacity-45 motion-reduce:transition-none";
 
     return (
       <div
         className={cx(
-          "fh-number-input flex min-w-0 overflow-hidden rounded-[10px] border border-[#304b3c] bg-[#0b1711] shadow-[inset_0_1px_0_rgba(255,255,255,0.025)] transition-[border-color,box-shadow] focus-within:border-[#a9e8bc] focus-within:ring-2 focus-within:ring-[#b9f2ca] focus-within:ring-offset-2 focus-within:ring-offset-[#09130e] aria-invalid:border-[#ff8f9a] motion-reduce:transition-none",
-          isInvalid && "border-[#ff8f9a]",
+          "fh-number-input flex min-w-0 overflow-hidden rounded-[10px] border border-[var(--fh-border,#304b3c)] bg-[var(--fh-canvas,#0b1711)] shadow-[inset_0_1px_0_rgba(255,255,255,0.025)] transition-[border-color,box-shadow] focus-within:border-[var(--fh-accent,#a9e8bc)] focus-within:ring-2 focus-within:ring-[var(--fh-accent,#b9f2ca)] focus-within:ring-offset-2 focus-within:ring-offset-[var(--fh-canvas,#09130e)] aria-invalid:border-[var(--fh-danger,#ff8f9a)] motion-reduce:transition-none",
+          isInvalid && "border-[var(--fh-danger,#ff8f9a)]",
           disabled && "opacity-45",
           containerClassName,
         )}
@@ -129,7 +129,7 @@ export const NumberInput = forwardRef<HTMLInputElement, NumberInputProps>(
           readOnly={readOnly}
           aria-invalid={ariaInvalid}
           className={cx(
-            "fh-number-input__field min-h-11 min-w-0 flex-1 appearance-none border-0 bg-transparent px-3 text-center text-sm text-[#e5f0e9] outline-none placeholder:text-[#70877a] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#b9f2ca] aria-invalid:text-[#ffb1b8] read-only:cursor-default disabled:cursor-not-allowed",
+            "fh-number-input__field min-h-11 min-w-0 flex-1 appearance-none border-0 bg-transparent px-3 text-center text-sm text-[var(--fh-text,#e5f0e9)] outline-none placeholder:text-[var(--fh-muted,#70877a)] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--fh-accent,#b9f2ca)] aria-invalid:text-[var(--fh-danger,#ffb1b8)] read-only:cursor-default disabled:cursor-not-allowed",
             className,
           )}
         />

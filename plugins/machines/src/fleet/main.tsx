@@ -1,5 +1,6 @@
 import './styles.css';
 import './MachineShell.css';
+import './themes.css';
 
 import { resolveMachinesApi, resolveMachinesRun } from '../api/machines';
 import { createRoot } from 'react-dom/client';

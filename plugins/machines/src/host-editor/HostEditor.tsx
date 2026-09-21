@@ -5,6 +5,7 @@ import {
   Combobox,
   DialogShell,
   Field,
+  HelpPopover,
   Input,
   Select,
   Tabs,
@@ -126,19 +127,11 @@ function BasicPanel({
 
   return (
     <div className="host-editor__panel-grid">
-      <Section title="身份">
+      <Section title="基本资料">
         <div className="host-editor__grid host-editor__grid--two">
-          <Field label="名称" htmlFor="host-editor-name" error={errors?.name}>
+          <Field label="显示名称" htmlFor="host-editor-name" error={errors?.name}>
             <Input ref={nameRef} id="host-editor-name" value={value.name} onChange={(event) => change('name', event.currentTarget.value)} placeholder="应用服务 01" />
           </Field>
-          <Field label="Alias" htmlFor="host-editor-alias" error={errors?.alias}>
-            <Input id="host-editor-alias" value={value.alias} onChange={(event) => change('alias', event.currentTarget.value)} placeholder="prod-app-01" />
-          </Field>
-        </div>
-      </Section>
-
-      <Section title="归属与生命周期">
-        <div className="host-editor__grid host-editor__grid--two">
           <Field label="分组" htmlFor="host-editor-group" error={errors?.groupChoice}>
             <Combobox
               placeholder="搜索分组"
@@ -319,7 +312,7 @@ function ConnectionPanel({ value, errors, actions, loadState, testState, change 
   return (
     <div className="host-editor__panel-grid">
       <Section title="连接方式">
-        <div className="host-editor__connection-type">
+        <div className="host-editor__grid host-editor__grid--two">
           <Field label="连接类型" htmlFor="host-editor-connection-type" error={errors?.connectionType}>
             <Select
               id="host-editor-connection-type"
@@ -331,6 +324,9 @@ function ConnectionPanel({ value, errors, actions, loadState, testState, change 
               onChange={(next) => change('connectionType', next as HostConnectionType)}
             />
           </Field>
+          {!isSsh ? <Field label="堡垒机目标" htmlFor="host-editor-alias" error={errors?.alias}>
+            <Input id="host-editor-alias" value={value.alias} onChange={(event) => change('alias', event.currentTarget.value)} placeholder="prod-app-01" />
+          </Field> : null}
         </div>
       </Section>
       {isSsh ? <SshPanel value={value} errors={errors} actions={actions} change={change} usesJumpHost={usesJumpHost} onJumpHostChange={handleJumpHostChange} /> : <BastionPanel value={value} errors={errors} change={change} />}
@@ -366,7 +362,7 @@ export function HostEditor({
   saved = Boolean(value.id),
   monitoringApi,
   title = value.id ? '编辑机器' : '添加机器',
-  description = '维护机器身份、连接方式与监控入口。所有字段由上层受控保存。',
+  description = '显示名称用于机器列表和监控卡片。普通 SSH 填写主机地址与登录用户即可；堡垒机模式还需填写目标标识，用于指定连接脚本要访问的机器。',
   className,
 }: HostEditorProps) {
   const initialFocusRef = useRef<HTMLInputElement | null>(null);
@@ -380,9 +376,7 @@ export function HostEditor({
     <DialogShell
       open={open}
       onOpenChange={handleOpenChange}
-      title={title}
-      description={description}
-      eyebrow="MACHINE / HOST EDITOR"
+      title={<span className="host-editor__title">{title}{description ? <HelpPopover label="机器字段说明">{description}</HelpPopover> : null}</span>}
       initialFocusRef={initialFocusRef}
       className={cx('host-editor', className)}
       contentClassName="host-editor__shell"

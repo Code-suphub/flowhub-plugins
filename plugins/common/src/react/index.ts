@@ -2,6 +2,8 @@ export { Button, type ButtonProps, type ButtonSize, type ButtonVariant } from ".
 export { Checkbox, type CheckboxProps } from "./Checkbox";
 export {
   Combobox,
+  MultiCombobox,
+  type MultiComboboxProps,
   type ComboboxOption,
   type ComboboxProps,
 } from "./Combobox";

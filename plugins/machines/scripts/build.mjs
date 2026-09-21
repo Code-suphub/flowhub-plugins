@@ -1,5 +1,6 @@
 import {execFileSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
+import {inlineCommonHtml} from '../../../scripts/inline-common.mjs';
 import {mkdirSync,copyFileSync,chmodSync,renameSync,rmSync,readFileSync,writeFileSync} from 'node:fs';
 execFileSync('cargo',['build','--release','--manifest-path','backend/Cargo.toml'],{stdio:'inherit'});
 // Replace the inode atomically: overwriting a running Mach-O can leave macOS
@@ -12,7 +13,7 @@ renameSync(temporary,'bin/flowhub-machines');
 try {
   execFileSync(process.execPath,[fileURLToPath(new URL('../../../scripts/package-plugin.mjs',import.meta.url)),'machines'],{stdio:'inherit'});
   execFileSync('npm',['run','build:react'],{stdio:'inherit'});
-  copyFileSync('src/widget-editor/index.html','build/ui/widget-editor.html');
+  writeFileSync('build/ui/widget-editor.html',inlineCommonHtml(readFileSync('src/widget-editor/index.html','utf8'),{scriptPrefix:'_common'}));
   const machinesHtml='build/ui/machines.html';
   const machines=readFileSync(machinesHtml,'utf8')
     .replace('<link data-flowhub-fleet rel="stylesheet">','<link rel="stylesheet" href="react/fleet.css">')

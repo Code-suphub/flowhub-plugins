@@ -23,8 +23,9 @@ const buildFleet=()=>execFileSync('npm',['run','build:fleet'],{
   env:{...process.env,NODE_ENV:'production'}
 });
 const buildWidgets=()=>{
-  execFileSync('npm',['run','build:widget-editor'],{cwd:pluginRoot,stdio:'inherit'});
-  for(const name of ['card','detail']) execFileSync('npx',['vite','build','--config',`vite.widget-${name}.config.mjs`],{cwd:pluginRoot,stdio:'inherit'});
+  const options={cwd:pluginRoot,stdio:'inherit',env:{...process.env,NODE_ENV:'production'}};
+  execFileSync('npm',['run','build:widget-editor'],options);
+  for(const name of ['card','detail']) execFileSync('npx',['vite','build','--config',`vite.widget-${name}.config.mjs`],options);
 };
 
 export default defineConfig({
@@ -53,7 +54,7 @@ export default defineConfig({
       response.end(readFileSync(join(pluginRoot,'build/ui/widget',name)));
     });
     const fixture=new URL('./dev/machines-preview.js',import.meta.url);
-    const commonFiles=[new URL('../common/ui/flowhub-common.js',import.meta.url).pathname,new URL('../common/ui/flowhub-common.css',import.meta.url).pathname];
+    const commonFiles=[new URL('../common/ui/flowhub-theme.js',import.meta.url).pathname,new URL('../common/ui/flowhub-theme.css',import.meta.url).pathname,new URL('../common/ui/flowhub-common.js',import.meta.url).pathname,new URL('../common/ui/flowhub-common.css',import.meta.url).pathname];
     const reactSources=[fleetSource,hostEditorSource,monitoringSource,trafficSource,historySource,commandSource,apiSource,backupSource,collectionsSource,commonReact];
     const widgetSources=[join(pluginRoot,'src/widget'),join(pluginRoot,'src/widget-editor'),join(pluginRoot,'ui/widget/card.css'),join(pluginRoot,'ui/widget/detail.css')];
     server.watcher.add([fixture.pathname,...commonFiles,...reactSources,...widgetSources]);

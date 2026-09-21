@@ -65,7 +65,7 @@ export function DropdownMenu({ label, ariaLabel, items, className }: DropdownMen
       onClick={() => { firstFocus.current = 'first'; setOpen(value => !value); }}
       onKeyDown={event => { if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); firstFocus.current = event.key === 'ArrowUp' ? 'last' : 'first'; setOpen(true); } }}>{label}</Button>
     {open ? createPortal(<div ref={menu} id={id} role="menu" tabIndex={-1} aria-label={ariaLabel}
-      className="fh-dropdown-menu fixed z-[1000] grid min-w-[136px] max-w-[calc(100vw-16px)] max-h-[calc(100dvh-16px)] gap-1 overflow-auto rounded-lg border border-[#355442] bg-[#101f17] p-1 shadow-xl"
+      className="fh-dropdown-menu fixed z-[1000] grid min-w-[136px] max-w-[calc(100vw-16px)] max-h-[calc(100dvh-16px)] gap-1 overflow-auto rounded-lg border border-[var(--fh-border,#355442)] bg-[var(--fh-surface,#101f17)] p-1 shadow-xl"
       style={position}
       onBlur={event => { if (event.relatedTarget !== trigger.current && !event.currentTarget.contains(event.relatedTarget as Node | null)) close(); }}
       onKeyDown={event => {
@@ -79,7 +79,7 @@ export function DropdownMenu({ label, ariaLabel, items, className }: DropdownMen
         }
       }}>
       {items.map(item => <button key={item.id} type="button" role="menuitem" tabIndex={-1} disabled={item.disabled}
-        className={cx('rounded-md border-0 bg-transparent px-3 py-2 text-left text-xs hover:bg-[#20382a] focus:bg-[#20382a] focus:outline-none disabled:cursor-not-allowed disabled:opacity-40', item.danger ? 'text-[#ff9fa8]' : 'text-[#dce9e0]')}
+        className={cx('rounded-md border-0 bg-transparent px-3 py-2 text-left text-xs hover:bg-[var(--fh-surface-soft,#20382a)] focus:bg-[var(--fh-surface-soft,#20382a)] focus:outline-none disabled:cursor-not-allowed disabled:opacity-40', item.danger ? 'text-[var(--fh-danger,#ff9fa8)]' : 'text-[var(--fh-text,#dce9e0)]')}
         onClick={() => { close(true); item.onSelect(); }}>{item.label}</button>)}
     </div>, document.body) : null}
   </>;

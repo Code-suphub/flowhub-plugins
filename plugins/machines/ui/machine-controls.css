@@ -1,19 +1,19 @@
 @layer flowhub-legacy {
 .inline-help { position: relative; display: inline-flex; flex: none; }
 .help-trigger { display: grid; place-items: center; width: 22px; height: 22px; min-height: 0; padding: 0; border-radius: 50%; background: transparent; color: var(--muted); font-size: 12px; }
-.help-content { position: absolute; top: calc(100% + 8px); right: 0; z-index: 45; width: min(320px, 65vw); padding: 12px; border: 1px solid #4a6151; border-radius: 7px; background: #243329; box-shadow: 0 8px 26px #0006; color: var(--ink); font-size: 12px; font-weight: 400; line-height: 1.75; white-space: normal; }
+.help-content { position: absolute; top: calc(100% + 8px); right: 0; z-index: 45; width: min(320px, 65vw); padding: 12px; border: 1px solid var(--fh-border,#4a6151); border-radius: 7px; background: var(--fh-surface-soft,#243329); box-shadow: 0 8px 26px #0006; color: var(--ink); font-size: 12px; font-weight: 400; line-height: 1.75; white-space: normal; }
 .help-content::before { content: ""; position: absolute; top: -9px; right: 0; left: 0; height: 9px; }
 
 .select-trigger { min-height: var(--control-h); }
 .select-shell { position: relative; display: inline-block; min-width: 150px; max-width: 100%; vertical-align: middle; }
-.select-trigger { position: relative; display: flex; align-items: center; justify-content: space-between; width: 100%; padding-right: 33px; background: #1c2921; text-align: left; font-weight: 400; }
+.select-trigger { position: relative; display: flex; align-items: center; justify-content: space-between; width: 100%; padding-right: 33px; background: var(--fh-surface,#1c2921); text-align: left; font-weight: 400; }
 .select-trigger::after { content: ""; position: absolute; top: calc(50% - 4px); right: 13px; width: 6px; height: 6px; border-right: 1.5px solid var(--muted); border-bottom: 1.5px solid var(--muted); transform: rotate(45deg); pointer-events: none; }
 .select-trigger[aria-expanded="true"]::after { top: calc(50% - 1px); transform: rotate(225deg); }
 
-.select-menu { position: absolute; top: calc(100% + 5px); left: 0; z-index: 30; width: max-content; min-width: 100%; max-width: min(400px, 80vw); max-height: 260px; padding: 4px; overflow: auto; border: 1px solid #405748; border-radius: 7px; background: #1a261e; box-shadow: 0 12px 30px #0006; }
+.select-menu { position: absolute; top: calc(100% + 5px); left: 0; z-index: 30; width: max-content; min-width: 100%; max-width: min(400px, 80vw); max-height: 260px; padding: 4px; overflow: auto; border: 1px solid var(--fh-border,#405748); border-radius: 7px; background: var(--fh-surface,#1a261e); box-shadow: 0 12px 30px #0006; }
 .select-menu > button { display: block; width: 100%; border: 0; border-radius: 4px; background: transparent; text-align: left; white-space: normal; }
-.select-menu > button[aria-selected="true"] { background: #293e30; color: var(--accent); }
-.select-menu > button:hover, .select-menu > button:focus { outline: 0; background: #304837; }
+.select-menu > button[aria-selected="true"] { background: var(--fh-surface-soft,#293e30); color: var(--accent); }
+.select-menu > button:hover, .select-menu > button:focus { outline: 0; background: var(--fh-surface-soft,#304837); }
 
 @media (max-width: 760px) {
   .help-content { position: fixed; right: 12px; bottom: 12px; left: 12px; top: auto; width: auto; max-width: none; }
@@ -23,6 +23,6 @@
   .select-shell { min-width: 120px; }
 }
 
-.select-menu .select-search { position: sticky; top: 0; z-index: 1; display: block; width: 100%; min-width: 0; margin: 0 0 5px; padding: 8px 9px; background: var(--panel, #17231c); font: inherit; }
-.select-menu [role="status"] { display: block; padding: 9px; color: var(--muted, #99aa9e); }
+.select-menu .select-search { position: sticky; top: 0; z-index: 1; display: block; width: 100%; min-width: 0; margin: 0 0 5px; padding: 8px 9px; background: var(--panel, var(--fh-surface,#17231c)); font: inherit; }
+.select-menu [role="status"] { display: block; padding: 9px; color: var(--muted, var(--fh-muted,#99aa9e)); }
 }

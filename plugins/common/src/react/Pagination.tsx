@@ -37,7 +37,7 @@ export function Pagination({
         上一页
       </Button>
       <output
-        className="min-w-20 text-center font-mono text-xs tracking-[0.08em] text-[#8fa698]"
+        className="min-w-20 text-center font-mono text-xs tracking-[0.08em] text-[var(--fh-muted,#8fa698)]"
         aria-live="polite"
         aria-atomic="true"
       >

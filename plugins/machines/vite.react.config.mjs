@@ -21,7 +21,9 @@ export default defineConfig({
   },
   build: {
     outDir: resolve(root, 'build/ui/react'),
-    emptyOutDir: true,
+    // Fleet shares this directory; incremental editor builds must preserve it.
+    // The full plugin packager owns cleaning the build directory.
+    emptyOutDir: false,
     sourcemap: false,
     minify: 'esbuild',
     lib: {

@@ -1,0 +1,7 @@
+:root[data-theme] body { background: var(--fh-canvas); color: var(--fh-text); }
+:root[data-theme] .masthead { background: var(--fh-surface); }
+:root[data-theme] { --fleet-green-strong: var(--fh-accent); }
+@media (max-width: 600px) {
+  :root[data-theme] .masthead { flex-wrap: wrap; gap: 12px; }
+  :root[data-theme] .masthead .actions { flex-wrap: wrap; }
+}

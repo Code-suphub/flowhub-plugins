@@ -5,19 +5,19 @@
 
 :root {
   color-scheme: dark;
-  --fleet-bg: #0d1411;
-  --fleet-panel: #131e18;
-  --fleet-panel-raised: #18261e;
-  --fleet-line: #2a3d31;
-  --fleet-line-bright: #3f5b48;
-  --fleet-ink: #e6efe9;
-  --fleet-muted: #8da497;
-  --fleet-faint: #5c7264;
-  --fleet-green: #a9e0b8;
-  --fleet-green-strong: #68c884;
-  --fleet-amber: #e5b36f;
-  --fleet-red: #ee9a8e;
-  --fleet-blue: #91c5d8;
+  --fleet-bg: var(--fh-canvas,#0d1411);
+  --fleet-panel: var(--fh-surface,#131e18);
+  --fleet-panel-raised: var(--fh-surface,#18261e);
+  --fleet-line: var(--fh-border,#2a3d31);
+  --fleet-line-bright: var(--fh-border,#3f5b48);
+  --fleet-ink: var(--fh-text,#e6efe9);
+  --fleet-muted: var(--fh-muted,#8da497);
+  --fleet-faint: var(--fh-muted,#5c7264);
+  --fleet-green: var(--fh-accent,#a9e0b8);
+  --fleet-green-strong: var(--fh-muted,#68c884);
+  --fleet-amber: var(--fh-danger,#e5b36f);
+  --fleet-red: var(--fh-danger,#ee9a8e);
+  --fleet-blue: var(--fh-accent,#91c5d8);
   --fleet-panel-pad: clamp(16px, 2.2vw, 26px);
   font-family: "DIN Alternate", "Bahnschrift", "PingFang SC", "Microsoft YaHei", sans-serif;
 }
@@ -65,7 +65,7 @@ dialog.fleet__remove-dialog { width: min(420px, calc(100vw - 24px)); }
   padding: 18px;
   border: 1px solid var(--fleet-line);
   border-radius: 8px;
-  background: rgb(19 30 24 / 0.94);
+  background: color-mix(in srgb, var(--fh-surface,#131e18) 94%, transparent);
 }
 
 .fleet__section-head {
@@ -118,7 +118,7 @@ dialog.fleet__remove-dialog { width: min(420px, calc(100vw - 24px)); }
   font: 600 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
-.fleet__summary--healthy dd { color: var(--fleet-green); }
+.fleet__summary--healthy dd { color: var(--fh-positive, var(--fleet-green)); }
 .fleet__summary--problem dd { color: var(--fleet-amber); }
 .fleet__summary--active dd { color: var(--fleet-blue); }
 
@@ -130,7 +130,7 @@ dialog.fleet__remove-dialog { width: min(420px, calc(100vw - 24px)); }
   gap: 7px;
   padding: 8px;
   border: 1px solid var(--fleet-line);
-  background: rgb(9 18 13 / 0.55);
+  background: color-mix(in srgb, var(--fh-canvas,#09120d) 55%, transparent);
 }
 
 .fleet__search {
@@ -158,7 +158,7 @@ dialog.fleet__remove-dialog { width: min(420px, calc(100vw - 24px)); }
 
 .fleet__search input:focus {
   border-color: var(--fleet-line-bright);
-  box-shadow: 0 0 0 3px rgb(105 184 126 / 0.1);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--fh-muted,#69b87e) 10%, transparent);
 }
 
 .fleet__search-icon {
@@ -284,7 +284,7 @@ dialog.fleet__remove-dialog { width: min(420px, calc(100vw - 24px)); }
 }
 
 .fleet__table-wrap .fh-table thead {
-  background: rgb(24 38 30 / 0.8);
+  background: color-mix(in srgb, var(--fh-surface,#18261e) 80%, transparent);
 }
 
 .fleet__table-wrap .fh-table th {
@@ -297,11 +297,11 @@ dialog.fleet__remove-dialog { width: min(420px, calc(100vw - 24px)); }
 
 .fleet__table-wrap .fh-table td {
   padding: 12px 11px;
-  border-color: rgb(42 61 49 / 0.7);
+  border-color: color-mix(in srgb, var(--fh-border,#2a3d31) 70%, transparent);
 }
 
 .fleet__table-wrap .fh-table tbody tr:hover {
-  background: rgb(38 65 47 / 0.2);
+  background: color-mix(in srgb, var(--fh-surface-soft,#26412f) 20%, transparent);
 }
 
 .fleet__select-cell {
@@ -332,7 +332,7 @@ dialog.fleet__remove-dialog { width: min(420px, calc(100vw - 24px)); }
   display: inline-block;
   margin-left: 7px;
   padding: 2px 5px;
-  border: 1px solid rgb(145 197 216 / 0.3);
+  border: 1px solid color-mix(in srgb, var(--fh-accent,#91c5d8) 30%, transparent);
   border-radius: 3px;
   color: var(--fleet-blue);
   font: 9px ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -374,7 +374,7 @@ dialog.fleet__remove-dialog { width: min(420px, calc(100vw - 24px)); }
   height: 6px;
   border-radius: 50%;
   background: currentColor;
-  box-shadow: 0 0 0 3px rgb(141 164 151 / 0.1);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--fh-muted,#8da497) 10%, transparent);
 }
 
 .fleet__status--success {
@@ -447,7 +447,7 @@ dialog.fleet__remove-dialog { width: min(420px, calc(100vw - 24px)); }
   padding: 45px 20px 40px;
   border: 1px dashed var(--fleet-line-bright);
   text-align: center;
-  background: rgb(9 18 13 / 0.35);
+  background: color-mix(in srgb, var(--fh-canvas,#09120d) 35%, transparent);
 }
 
 .fleet__empty-mark {
@@ -538,7 +538,7 @@ dialog.fleet__remove-dialog { width: min(420px, calc(100vw - 24px)); }
   .fleet__card {
     padding: 14px;
     border: 1px solid var(--fleet-line);
-    background: rgb(9 18 13 / 0.48);
+    background: color-mix(in srgb, var(--fh-canvas,#09120d) 48%, transparent);
   }
 
   .fleet__card-head {
@@ -561,7 +561,7 @@ dialog.fleet__remove-dialog { width: min(420px, calc(100vw - 24px)); }
     gap: 7px;
     margin: 15px 0 12px 25px;
     padding: 10px 0;
-    border-block: 1px solid rgb(42 61 49 / 0.7);
+    border-block: 1px solid color-mix(in srgb, var(--fh-border,#2a3d31) 70%, transparent);
   }
 
   .fleet__card-metrics div {

@@ -3,6 +3,7 @@ import {
   Button,
   Checkbox,
   Combobox,
+  MultiCombobox,
   EmptyState,
   HelpPopover,
   Input,
@@ -44,32 +45,54 @@ function TemplateManager({ initial, busy, onSave }: {
   busy: boolean;
   onSave: (templates: readonly CommandTemplate[]) => Promise<void>;
 }) {
-  const [draft, setDraft] = useState<CommandTemplate[]>(() => initial.map((item) => ({ ...item })));
+  const [editing, setEditing] = useState<{ index: number; original: string; draft: CommandTemplate } | null>(null);
+  const [removing, setRemoving] = useState<number | null>(null);
+  const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
+  const locked = busy || pending;
+  const operation = useRef(false);
 
-  useEffect(() => {
-    setDraft(initial.map((item) => ({ ...item })));
-    setError('');
-  }, [initial]);
+  function edit(index: number) {
+    setError(''); setRemoving(null);
+    setEditing({ index, original: JSON.stringify(initial[index]), draft: index < 0 ? { name: '', command: '' } : { ...initial[index] } });
+  }
+
+  async function persist(next: readonly CommandTemplate[]) {
+    if (locked || operation.current) return;
+    operation.current = true; setPending(true); setError('');
+    try { await onSave(next); setEditing(null); setRemoving(null); }
+    catch (reason) { setError(errorText(reason)); }
+    finally { operation.current = false; setPending(false); }
+  }
 
   async function save() {
-    if (draft.some((item) => !item.name.trim() || byteLength(item.name) > 100 || !item.command.trim() || byteLength(item.command) > 8192)) {
+    if (!editing) return;
+    const { draft, index, original } = editing;
+    if (!draft.name.trim() || byteLength(draft.name) > 100 || !draft.command.trim() || byteLength(draft.command) > 8192) {
       setError('请填写模板名称（最多 100 字节）和命令（最多 8192 字节）。');
       return;
     }
-    try { await onSave(draft); } catch (reason) { setError(errorText(reason)); }
+    if (index >= 0 && JSON.stringify(initial[index]) !== original) { setError('该模板已更新，请取消后重新编辑。'); return; }
+    if (index < 0 && initial.length >= 50) { setError('最多保存 50 个模板。'); return; }
+    await persist(index < 0 ? [...initial, draft] : initial.map((item, i) => i === index ? draft : item));
   }
 
+  const editor = editing ? <form className="command-react__template-editor" onSubmit={event => { event.preventDefault(); void save(); }}>
+    <label><span>模板名称</span><Input autoFocus disabled={locked} value={editing.draft.name} maxLength={100} placeholder="例如：查看磁盘使用" onChange={event => setEditing({ ...editing, draft: { ...editing.draft, name: event.target.value } })} /></label>
+    <label><span>命令内容</span><Textarea disabled={locked} rows={3} value={editing.draft.command} placeholder="df -h /" onChange={event => setEditing({ ...editing, draft: { ...editing.draft, command: event.target.value } })} /></label>
+    <div className="command-react__template-actions"><Button size="sm" variant="ghost" disabled={locked} onClick={() => { setEditing(null); setError(''); }}>取消</Button><Button type="submit" size="sm" variant="primary" disabled={locked}>{locked ? '保存中…' : '保存'}</Button></div>
+  </form> : null;
+
   return <section className="command-react__template-manager" aria-labelledby="command-template-title">
-    <header><div><h3 id="command-template-title">模板列表</h3><p>集中维护常用命令；选择模板只会填入命令，不会自动执行。</p></div><div>{draft.length < 50 ? <Button size="sm" variant="ghost" onClick={() => setDraft((current) => [...current, { name: '', command: '' }])}>新建模板</Button> : null}<Button size="sm" variant="primary" disabled={busy} onClick={() => void save()}>{busy ? '保存中…' : '保存修改'}</Button></div></header>
+    <header><div className="command-react__template-heading"><h3 id="command-template-title">模板列表</h3></div><Button size="sm" variant="primary" disabled={locked || editing !== null || initial.length >= 50} onClick={() => edit(-1)}>新建模板</Button></header>
     <div className="command-react__template-list">
-      {draft.map((item, index) => <section key={index} className="command-react__template-row">
-        <span className="command-react__template-index">{String(index + 1).padStart(2, '0')}</span>
-        <label><span>模板名称</span><Input value={item.name} maxLength={100} placeholder="例如：查看磁盘使用" onChange={(event) => setDraft((current) => current.map((entry, itemIndex) => itemIndex === index ? { ...entry, name: event.target.value } : entry))} /></label>
-        <label><span>命令内容</span><Textarea rows={2} value={item.command} placeholder="df -h /" onChange={(event) => setDraft((current) => current.map((entry, itemIndex) => itemIndex === index ? { ...entry, command: event.target.value } : entry))} /></label>
-        <Button size="sm" variant="ghost" onClick={() => setDraft((current) => current.filter((_, itemIndex) => itemIndex !== index))}>删除</Button>
+      {editing?.index === -1 ? editor : null}
+      {initial.map((item, index) => <section key={index}>
+        <div className="command-react__template-row"><strong title={item.name}>{item.name}</strong><code title={item.command}>{item.command.replace(/\s+/g, ' ')}</code>
+        <div className="command-react__template-actions">{removing === index ? <><span>删除此模板？</span><Button size="sm" variant="ghost" disabled={locked} onClick={() => setRemoving(null)}>取消</Button><Button size="sm" variant="ghost" disabled={locked} onClick={() => void persist(initial.filter((_, i) => i !== index))}>确认删除</Button></> : <><Button size="sm" variant="ghost" disabled={locked || editing !== null} aria-expanded={editing?.index === index} onClick={() => edit(index)}>编辑</Button><Button size="sm" variant="ghost" disabled={locked || editing !== null} onClick={() => { setRemoving(index); setError(''); }}>删除</Button></>}</div></div>
+        {editing?.index === index ? editor : null}
       </section>)}
-      {!draft.length ? <EmptyState size="compact" title="还没有命令模板" description="点击右上角“新建模板”添加常用命令。" /> : null}
+      {!initial.length && !editing ? <EmptyState size="compact" title="还没有命令模板" description="点击右上角“新建模板”添加常用命令。" /> : null}
     </div>
     {error ? <p className="command-react__error" role="alert">{error}</p> : null}
   </section>;
@@ -81,29 +104,11 @@ function TargetRail({ hosts, selected, disabled, onChange }: {
   disabled: boolean;
   onChange: (hostIds: ReadonlySet<string>) => void;
 }) {
-  const [query, setQuery] = useState('');
-  const visible = useMemo(() => {
-    const needle = query.trim().toLocaleLowerCase();
-    return needle ? hosts.filter((host) => `${host.name} ${host.alias} ${host.group ?? ''}`.toLocaleLowerCase().includes(needle)) : hosts;
-  }, [hosts, query]);
-
-  function toggle(hostId: string, checked: boolean) {
-    const next = new Set(selected);
-    checked ? next.add(hostId) : next.delete(hostId);
-    onChange(next);
-  }
-
   return <aside className="command-react__targets" aria-label="目标机器">
-    <div className="command-react__target-head"><strong>目标机器</strong><div><em>已选 {selected.size}/16</em>{selected.size ? <Button size="sm" variant="ghost" onClick={() => onChange(new Set())}>清空</Button> : null}</div></div>
-    <Input type="search" aria-label="搜索目标机器" placeholder="搜索名称、别名或分组…" value={query} onChange={(event) => setQuery(event.target.value)} />
-    <div className="command-react__target-list">
-      {visible.map((host) => <label key={host.id} className="command-react__target" data-selected={selected.has(host.id) || undefined}>
-        <input type="checkbox" checked={selected.has(host.id)} disabled={disabled} onChange={(event) => toggle(host.id, event.target.checked)} />
-        <span><strong>{host.name}</strong><small>{host.alias}{host.group ? ` · ${host.group}` : ''}</small></span>
-        {host.bastion ? <i>B</i> : null}
-      </label>)}
-      {!visible.length ? <p>没有匹配的机器</p> : null}
-    </div>
+    <div className="command-react__target-head"><strong>目标机器</strong><em>已选 {selected.size}/16</em></div>
+    <MultiCombobox id="command-targets" aria-label="搜索目标机器" placeholder="搜索并选择机器…" emptyMessage="没有匹配的机器" disabled={disabled} maxSelected={16}
+      options={hosts.map(host => ({ value: host.id, label: `${host.name}${host.group ? ` · ${host.group}` : ''}`, search: host.alias }))}
+      value={[...selected]} onChange={ids => onChange(new Set(ids))} />
   </aside>;
 }
 
@@ -122,7 +127,7 @@ function JobConsole({ jobs, selectedHosts, onCancel, onClear }: {
       {jobs.length ? jobs.map((job) => <article key={job.id} className="command-react__job">
         <div><span className={`command-react__job-status command-react__job-status--${job.status}`}>{STATUS_LABELS[job.status] ?? job.status}</span><strong>{job.alias}</strong><time>{new Date(job.startedAt).toLocaleTimeString()}</time>{!job.finishedAt ? <Button size="sm" variant="ghost" onClick={() => onCancel(job)}>取消</Button> : null}</div>
         <pre><b>$ {job.command}</b>{job.stdout ? `\n${job.stdout}` : ''}{job.stderr ? `\n[stderr]\n${job.stderr}` : ''}{job.finishedAt && !job.stdout && !job.stderr ? '\n（无输出）' : ''}</pre>
-      </article>) : <div className="command-react__console-empty"><span>$</span><p>{selectedHosts.length ? '输入命令后按 Enter 执行' : '先从左侧选择目标机器'}</p></div>}
+      </article>) : <div className="command-react__console-empty"><span>$</span><p>{selectedHosts.length ? '输入命令后按 Enter 执行' : '先选择目标机器'}</p></div>}
     </div>
   </section>;
 }
@@ -263,12 +268,11 @@ export function CommandWorkspace({ api, run, active = true, selectedHostIds, onS
   if (!api || !run) return <section className="command-react"><EmptyState title="远程命令仅在 FlowHub 中可用" description="当前浏览器环境没有插件调用桥。" /></section>;
   if (!state) return <section className="command-react"><EmptyState title={error || '正在读取命令工作台…'} /></section>;
 
-  return <section className="command-react" aria-labelledby="command-react-title">
-    <header className="command-react__head"><div><div className="command-react__title"><h2 id="command-react-title">远程命令</h2><HelpPopover label="命令执行说明">每条命令独立执行，不保留目录或环境变量。每批最多 16 台，并发由插件调度，超时 60 秒；取消本地 SSH 后，远端进程仍可能继续。</HelpPopover></div><p>{workspaceView === 'execute' ? '选择目标、输入命令并查看本次会话输出。' : '集中维护可重复使用的常用命令。'}</p></div><div className="command-react__head-status"><span className={selectedHosts.length && workspaceView === 'execute' ? 'is-ready' : ''}>{workspaceView === 'execute' ? (selectedHosts.length ? `已选 ${selectedHosts.length} 台` : '尚未选择目标') : `${templates.length} 个模板`}</span></div></header>
+  return <section className="command-react" aria-label="远程命令">
     <Tabs value={workspaceView} onValueChange={(value) => setWorkspaceView(value as 'execute' | 'templates')} className="command-react__workspace-tabs">
       <Tabs.List aria-label="远程命令工作区" className="command-react__subtabs">
-        <Tabs.Trigger value="execute" className="command-react__subtab">执行命令</Tabs.Trigger>
-        <Tabs.Trigger value="templates" className="command-react__subtab">命令模板</Tabs.Trigger>
+        <Tabs.Trigger value="execute" className="command-react__subtab" title="选择目标机器、输入命令，再执行；输出显示在当前工作区。">执行命令</Tabs.Trigger>
+        <Tabs.Trigger value="templates" className="command-react__subtab" title="集中维护常用命令，一次编辑一条，保存后生效。选择模板只会填入命令，不会自动执行。">命令模板</Tabs.Trigger>
       </Tabs.List>
       <Tabs.Panel value="execute" forceMount className="command-react__workspace-panel">
         <div className="command-react__layout">
