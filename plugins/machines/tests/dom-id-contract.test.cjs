@@ -17,6 +17,7 @@ for (const page of pages) {
   const scripts = [...html.matchAll(/<script[^>]*src="([^"]+)"/g)].map(match => match[1]);
   for (const script of scripts) {
     const file = path.join(ui, script);
+    if (script.startsWith('react/')) continue;
     const sourceFile = !fs.existsSync(file) && script === 'widget/card.js'
       ? path.resolve(__dirname, '..', 'src/widget/card.tsx')
       : !fs.existsSync(file) && script === 'widget/detail.js'

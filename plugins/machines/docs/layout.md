@@ -54,9 +54,9 @@ npm run dev -- --port 5183        # 启动 ui/ 的 vite 预览（dev/machines-pr
 
 ## 有意保留的重复
 
-三套自绘下拉样式（`machine-controls.css`、`widget/widget-editor.css`、
-`widget/widget-detail.css`）**刻意不合并**：实测三页在 padding、控件高度、配色、
+两套静态自绘下拉样式（`machine-controls.css`、`widget/widget-detail.css`）与 React
+公共下拉组件**刻意不合并**：实测静态页在 padding、控件高度、配色、
 圆角、字体、箭头几何、菜单偏移/阴影/z-index 等 **71 处**属性上各不相同，真正一致且
 有意义的只有 9 处（多数还来自各自页面的 `button` 规则）。抽公共文件需要按页提供
-70 多个变量去复现三套设计，比三份小副本更难维护；改为用上面的指纹基线锁住它们，
+70 多个变量去复现静态页设计，比小副本更难维护；改为用上面的指纹基线锁住它们，
 避免以后悄悄漂移。整页机器管理页与 widget 页面配色本就分属两套主题，同理。

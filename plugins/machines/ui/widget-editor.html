@@ -1,1 +1,14 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><link data-flowhub-common rel="stylesheet"><link rel="stylesheet" href="widget/widget-editor.css"></head><body><label>目标机器<select id="row"></select></label><fieldset><legend>显示指标</legend><div id="metrics"></div></fieldset><p>剩余流量需先在机器管理 → 云流量中保存该机器的配置。每 5 分钟更新。</p><p id="error" role="status"></p><script data-flowhub-common></script><script src="widget/widget-bridge.js"></script><script src="widget/widget-editor.js"></script><script src="select-control.js"></script></body></html>
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>机器组件配置</title>
+  <link rel="stylesheet" href="react/widget-editor.css">
+</head>
+<body>
+  <div id="root"></div>
+  <script src="widget/widget-bridge.js" data-flowhub-ready="editor"></script>
+  <script type="module" src="react/widget-editor.js"></script>
+</body>
+</html>

@@ -36,6 +36,9 @@ function checkUiAssets(directory, fail) {
     for (const match of html.matchAll(/(?:src|href)="([^"]+)"/g)) {
       const reference = match[1];
       if (/^(https?:|#|data:|\.\.|\/)/.test(reference)) continue;
+      // React island assets are emitted into the package build directory after
+      // this source-tree convention check runs.
+      if (reference.startsWith('react/')) continue;
       if (!fs.existsSync(path.join(path.dirname(file), reference))) {
         fail(`${path.relative(directory, file)} 引用了不存在的资源：${reference}`);
       }

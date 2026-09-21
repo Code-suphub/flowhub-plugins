@@ -45,6 +45,9 @@ for (const source of bundles) {
 }
 if (/https?:\/\//.test(html)) throw new Error('React 页面不能依赖远程运行时资源');
 if (!html.includes('data-flowhub-ready="editor"')) throw new Error('React 编辑器必须在注册保存函数后再通知宿主就绪');
+for (const stale of ['widget/widget-editor.js', 'widget/widget-editor.css']) {
+  if (fs.existsSync(path.join(ui, stale))) throw new Error(`发布构建不应保留已迁移的旧编辑器资源：${stale}`);
+}
 
 const maps = fs.readdirSync(path.join(ui, 'react')).filter((name) => name.endsWith('.map'));
 if (maps.length) throw new Error(`发布构建不应包含 source map：${maps.join(', ')}`);

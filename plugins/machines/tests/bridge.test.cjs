@@ -33,3 +33,40 @@ test('React widget bridge announces ready only after its editor is registered',(
   assert.equal(sent[1].id,'save-1');
   assert.deepEqual(JSON.parse(JSON.stringify(sent[1].config)),config);
 });
+
+test('React widget bridge rejects messages outside the host/token boundary',()=>{
+  let listener;
+  const sent=[];
+  const parent={postMessage(message){sent.push(message);}};
+  const window={parent,addEventListener(type,fn){listener=fn;}};
+  const context={window,parent,document:{currentScript:{dataset:{}}},location:{hash:'#flowhubWidgetToken=editor-secret'},URLSearchParams,setTimeout,clearTimeout,fetch(){throw Error('preview fetch should not run in host mode');}};
+  vm.runInNewContext(fs.readFileSync('ui/widget/widget-bridge.js','utf8'),context);
+  context.FlowHubWidget=window.FlowHubWidget;
+
+  let resolved=false;
+  const reply=context.FlowHubWidget.invoke({action:'snapshot'}).then(()=>{resolved=true;});
+  const request=sent.at(-1);
+  listener({source:{},data:{type:'flowhub:widget-result',id:request.id,token:'editor-secret',result:'forged-source'}});
+  listener({source:parent,data:{type:'flowhub:widget-result',id:request.id,token:'wrong-token',result:'forged-token'}});
+  assert.equal(resolved,false);
+  listener({source:parent,data:{type:'flowhub:widget-result',id:request.id,token:'editor-secret',result:'ok'}});
+  return reply.then(()=>assert.equal(resolved,true));
+});
+
+test('React widget bridge returns correlated save errors without leaking a stale request',()=>{
+  let listener;
+  const sent=[];
+  const parent={postMessage(message){sent.push(message);}};
+  const window={parent,addEventListener(type,fn){listener=fn;}};
+  const context={window,parent,addEventListener:window.addEventListener,document:{currentScript:{dataset:{flowhubReady:'editor'}}},location:{hash:''},URLSearchParams,setTimeout,clearTimeout,fetch(){throw Error('embedded widget must not fetch preview data');}};
+  vm.runInNewContext(fs.readFileSync('ui/widget/widget-bridge.js','utf8'),context);
+  context.FlowHubWidget=window.FlowHubWidget;
+  context.FlowHubWidget.editor(()=>{throw new Error('fixture validation failed');});
+  const ready=sent.find(message=>message.type==='flowhub:widget-ready');
+  assert.ok(ready);
+  listener({source:parent,data:{type:'flowhub:widget-save',id:'save-error',token:null}});
+  assert.equal(sent.at(-1).type,'flowhub:widget-config');
+  assert.equal(sent.at(-1).id,'save-error');
+  assert.equal(sent.at(-1).error,'fixture validation failed');
+  assert.equal(sent.at(-1).token,null);
+});

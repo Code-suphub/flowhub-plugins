@@ -58,6 +58,12 @@ let checked = 0;
 const problems = [];
 for (const page of pages) {
   const files = stylesheetsOf(page);
+  if (files.some(file => file.startsWith('react/'))) {
+    for (const file of files.filter(file => !file.startsWith('react/'))) {
+      assert.ok(fs.existsSync(path.join(ui, file)), `${page} 引用了不存在的样式表 ${file}`);
+    }
+    continue;
+  }
   assert.ok(files.length > 0, `${page} 没有引用样式表`);
   for (const file of files) {
     assert.ok(fs.existsSync(path.join(ui, file)), `${page} 引用了不存在的样式表 ${file}`);
