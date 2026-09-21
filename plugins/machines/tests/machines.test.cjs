@@ -72,6 +72,9 @@ function controllerHarness(api, settings = {}) {
   const code = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX } }).outputText;
   const effects = [], states = [], refs = [], listeners = new Map(), timers = new Map();
   let timerId = 0;
+  let shellProps;
+  const MachineShell = () => null;
+  const jsx = (type, props) => { if (type === MachineShell) shellProps = props; return null; };
   const window = { addEventListener: (name, fn) => listeners.set(name, fn), removeEventListener: name => listeners.delete(name) };
   Object.assign(window, settings);
   const exports = {};
@@ -83,8 +86,8 @@ function controllerHarness(api, settings = {}) {
         useEffect: fn => effects.push(fn), useRef: value => { const ref = { current: value }; refs.push(ref); return ref; },
         useState(value) { const i = states.length; states.push(value); return [value, next => { states[i] = typeof next === 'function' ? next(states[i]) : next; }]; },
       };
-      if (name === 'react/jsx-runtime') return { jsx: () => null, jsxs: () => null };
-      if (name === './MachineShell') return { MachineShell() {} };
+      if (name === 'react/jsx-runtime') return { jsx, jsxs: jsx };
+      if (name === './MachineShell') return { MachineShell };
       if (name === '../collections/CollectionWorkspace') return { CollectionWorkspace() {} };
       if (name === '../host-editor/HostEditorController') return { HostEditorController() {} };
       if (name === './FleetPage') return { FleetPage() {} };
@@ -93,7 +96,7 @@ function controllerHarness(api, settings = {}) {
   });
   exports.FleetController({ api, run: null });
   const cleanup = effects[0]();
-  return { cleanup, states, refs, listeners, timers };
+  return { cleanup, states, refs, listeners, timers, refresh: () => shellProps.onMonitorSaved() };
 }
 
 test('widget waits for initialization and opens its machine through the editor ref', async () => {
@@ -122,8 +125,8 @@ test('controller coalesces refreshes and ignores responses after unmount', async
   const tick = () => new Promise(resolve => setImmediate(resolve));
   await tick();
   assert.equal(pending.length, 1);
-  h.listeners.get('flowhub:hosts-changed')();
-  h.listeners.get('flowhub:hosts-changed')();
+  h.refresh();
+  h.refresh();
   assert.equal(pending.length, 1, 'no overlapping requests');
   const state = name => ({ config: { hosts: [{ id: name, alias: name, name }], enabled: true, installed: { version: 'test' }, interval: 60 }, metrics: {}, active: [], history: [] });
   pending[0](state('stale'));
@@ -138,7 +141,7 @@ test('controller coalesces refreshes and ignores responses after unmount', async
   assert.equal(JSON.stringify(h.states[1]), '["fresh"]', 'removed machines must leave the shared selection');
   assert.equal(h.states[3], null, 'removing a machine must close its collection dialog');
   assert.equal(h.timers.size, 1);
-  h.listeners.get('flowhub:hosts-changed')();
+  h.refresh();
   await tick();
   h.cleanup();
   assert.equal(h.listeners.size, 0);
@@ -146,6 +149,58 @@ test('controller coalesces refreshes and ignores responses after unmount', async
   pending[2](state('unmounted'));
   await tick();
   assert.equal(h.states[0].config.hosts[0].id, 'fresh');
+  h.refresh();
+  await tick();
+  assert.equal(pending.length, 3, 'late save callbacks cannot restart an unmounted controller');
+});
+
+test('monitor refresh errors are reported by the parent without rejecting the save callback', async () => {
+  let calls = 0;
+  const h = controllerHarness(async () => {
+    if (++calls > 1) throw new Error('refresh unavailable');
+    return { config: { hosts: [], enabled: true, installed: { version: 'test' }, interval: 60 }, metrics: {}, active: [], history: [] };
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.refresh(), undefined);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.states[2].text, 'refresh unavailable');
+  assert.equal(h.states[2].error, true);
+  h.cleanup();
+});
+
+test('monitor save notifies its parent after success even when the dialog closes', async () => {
+  const ts = require('typescript');
+  const source = fs.readFileSync(path.join(__dirname, '../src/monitoring/MonitorSettings.tsx'), 'utf8');
+  assert(!source.includes('flowhub:hosts-changed'));
+  const code = ts.transpileModule(`${source}\nexport { SettingsSession };`, { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX } }).outputText;
+  for (const fails of [false, true]) {
+    let complete, submit, saved = 0, index = 0, writesAfterClose = 0, closed = false;
+    const effects = [];
+    const exports = {};
+    const jsx = (type, props) => { if (type === 'form') submit = props.onSubmit; return null; };
+    vm.runInNewContext(code, { exports, require(name) {
+      if (name === 'react') return {
+        useRef: value => ({ current: value }), useEffect: fn => effects.push(fn),
+        useState(value) {
+          const initial = index++ === 1 ? { hosts: [], retentionDays: 30 } : value;
+          return [initial, () => { if (closed) writesAfterClose++; }];
+        },
+      };
+      if (name === 'react/jsx-runtime') return { jsx, jsxs: jsx };
+      if (name === '@flowhub/plugin-common/react') return { Tabs: { List() {}, Trigger() {}, Panel() {} } };
+      if (name === './settings.css') return {};
+      throw Error(name);
+    } });
+    exports.SettingsSession({ api: () => new Promise((resolve, reject) => { complete = () => fails ? reject(new Error('save failed')) : resolve({}); }), onSaved: () => saved++ });
+    const cleanup = effects[0]();
+    submit({ preventDefault() {} });
+    assert.equal(saved, 0, 'never notify before persistence succeeds');
+    cleanup(); closed = true;
+    complete();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(saved, fails ? 0 : 1);
+    assert.equal(writesAfterClose, 0, 'closed dialog must not update its local state');
+  }
 });
 
 test('read-only controller never starts polling or enables machines', async () => {
@@ -319,7 +374,7 @@ test('fleet controller owns lifecycle and physically replaces the legacy orchest
   assert(!html.includes('src="machines.js"'));
   assert.match(source, /if \(disposed \|\| !api\) return/);
   assert.match(source, /clearTimeout\(timer\)/);
-  assert.match(source, /removeEventListener\('flowhub:hosts-changed'/);
+  assert(!source.includes('flowhub:hosts-changed'));
   assert(!source.includes('flowhub:command-selection'));
   assert.match(source, /if \(pending\) continue/);
   assert.match(source, /只读浏览器预览/);

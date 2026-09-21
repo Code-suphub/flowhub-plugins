@@ -59,12 +59,10 @@ export function FleetController({ api, run, backupApi = null }: { api: MachinesA
       return flight;
     };
     refresh.current = request;
-    const changed = () => { void request().catch(report); };
     const poll = async () => {
       try { if (!document.hidden) await request(); } catch (error) { report(error); }
       if (!disposed) timer = setTimeout(poll, 2000);
     };
-    window.addEventListener('flowhub:hosts-changed', changed);
     void (async () => {
       try {
         await request();
@@ -82,7 +80,6 @@ export function FleetController({ api, run, backupApi = null }: { api: MachinesA
       disposed = true;
       alive.current = false;
       clearTimeout(timer);
-      window.removeEventListener('flowhub:hosts-changed', changed);
     };
   }, [api]);
 
@@ -136,6 +133,7 @@ export function FleetController({ api, run, backupApi = null }: { api: MachinesA
     },
   };
   return <MachineShell
+    onMonitorSaved={() => { void refresh.current().catch(error => message(String(error), true)); }}
     editor={<HostEditorController ref={editor} api={api} onSaved={() => { void refresh.current().catch(error => message(String(error), true)); }} />}
     backupApi={backupApi}
     collections={<CollectionWorkspace host={state.config.hosts.find(host => host.id === collectionHostId) ?? null} jobs={[...state.active, ...state.history]} api={api} onClose={() => setCollectionHostId(null)} />}

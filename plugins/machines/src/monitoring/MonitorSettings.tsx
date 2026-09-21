@@ -33,7 +33,7 @@ function HistoryChart({ history }: { history: History }) {
   </figure>;
 }
 
-function SettingsSession({ api }: { api: MachinesApi }) {
+function SettingsSession({ api, onSaved }: { api: MachinesApi; onSaved: () => void }) {
   const [tab, setTab] = useState('settings');
   const [config, setConfig] = useState<Config | null>(null);
   const [days, setDays] = useState('30');
@@ -80,11 +80,12 @@ function SettingsSession({ api }: { api: MachinesApi }) {
           const next: Record<string, Exporter> = {};
           for (const host of config.hosts) { const value = exporters[host.id]; if (value?.url.trim()) next[host.id] = { url: value.url.trim(), device: value.device?.trim() || '' }; }
           await api('monitorSettings', { days: retention, exporters: next });
+          // Persisted changes still refresh the parent if this dialog was closed while saving.
+          onSaved();
           if (!alive.current) return;
           setConfig({ ...config, retentionDays: retention, exporters: next });
           setHistory(null);
           setStatus({ error: false, text: '监控设置已保存。' });
-          window.dispatchEvent(new CustomEvent('flowhub:hosts-changed'));
         });
       }}>
         <div className="monitor-settings__retention"><Field label="历史保留天数" htmlFor="monitor-retention"><Input id="monitor-retention" type="text" inputMode="numeric" pattern="[0-9]+" required value={days} disabled={busy} onChange={event => { setDays(event.currentTarget.value); setStatus(null); }} /></Field><HelpPopover label="历史保留说明">默认 30 天，可设 1–365 天，最多保留 20 万条采样。缩短时长会清理过期监控数据，命令执行记录不受影响。FlowHub 未运行期间保留空档，不补造历史。</HelpPopover></div>
@@ -121,10 +122,10 @@ function SettingsSession({ api }: { api: MachinesApi }) {
   </Tabs>;
 }
 
-export function MonitorSettings({ api }: { api: MachinesApi | null }) {
+export function MonitorSettings({ api, onSaved }: { api: MachinesApi | null; onSaved: () => void }) {
   const [open, setOpen] = useState(false);
   return <><Button disabled={!api} onClick={() => setOpen(true)}>监控设置</Button>
     <DialogShell open={open} onOpenChange={setOpen} title="监控设置" className="monitor-settings" contentClassName="monitor-settings__shell">
-      {open && api ? <SettingsSession api={api} /> : null}
+      {open && api ? <SettingsSession api={api} onSaved={onSaved} /> : null}
     </DialogShell></>;
 }
