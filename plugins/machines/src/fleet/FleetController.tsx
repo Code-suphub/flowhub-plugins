@@ -138,6 +138,8 @@ export function FleetController({ api, run }: { api: MachinesApi | null; run: Ma
     },
   };
   return <MachineShell
+    api={api}
+    run={run}
     available={!!state.config.installed && state.config.enabled}
     version={state.config.installed ? `v${state.config.installed.version}${state.config.enabled ? '' : ' · 已停用'}` : '未安装'}
     notice={notice}

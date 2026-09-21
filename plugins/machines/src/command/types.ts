@@ -47,7 +47,7 @@ export interface BastionState {
 }
 
 export interface CommandWorkspaceProps {
+  active?: boolean;
   api: MachinesApi | null;
   run: MachinesRun | null;
 }
-

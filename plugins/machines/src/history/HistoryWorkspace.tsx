@@ -40,8 +40,7 @@ function JobCard({ job, expanded, detail, busy, onToggle, onCancel }: { job: His
   </article>;
 }
 
-export function HistoryWorkspace({ api }: HistoryWorkspaceProps) {
-  const [active, setActive] = useState(() => document.querySelector('#historyPanel')?.hasAttribute('hidden') === false);
+export function HistoryWorkspace({ api, active = true }: HistoryWorkspaceProps) {
   const [hosts, setHosts] = useState<readonly HistoryHost[]>([]);
   const [jobs, setJobs] = useState<readonly HistoryJob[]>([]);
   const [hostId, setHostId] = useState('');
@@ -54,12 +53,6 @@ export function HistoryWorkspace({ api }: HistoryWorkspaceProps) {
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
   const [details, setDetails] = useState<Readonly<Record<string, HistoryJobDetail>>>({});
   const requestVersion = useRef(0);
-
-  useEffect(() => {
-    const onTab = (event: Event) => setActive((event as CustomEvent<{ tab?: string }>).detail?.tab === 'history');
-    window.addEventListener('flowhub:machine-tab', onTab);
-    return () => window.removeEventListener('flowhub:machine-tab', onTab);
-  }, []);
 
   const load = useCallback(async () => {
     if (!api || !active) return;
@@ -87,7 +80,10 @@ export function HistoryWorkspace({ api }: HistoryWorkspaceProps) {
     }
   }, [active, api, hostId, page, status]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    void load();
+    return () => { requestVersion.current++; };
+  }, [load]);
 
   async function toggle(job: HistoryJob) {
     const opening = !expanded.has(job.id);

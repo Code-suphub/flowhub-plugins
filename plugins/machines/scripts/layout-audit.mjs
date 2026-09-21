@@ -243,6 +243,17 @@ async function main() {
           if (document.activeElement !== tabs[index]) throw Error('Keyboard focus lost');
         }
         tabs[1].click(); await frame(); verify(1);
+        const draft = document.querySelector('#commandReactRoot textarea');
+        if (!draft) throw Error('Command draft input missing');
+        const setDraft = value => {
+          Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(draft, value);
+          draft.dispatchEvent(new Event('input', { bubbles: true }));
+        };
+        setDraft('audit draft — never execute'); await frame();
+        window.FlowHubMachineTabs.show('history'); await frame(); verify(2);
+        window.FlowHubMachineTabs.show('command'); await frame(); verify(1);
+        if (document.querySelector('#commandReactRoot textarea') !== draft || draft.value !== 'audit draft — never execute') throw Error('Navigation discarded command draft');
+        setDraft(''); await frame();
         window.FlowHubMachineTabs.show('fleet'); await frame(); verify(0);
         return true;
       })()` });

@@ -4,6 +4,22 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
+test('command and history receive navigation as props without independent roots', () => {
+  for (const area of ['command', 'history']) {
+    assert(!fs.existsSync(path.join(__dirname, `../src/${area}/mount.tsx`)));
+    const file = area === 'command' ? 'CommandWorkspace' : 'HistoryWorkspace';
+    const source = fs.readFileSync(path.join(__dirname, `../src/${area}/${file}.tsx`), 'utf8');
+    assert(!source.includes('flowhub:machine-tab'));
+    assert(!source.includes("hasAttribute('hidden')"));
+    assert.match(source, /active = true/);
+  }
+  const shell = fs.readFileSync(path.join(__dirname, '../src/fleet/MachineWorkspace.tsx'), 'utf8');
+  assert(!shell.includes('flowhub:machine-tab'));
+  assert.match(shell, /<CommandWorkspace/);
+  assert.match(shell, /<HistoryWorkspace/);
+  assert.match(shell, /forceMount/);
+});
+
 test('React shell owns availability, escaped notices and embedded layout', () => {
   const ts = require('typescript');
   const React = require('react');

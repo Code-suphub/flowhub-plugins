@@ -1,14 +1,17 @@
 import type { ReactNode } from 'react';
+import type { MachinesApi, MachinesRun } from '../api/machines';
 import { MachineWorkspace } from './MachineWorkspace';
 
 export interface MachineShellProps {
+  api: MachinesApi | null;
+  run: MachinesRun | null;
   available: boolean;
   version: string;
   notice: { text: string; error: boolean };
   fleet: ReactNode;
 }
 
-export function MachineShell({ available, version, notice, fleet }: MachineShellProps) {
+export function MachineShell({ available, version, notice, fleet, api, run }: MachineShellProps) {
   const embedded = window.parent !== window && new URLSearchParams(location.search).has('embedded');
   return <div className={embedded ? 'machine-shell embedded' : 'machine-shell'}>
     <header className="masthead">
@@ -17,7 +20,7 @@ export function MachineShell({ available, version, notice, fleet }: MachineShell
     </header>
     <div id="notice" className={`notice${notice.error ? ' error' : ''}`} role="status" aria-live="polite">{notice.text}</div>
     <div id="unavailable" className="empty" hidden={available}><h2>机器插件尚未启用</h2><p>请在 FlowHub 设置的「插件市场」中安装或启用。</p></div>
-    <main hidden={!available}><div id="machineWorkspaceRoot"><MachineWorkspace fleet={fleet} /></div></main>
+    <main hidden={!available}><div id="machineWorkspaceRoot"><MachineWorkspace fleet={fleet} api={api} run={run} available={available} /></div></main>
     <div id="collectionsReactRoot" />
     <div id="hostEditorReactRoot" />
   </div>;

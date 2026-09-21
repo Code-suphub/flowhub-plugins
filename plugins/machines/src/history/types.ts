@@ -36,5 +36,6 @@ export interface HistoryHost {
 }
 
 export interface HistoryWorkspaceProps {
+  active?: boolean;
   api: MachinesApi | null;
 }

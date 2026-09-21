@@ -2,8 +2,6 @@ import './styles.css';
 import './MachineShell.css';
 
 import { resolveMachinesApi, resolveMachinesRun } from '../api/machines';
-import { mountCommand } from '../command/mount';
-import { mountHistory } from '../history/mount';
 import { mountCollections } from '../collections/mount';
 import { MonitorSettings } from '../monitoring/MonitorSettings';
 import { HostEditorController, type HostEditorControllerHandle } from '../host-editor/HostEditorController';
@@ -16,7 +14,6 @@ import { FleetController } from './FleetController';
 declare global {
   interface Window {
     FlowHubHostEditor?: { open: (hostId?: string, options?: { copy?: boolean }) => Promise<void>; close: () => void };
-    FlowHubHistory?: { mounted: true };
     FlowHubCollections?: ReturnType<typeof mountCollections>;
     FlowHubCommand?: { mounted: true; setTargets: (hostIds: readonly string[]) => void };
   }
@@ -28,7 +25,6 @@ if (workspaceContainer) {
   flushSync(() => root.render(<FleetController api={resolveMachinesApi()} run={resolveMachinesRun()} />));
 }
 
-const commandContainer = document.querySelector('#commandReactRoot');
 const monitorSettingsContainer = document.querySelector('#monitorSettingsReactRoot');
 if (monitorSettingsContainer) createRoot(monitorSettingsContainer).render(<MonitorSettings api={resolveMachinesApi()} />);
 const collectionsContainer = document.querySelector('#collectionsReactRoot');
@@ -40,17 +36,6 @@ if (backupContainer) {
     ? (action, password, token) => invoke('backup_api', { action, password, token }) as ReturnType<BackupApi>
     : null;
   createRoot(backupContainer).render(<BackupWorkspace api={api} />);
-}
-
-if (commandContainer) {
-  const mounted = mountCommand(commandContainer, { api: resolveMachinesApi(), run: resolveMachinesRun() });
-  window.FlowHubCommand = { mounted: true, setTargets: mounted.setTargets };
-}
-
-const historyContainer = document.querySelector('#historyReactRoot');
-if (historyContainer) {
-  mountHistory(historyContainer, { api: resolveMachinesApi() });
-  window.FlowHubHistory = { mounted: true };
 }
 
 const hostEditorContainer = document.querySelector('#hostEditorReactRoot');

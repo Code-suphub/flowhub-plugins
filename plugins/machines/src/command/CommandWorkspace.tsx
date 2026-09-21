@@ -127,8 +127,7 @@ function JobConsole({ jobs, selectedHosts, onCancel, onClear }: {
   </section>;
 }
 
-export function CommandWorkspace({ api, run }: CommandWorkspaceProps) {
-  const [active, setActive] = useState(() => document.querySelector('#commandPanel')?.hasAttribute('hidden') === false);
+export function CommandWorkspace({ api, run, active = true }: CommandWorkspaceProps) {
   const [state, setState] = useState<CommandState | null>(null);
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set());
   const [command, setCommand] = useState('');
@@ -147,31 +146,30 @@ export function CommandWorkspace({ api, run }: CommandWorkspaceProps) {
   const history = useRef<string[]>([]);
   const historyIndex = useRef(0);
   const historyDraft = useRef('');
+  const loadVersion = useRef(0);
 
   const load = useCallback(async () => {
     if (!api) return;
+    const version = ++loadVersion.current;
     try {
       const next = await api('state') as CommandState;
+      if (version !== loadVersion.current) return;
       setState(next);
       setSelected((current) => new Set([...current].filter((id) => next.config.hosts.some((host) => host.id === id))));
       setError('');
-    } catch (reason) { setError(errorText(reason)); }
+    } catch (reason) { if (version === loadVersion.current) setError(errorText(reason)); }
   }, [api]);
 
   useEffect(() => {
-    const onTab = (event: Event) => {
-      const next = (event as CustomEvent<{ tab?: string }>).detail?.tab === 'command';
-      setActive(next);
-      if (next) void load();
-    };
     const onTargets = (event: Event) => setSelected(new Set((event as CustomEvent<{ hostIds?: readonly string[] }>).detail?.hostIds ?? []));
-    window.addEventListener('flowhub:machine-tab', onTab);
     window.addEventListener('flowhub:command-targets', onTargets);
-    if (active) void load();
     return () => {
-      window.removeEventListener('flowhub:machine-tab', onTab);
       window.removeEventListener('flowhub:command-targets', onTargets);
     };
+  }, []);
+  useEffect(() => {
+    if (active) void load();
+    return () => { loadVersion.current++; };
   }, [active, load]);
 
   const hosts = state?.config.hosts ?? [];
