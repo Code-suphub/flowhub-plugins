@@ -4,9 +4,74 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
+// Run the controller effect with deterministic hooks and bridge responses.
+function controllerHarness(api) {
+  const ts = require('typescript');
+  const source = fs.readFileSync(path.join(__dirname, '../src/fleet/FleetController.tsx'), 'utf8');
+  const code = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX } }).outputText;
+  const effects = [], states = [], listeners = new Map(), timers = new Map();
+  let timerId = 0;
+  const window = { addEventListener: (name, fn) => listeners.set(name, fn), removeEventListener: name => listeners.delete(name) };
+  const exports = {};
+  vm.runInNewContext(code, {
+    exports, window, document: { hidden: false, querySelector: () => null },
+    setTimeout(fn) { const id = ++timerId; timers.set(id, fn); return id; }, clearTimeout: id => timers.delete(id),
+    require(name) {
+      if (name === 'react') return {
+        useEffect: fn => effects.push(fn), useRef: value => ({ current: value }),
+        useState(value) { const i = states.length; states.push(value); return [value, next => { states[i] = typeof next === 'function' ? next(states[i]) : next; }]; },
+      };
+      if (name === 'react/jsx-runtime') return { jsx: () => null, jsxs: () => null };
+      if (name === 'react-dom') return { createPortal: () => null };
+      if (name === './FleetPage') return { FleetPage() {} };
+      throw Error(name);
+    },
+  });
+  exports.FleetController({ api, run: null });
+  const cleanup = effects[0]();
+  return { cleanup, states, listeners, timers };
+}
+
+test('controller coalesces refreshes and ignores responses after unmount', async () => {
+  const pending = [];
+  const h = controllerHarness(() => new Promise(resolve => pending.push(resolve)));
+  const tick = () => new Promise(resolve => setImmediate(resolve));
+  await tick();
+  assert.equal(pending.length, 1);
+  h.listeners.get('flowhub:hosts-changed')();
+  h.listeners.get('flowhub:hosts-changed')();
+  assert.equal(pending.length, 1, 'no overlapping requests');
+  const state = name => ({ config: { hosts: [{ id: name, alias: name, name }], enabled: true, installed: { version: 'test' }, interval: 60 }, metrics: {}, active: [], history: [] });
+  pending[0](state('stale'));
+  await tick();
+  assert.equal(h.states[0].config.hosts.length, 0, 'stale response must not publish');
+  assert.equal(pending.length, 2);
+  pending[1](state('fresh'));
+  await tick();
+  assert.equal(h.states[0].config.hosts[0].id, 'fresh');
+  assert.equal(h.timers.size, 1);
+  h.listeners.get('flowhub:hosts-changed')();
+  await tick();
+  h.cleanup();
+  assert.equal(h.listeners.size, 0);
+  assert.equal(h.timers.size, 0);
+  pending[2](state('unmounted'));
+  await tick();
+  assert.equal(h.states[0].config.hosts[0].id, 'fresh');
+});
+
+test('read-only controller never starts polling or enables machines', async () => {
+  const h = controllerHarness(null);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.states[0].config.enabled, false);
+  assert.match(h.states[2].text, /只读浏览器预览/);
+  assert.equal(h.timers.size, 0);
+  h.cleanup();
+});
+
 test('host actions use common menu and React confirmation without legacy DOM', () => {
   const html = fs.readFileSync(path.join(__dirname, '../ui/machines.html'), 'utf8');
-  const script = fs.readFileSync(path.join(__dirname, '../ui/machines.js'), 'utf8');
+  const script = fs.readFileSync(path.join(__dirname, '../src/fleet/FleetController.tsx'), 'utf8');
   const fleet = fs.readFileSync(path.join(__dirname, '../src/fleet/FleetPage.tsx'), 'utf8');
   assert(!html.includes('id="hostMenu"'));
   assert(!/confirmAction|openHostMenu|closeHostMenu|createElement\("dialog"\)/.test(script));
@@ -14,8 +79,8 @@ test('host actions use common menu and React confirmation without legacy DOM', (
   assert.match(fleet, /initialFocusRef=\{cancelRef\}/);
   assert.match(fleet, /onSelect: \(\) => setConfirming\(true\)/);
   assert.match(fleet, /onAction\('delete', host\)/);
-  assert.match(script, /if \(readonly \|\| !state.config.enabled\) return/);
-  assert.match(script, /if \(action === "terminal" && host.readOnly\) return/);
+  assert.match(script, /if \(!enabled\) return/);
+  assert.match(script, /if \(action === 'terminal' && host.readOnly\) return/);
 });
 
 test('Netdata and traffic use only the React monitoring workspace', () => {
@@ -47,7 +112,7 @@ test('monitor settings are owned by React and the legacy script is removed', () 
 
 test('collection records use React/common without the old dialog or output renderer', () => {
   const html = fs.readFileSync(path.join(__dirname, '../ui/machines.html'), 'utf8');
-  const script = fs.readFileSync(path.join(__dirname, '../ui/machines.js'), 'utf8');
+  const script = fs.readFileSync(path.join(__dirname, '../src/fleet/FleetController.tsx'), 'utf8');
   const css = fs.readFileSync(path.join(__dirname, '../ui/machine-controls.css'), 'utf8');
   const workspace = fs.readFileSync(path.join(__dirname, '../src/collections/CollectionWorkspace.tsx'), 'utf8');
   assert.match(html, /id="collectionsReactRoot"/);
@@ -68,7 +133,7 @@ test('collection records use React/common without the old dialog or output rende
 
 test('fleet has one React renderer and no hidden legacy import or table', () => {
   const html = fs.readFileSync(path.join(__dirname, '../ui/machines.html'), 'utf8');
-  const script = fs.readFileSync(path.join(__dirname, '../ui/machines.js'), 'utf8');
+  const script = fs.readFileSync(path.join(__dirname, '../src/fleet/FleetController.tsx'), 'utf8');
   const entry = fs.readFileSync(path.join(__dirname, '../src/fleet/main.tsx'), 'utf8');
   assert.match(html, /id="fleetReactRoot"/);
   for (const id of ['discoveryPanel', 'sshDiscovery', 'hostRows', 'totalCount', 'healthyCount', 'failedCount', 'activeCount']) {
@@ -85,7 +150,7 @@ test('fleet has one React renderer and no hidden legacy import or table', () => 
 
 test('React host editor owns machine and SSH persistence without a legacy form bridge', () => {
   const html = fs.readFileSync(path.join(__dirname, '../ui/machines.html'), 'utf8');
-  const script = fs.readFileSync(path.join(__dirname, '../ui/machines.js'), 'utf8');
+  const script = fs.readFileSync(path.join(__dirname, '../src/fleet/FleetController.tsx'), 'utf8');
   const controller = fs.readFileSync(path.join(__dirname, '../src/host-editor/HostEditorController.tsx'), 'utf8');
 
   assert.match(html, /id="hostEditorReactRoot"/);
@@ -138,7 +203,7 @@ test('standalone development adapter simulates execution and never calls a nativ
 
 test('React owns command execution, history and templates without legacy DOM adapters', () => {
   const html = fs.readFileSync(path.join(__dirname, '../ui/machines.html'), 'utf8');
-  const script = fs.readFileSync(path.join(__dirname, '../ui/machines.js'), 'utf8');
+  const script = fs.readFileSync(path.join(__dirname, '../src/fleet/FleetController.tsx'), 'utf8');
   const workspace = fs.readFileSync(path.join(__dirname, '../src/command/CommandWorkspace.tsx'), 'utf8');
   assert.match(html, /id="commandReactRoot"/);
   assert.match(html, /id="historyReactRoot"/);
@@ -152,25 +217,15 @@ test('React owns command execution, history and templates without legacy DOM ada
   assert.match(workspace, /run\(\{ hostId: job\.hostId, expectedAlias: job\.alias/);
 });
 
-test('browser preview never invokes SSH or exposes enabled write controls', async () => {
-  const elements = new Map();
-  const element = selector => {
-    if (!elements.has(selector)) elements.set(selector, {
-      value: '', textContent: '', innerHTML: '', checked: false, hidden: false, disabled: false,
-      options: [{ value: '60' }], classList: { toggle() {} }, add(option) { this.options.push(option); }, addEventListener() {},
-    });
-    return elements.get(selector);
-  };
-  let fleetProps;
-  let intervals = 0;
-  const context = vm.createContext({
-    window: { FlowHubFleet: { update(props) { fleetProps = props; } } }, document: { body: { classList: { contains: () => false, add() {}, toggle() {} } }, querySelector: element, querySelectorAll: () => [] },
-    Set, Date, String, Number, JSON, Promise, Option: function(text, value) { this.text = text; this.value = value; },
-    setInterval() { intervals++; },
-  });
-  vm.runInContext(fs.readFileSync(path.join(__dirname, '../ui/machines.js'), 'utf8'), context);
-  await new Promise(resolve => setImmediate(resolve));
-  assert.match(element('#notice').textContent, /只读浏览器预览/);
-  assert.equal(fleetProps.config.enabled, false);
-  assert.equal(element('main').hidden, true); assert.equal(intervals, 0);
+test('fleet controller owns lifecycle and physically replaces the legacy orchestrator', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../src/fleet/FleetController.tsx'), 'utf8');
+  const html = fs.readFileSync(path.join(__dirname, '../ui/machines.html'), 'utf8');
+  assert(!fs.existsSync(path.join(__dirname, '../ui/machines.js')));
+  assert(!html.includes('src="machines.js"'));
+  assert.match(source, /if \(disposed \|\| !api\) return/);
+  assert.match(source, /clearTimeout\(timer\)/);
+  assert.match(source, /removeEventListener\('flowhub:hosts-changed'/);
+  assert.match(source, /removeEventListener\('flowhub:command-selection'/);
+  assert.match(source, /if \(pending\) continue/);
+  assert.match(source, /只读浏览器预览/);
 });

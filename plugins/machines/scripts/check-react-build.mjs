@@ -24,8 +24,14 @@ for (const reference of ['react/fleet.js', 'react/fleet.css']) {
   if (!machinesHtml.includes(reference)) throw new Error(`machines 页面未引用 ${reference}`);
 }
 const fleetBundle = fs.readFileSync(path.join(ui, 'react/fleet.js'), 'utf8');
-for (const bridge of ['FlowHubFleet', 'FlowHubHostEditor']) {
+for (const bridge of ['FlowHubHostEditor']) {
   if (!fleetBundle.includes(bridge)) throw new Error(`machines React 构建缺少 ${bridge} 桥接`);
+}
+if (/src=["']machines\.js["']/.test(machinesHtml) || fs.existsSync(path.join(ui, 'machines.js'))) {
+  throw new Error('发布构建不应保留旧 machines.js');
+}
+if (fleetBundle.includes('flowhub:fleet-action') || /\.FlowHubFleet\b/.test(fleetBundle)) {
+  throw new Error('React 构建不应保留旧列表事件桥接');
 }
 const bundles = [bundle, fleetBundle];
 for (const source of bundles) {

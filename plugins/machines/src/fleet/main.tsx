@@ -10,20 +10,10 @@ import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import { createRef } from 'react';
 import { BackupWorkspace, type BackupApi } from '../backup/BackupWorkspace';
-import type { FleetActions, FleetPageProps, FleetHostAction } from './types';
-import { mountFleet } from './mount';
+import { FleetController } from './FleetController';
 
-type FleetBridgeProps = Omit<FleetPageProps, 'actions'>;
-type FleetAction =
-  | { type: 'add' }
-  | { type: 'selection'; hostIds: readonly string[] }
-  | { type: 'collect-selected'; hostIds: readonly string[] }
-  | { type: 'collect-host'; hostId: string }
-  | { type: 'host-action'; action: FleetHostAction; hostId: string }
-  | { type: 'monitor'; enabled: boolean; intervalSeconds: number };
 declare global {
   interface Window {
-    FlowHubFleet?: { update: (props: FleetBridgeProps) => void };
     FlowHubHostEditor?: { open: (hostId?: string, options?: { copy?: boolean }) => Promise<void>; close: () => void };
     FlowHubHistory?: { mounted: true };
     FlowHubCollections?: ReturnType<typeof mountCollections>;
@@ -56,32 +46,8 @@ if (historyContainer) {
   window.FlowHubHistory = { mounted: true };
 }
 
-function dispatch(detail: FleetAction): void {
-  window.dispatchEvent(new CustomEvent('flowhub:fleet-action', { detail }));
-}
-
-const actions: FleetActions = {
-  onAddHost: () => dispatch({ type: 'add' }),
-  onSelectionChange: (hostIds) => dispatch({ type: 'selection', hostIds }),
-  onCollectSelected: (hostIds) => dispatch({ type: 'collect-selected', hostIds }),
-  onCollectHost: (hostId) => dispatch({ type: 'collect-host', hostId }),
-  onHostAction: (action, host) => dispatch({ type: 'host-action', action, hostId: host.id }),
-  onMonitoringChange: ({ enabled, intervalSeconds }) => dispatch({ type: 'monitor', enabled, intervalSeconds }),
-};
-
 const container = document.querySelector('#fleetReactRoot');
-if (container) {
-  const mounted = mountFleet(container, {
-    snapshot: { hosts: [], metrics: {}, activeJobs: [] },
-    config: { enabled: false, monitoring: false, intervalSeconds: 60 },
-    selectedHostIds: [],
-    actions,
-  });
-  window.FlowHubFleet = {
-    update: (props) => mounted.update({ ...props, actions }),
-  };
-
-}
+if (container) createRoot(container).render(<FleetController api={resolveMachinesApi()} run={resolveMachinesRun()} />);
 
 const hostEditorContainer = document.querySelector('#hostEditorReactRoot');
 if (hostEditorContainer) {
