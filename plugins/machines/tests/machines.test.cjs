@@ -66,33 +66,55 @@ test('React shell owns availability, escaped notices and embedded layout', () =>
 });
 
 // Run the controller effect with deterministic hooks and bridge responses.
-function controllerHarness(api) {
+function controllerHarness(api, settings = {}) {
   const ts = require('typescript');
   const source = fs.readFileSync(path.join(__dirname, '../src/fleet/FleetController.tsx'), 'utf8');
   const code = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX } }).outputText;
-  const effects = [], states = [], listeners = new Map(), timers = new Map();
+  const effects = [], states = [], refs = [], listeners = new Map(), timers = new Map();
   let timerId = 0;
   const window = { addEventListener: (name, fn) => listeners.set(name, fn), removeEventListener: name => listeners.delete(name) };
+  Object.assign(window, settings);
   const exports = {};
   vm.runInNewContext(code, {
     exports, window, document: { hidden: false, querySelector: () => null },
     setTimeout(fn) { const id = ++timerId; timers.set(id, fn); return id; }, clearTimeout: id => timers.delete(id),
     require(name) {
       if (name === 'react') return {
-        useEffect: fn => effects.push(fn), useRef: value => ({ current: value }),
+        useEffect: fn => effects.push(fn), useRef: value => { const ref = { current: value }; refs.push(ref); return ref; },
         useState(value) { const i = states.length; states.push(value); return [value, next => { states[i] = typeof next === 'function' ? next(states[i]) : next; }]; },
       };
       if (name === 'react/jsx-runtime') return { jsx: () => null, jsxs: () => null };
       if (name === './MachineShell') return { MachineShell() {} };
       if (name === '../collections/CollectionWorkspace') return { CollectionWorkspace() {} };
+      if (name === '../host-editor/HostEditorController') return { HostEditorController() {} };
       if (name === './FleetPage') return { FleetPage() {} };
       throw Error(name);
     },
   });
   exports.FleetController({ api, run: null });
   const cleanup = effects[0]();
-  return { cleanup, states, listeners, timers };
+  return { cleanup, states, refs, listeners, timers };
 }
+
+test('widget waits for initialization and opens its machine through the editor ref', async () => {
+  let initialize, calls = 0;
+  const opened = [];
+  const ready = new Promise(resolve => { initialize = resolve; });
+  const h = controllerHarness(async () => {
+    calls++;
+    return { config: { hosts: [{ id: 'widget-host', name: 'Widget', alias: 'widget' }], enabled: true, installed: { version: 'test' }, interval: 60 }, metrics: {}, active: [], history: [] };
+  }, { machineSettingsReady: ready, machineSettingsContext: { config: { row: 'widget-host' } } });
+  h.refs[0].current = { open: async id => { opened.push(id); } };
+  assert.equal(calls, 0);
+  initialize();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(calls, 1);
+  assert.deepEqual(opened, ['widget-host']);
+  h.cleanup();
+  const entry = fs.readFileSync(path.join(__dirname, '../src/fleet/main.tsx'), 'utf8');
+  assert.equal((entry.match(/createRoot\(/g) || []).length, 1);
+  assert(!entry.includes('FlowHubHostEditor'));
+});
 
 test('controller coalesces refreshes and ignores responses after unmount', async () => {
   const pending = [];

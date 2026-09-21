@@ -82,7 +82,14 @@ const VIEWS = [
         }
         throw new Error('React 元素未显示：'+selector);
       };
-      await window.FlowHubHostEditor.open('demo-app');
+      const previous = document.querySelector('dialog.host-editor[open]');
+      if (previous) {
+        previous.querySelector('button[aria-label="关闭"]').click();
+        await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+      }
+      const edit = [...document.querySelectorAll('#fleetReactRoot button')].find(el => el.textContent.trim() === '编辑' && el.getBoundingClientRect().width);
+      if (!edit) throw Error('机器编辑入口缺失');
+      edit.click();
       await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
       await wait('dialog.host-editor[open]');
       [...document.querySelectorAll('dialog.host-editor [role="tab"]')].find(el=>el.textContent==='监控与流量').click();
@@ -285,6 +292,15 @@ async function main() {
         if (!collection || !collection.textContent.includes('采集记录')) throw Error('Collection dialog did not open');
         collection.querySelector('button[aria-label="关闭"]').click(); await frame();
         if (document.querySelector('dialog[open]')) throw Error('Collection dialog failed to close');
+        document.querySelector('#addHost').click(); await frame();
+        for (let attempt = 0; attempt < 50 && !document.querySelector('#host-editor-name'); attempt++) await frame();
+        if (document.querySelector('#host-editor-name')?.value !== '') throw Error('New machine retained old values');
+        document.querySelector('dialog.host-editor button[aria-label="关闭"]').click(); await frame();
+        more.click(); await frame();
+        [...document.querySelectorAll('[role="menuitem"]')].find(item => item.textContent.trim() === '复制').click(); await frame();
+        for (let attempt = 0; attempt < 50 && !document.querySelector('#host-editor-name')?.value.endsWith('副本'); attempt++) await frame();
+        if (!document.querySelector('#host-editor-name')?.value.endsWith('副本') || document.querySelector('#host-editor-alias')?.value !== '') throw Error('Copy machine did not reset identity');
+        document.querySelector('dialog.host-editor button[aria-label="关闭"]').click(); await frame();
         return true;
       })()` });
       if (navigation.exceptionDetails) throw new Error(navigation.exceptionDetails.exception?.description || 'React Tab 验证失败');

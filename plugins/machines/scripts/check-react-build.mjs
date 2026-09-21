@@ -27,9 +27,7 @@ const fleetBundle = fs.readFileSync(path.join(ui, 'react/fleet.js'), 'utf8');
 if (machinesHtml.includes('machine-tabs.js') || fs.existsSync(path.join(ui, 'machine-tabs.js'))) {
   throw new Error('发布构建不应保留旧 machine-tabs.js');
 }
-for (const bridge of ['FlowHubHostEditor']) {
-  if (!fleetBundle.includes(bridge)) throw new Error(`machines React 构建缺少 ${bridge} 桥接`);
-}
+if (fleetBundle.includes('FlowHubHostEditor')) throw new Error('构建不应保留旧机器编辑器全局桥接');
 if (/src=["']machines\.js["']/.test(machinesHtml) || fs.existsSync(path.join(ui, 'machines.js'))) {
   throw new Error('发布构建不应保留旧 machines.js');
 }

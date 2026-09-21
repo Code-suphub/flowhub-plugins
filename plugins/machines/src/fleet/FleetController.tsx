@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { MachineShell } from './MachineShell';
 import { CollectionWorkspace } from '../collections/CollectionWorkspace';
 import type { BackupApi } from '../backup/BackupWorkspace';
+import { HostEditorController, type HostEditorControllerHandle } from '../host-editor/HostEditorController';
 import type { MachinesApi, MachinesRun } from '../api/machines';
 import type { HistoryJob } from '../history/types';
 import { FleetPage } from './FleetPage';
@@ -21,6 +22,7 @@ export function FleetController({ api, run, backupApi = null }: { api: MachinesA
   const [selected, setSelected] = useState<readonly string[]>([]);
   const [notice, setNotice] = useState({ text: '', error: false });
   const [collectionHostId, setCollectionHostId] = useState<string | null>(null);
+  const editor = useRef<HostEditorControllerHandle>(null);
   const current = useRef(state);
   const alive = useRef(false);
   const busy = useRef(false);
@@ -70,7 +72,7 @@ export function FleetController({ api, run, backupApi = null }: { api: MachinesA
         if (window.machineSettingsReady) {
           const id = window.machineSettingsContext?.config?.row || new URLSearchParams(location.search).get('row') || (window.parent === window ? current.current.config.hosts[0]?.id : '');
           if (!id || !current.current.config.hosts.some(host => host.id === id)) throw new Error('目标机器已移除');
-          await window.FlowHubHostEditor?.open(id);
+          await editor.current?.open(id);
         }
         if (!api) message('只读浏览器预览 · 安装、机器配置和 SSH 执行请使用 FlowHub 桌面版。此页面没有连接任何机器。');
       } catch (error) { report(error); }
@@ -111,7 +113,7 @@ export function FleetController({ api, run, backupApi = null }: { api: MachinesA
   };
   const actions: FleetActions = {
     onSelectionChange: select,
-    onAddHost: () => { if (enabled) void window.FlowHubHostEditor?.open().catch(error => message(String(error), true)); },
+    onAddHost: () => { if (enabled) void editor.current?.open().catch(error => message(String(error), true)); },
     onCollectSelected: ids => { void collect(ids); },
     onCollectHost: id => { void collect([id]); },
     onMonitoringChange: next => { void operate(() => api!('monitor', { enabled: next.enabled, interval: next.intervalSeconds || 60 })); },
@@ -121,7 +123,7 @@ export function FleetController({ api, run, backupApi = null }: { api: MachinesA
       if (action === 'collections') { setCollectionHostId(host.id); return; }
       if (!enabled) return;
       if (action === 'terminal' && host.readOnly) return;
-      if (action === 'edit' || action === 'copy') { void window.FlowHubHostEditor?.open(host.id, { copy: action === 'copy' }).catch(error => message(String(error), true)); return; }
+      if (action === 'edit' || action === 'copy') { void editor.current?.open(host.id, { copy: action === 'copy' }).catch(error => message(String(error), true)); return; }
       if (action === 'command') { select([host.id]); window.FlowHubMachineTabs?.show('command', true); return; }
       void operate(async () => {
         if (action === 'terminal') await api!(host.bastion ? 'bastionTerminal' : 'terminal', { hostId: host.id });
@@ -134,6 +136,7 @@ export function FleetController({ api, run, backupApi = null }: { api: MachinesA
     },
   };
   return <MachineShell
+    editor={<HostEditorController ref={editor} api={api} onSaved={() => { void refresh.current().catch(error => message(String(error), true)); }} />}
     backupApi={backupApi}
     collections={<CollectionWorkspace host={state.config.hosts.find(host => host.id === collectionHostId) ?? null} jobs={[...state.active, ...state.history]} api={api} onClose={() => setCollectionHostId(null)} />}
     selectedHostIds={selected}
