@@ -60,7 +60,7 @@ export interface FleetConfig {
   intervalSeconds: number;
 }
 
-export type FleetHostAction = 'edit' | 'more';
+export type FleetHostAction = 'edit' | 'collections' | 'command' | 'terminal' | 'copy' | 'delete';
 
 export interface FleetMonitoringChange {
   enabled: boolean;

@@ -22,6 +22,9 @@
   font-family: "DIN Alternate", "Bahnschrift", "PingFang SC", "Microsoft YaHei", sans-serif;
 }
 
+dialog.fleet__remove-dialog { width: min(420px, calc(100vw - 24px)); }
+.fleet__remove-dialog p { margin: 0; overflow-wrap: anywhere; font-size: 14px; line-height: 1.7; }
+
 .fleet,
 .fleet * {
   box-sizing: border-box;

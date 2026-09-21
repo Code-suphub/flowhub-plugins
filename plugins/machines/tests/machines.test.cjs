@@ -4,6 +4,20 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
+test('host actions use common menu and React confirmation without legacy DOM', () => {
+  const html = fs.readFileSync(path.join(__dirname, '../ui/machines.html'), 'utf8');
+  const script = fs.readFileSync(path.join(__dirname, '../ui/machines.js'), 'utf8');
+  const fleet = fs.readFileSync(path.join(__dirname, '../src/fleet/FleetPage.tsx'), 'utf8');
+  assert(!html.includes('id="hostMenu"'));
+  assert(!/confirmAction|openHostMenu|closeHostMenu|createElement\("dialog"\)/.test(script));
+  assert.match(fleet, /<DropdownMenu/);
+  assert.match(fleet, /initialFocusRef=\{cancelRef\}/);
+  assert.match(fleet, /onSelect: \(\) => setConfirming\(true\)/);
+  assert.match(fleet, /onAction\('delete', host\)/);
+  assert.match(script, /if \(readonly \|\| !state.config.enabled\) return/);
+  assert.match(script, /if \(action === "terminal" && host.readOnly\) return/);
+});
+
 test('Netdata and traffic use only the React monitoring workspace', () => {
   const html = fs.readFileSync(path.join(__dirname, '../ui/machines.html'), 'utf8');
   for (const file of ['monitoring/netdata.js', 'monitoring/netdata.css', 'cloud/cloud-traffic.js', 'cloud/cloud-traffic.css']) {

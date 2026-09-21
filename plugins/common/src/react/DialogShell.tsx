@@ -80,6 +80,7 @@ export const DialogShell = forwardRef<HTMLDialogElement, DialogShellProps>(
         dialog.showModal();
         wasOpen.current = true;
         window.requestAnimationFrame(() => {
+          if (!dialog.open) return;
           const target =
             (initialFocusRef && "current" in initialFocusRef
               ? initialFocusRef.current
@@ -92,7 +93,12 @@ export const DialogShell = forwardRef<HTMLDialogElement, DialogShellProps>(
 
       if (!open && wasOpen.current) {
         wasOpen.current = false;
-        window.requestAnimationFrame(() => previousActiveElement.current?.focus());
+        window.requestAnimationFrame(() => {
+          // Do not steal focus from a menu/dialog opened immediately after closing.
+          if (document.activeElement === document.body || dialog.contains(document.activeElement)) {
+            if (previousActiveElement.current?.isConnected) previousActiveElement.current.focus();
+          }
+        });
       }
     }, [initialFocusRef, open]);
 

@@ -52,3 +52,4 @@ export {
 } from "./Tabs";
 export { Toolbar, type ToolbarDensity, type ToolbarProps } from "./Toolbar";
 export { cx, type ClassValue } from "./cx";
+export { DropdownMenu, type DropdownMenuProps, type DropdownMenuItem } from './DropdownMenu';

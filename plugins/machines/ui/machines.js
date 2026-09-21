@@ -14,30 +14,6 @@
   const errorText = error => String(error?.message || error).replace(/^(?:Error:\s*)+/, "");
   const message = (text, error = false) => { $("#notice").textContent = error ? errorText(text) : text; $("#notice").classList.toggle("error", error); };
 
-  function confirmAction(title, description, action) {
-    return new Promise(resolve => {
-      const dialog = document.createElement("dialog");
-      dialog.style.width = "min(400px, calc(100vw - 32px))";
-      dialog.innerHTML = '<h2 id="actionConfirmTitle"></h2><p id="actionConfirmDescription"></p><div class="actions"><button type="button" data-cancel autofocus>取消</button><button type="button" class="danger" data-confirm></button></div>';
-      dialog.setAttribute("aria-labelledby", "actionConfirmTitle");
-      dialog.setAttribute("aria-describedby", "actionConfirmDescription");
-      dialog.querySelector("h2").textContent = title;
-      dialog.querySelector("p").textContent = description;
-      dialog.querySelector("[data-confirm]").textContent = action;
-      const previous = document.activeElement;
-      dialog.querySelector("[data-cancel]").onclick = () => dialog.close("cancel");
-      dialog.querySelector("[data-confirm]").onclick = () => dialog.close("confirm");
-      dialog.addEventListener("close", () => {
-        const accepted = dialog.returnValue === "confirm";
-        dialog.remove();
-        if (previous?.isConnected) previous.focus();
-        resolve(accepted);
-      }, { once: true });
-      document.body.append(dialog);
-      dialog.showModal();
-    });
-  }
-
   async function api(action, payload = {}) {
     if (readonly) throw new Error("浏览器为只读预览；请在 FlowHub 桌面版操作。");
     return invoke("machines_api", { action, payload });
@@ -81,36 +57,18 @@
 
   function runHostAction(host, action) {
     if (action === "collections") { window.FlowHubCollections?.open(host); return; }
+    if (readonly || !state.config.enabled) return;
+    if (action === "terminal" && host.readOnly) return;
     if (action === "edit") { void reactHostEditor?.open(host.id); return; }
     if (action === "copy") { void reactHostEditor?.open(host.id, { copy: true }); return; }
     if (action === "command") { selection = new Set([host.id]); renderHosts(); reactCommand?.setTargets([host.id]); window.FlowHubMachineTabs?.show("command", true); return; }
     operate(async () => {
-      if (action === "collect") submit([host], "collect");
       if (action === "terminal") await api(host.bastion ? "bastionTerminal" : "terminal", { hostId: host.id });
-      if (action === "delete" && await confirmAction("移除机器", `确定从清单移除“${host.name}”？不会删除远端数据。`, "确认移除")) await api("hosts", { hosts: state.config.hosts.filter(item => item.id !== host.id) });
+      if (action === "delete") await api("hosts", { hosts: state.config.hosts.filter(item => item.id !== host.id) });
     });
   }
 
-  const hostMenu = $("#hostMenu");
-  function closeHostMenu() { if (hostMenu.hidden) return; hostMenu.hidden = true; hostMenu.replaceChildren(); delete hostMenu.dataset.id; document.querySelectorAll('[data-host-action="more"]').forEach(button => button.setAttribute("aria-expanded", "false")); }
-  function openHostMenu(button, host) {
-    const canOperate = !readonly && state.config.enabled;
-    const items = [{ action: "collections", label: "采集记录" }, { action: "command", label: "命令", disabled: !canOperate }, { action: "terminal", label: "系统终端", disabled: !canOperate || host.readOnly }, { action: "copy", label: "复制", disabled: !canOperate }, { action: "delete", label: "移除机器", disabled: !canOperate }];
-    hostMenu.replaceChildren(...items.map(item => { const element = document.createElement("button"); element.type = "button"; element.setAttribute("role", "menuitem"); element.dataset.hostAction = item.action; element.dataset.id = host.id; element.textContent = item.label; element.disabled = !!item.disabled; return element; }));
-    hostMenu.dataset.id = host.id; hostMenu.hidden = false; button.setAttribute("aria-expanded", "true");
-    const rect = button.getBoundingClientRect(); const box = hostMenu.getBoundingClientRect(); const flip = rect.bottom + box.height + 8 > innerHeight;
-    hostMenu.style.left = Math.max(8, Math.min(innerWidth - box.width - 8, rect.right - box.width)) + "px"; hostMenu.style.top = Math.max(8, Math.min(innerHeight - box.height - 8, flip ? rect.top - box.height - 6 : rect.bottom + 6)) + "px";
-    hostMenu.querySelector("button:not(:disabled)")?.focus();
-  }
-  function handleHostAction(action, id, anchor) {
-    const host = state.config.hosts.find(item => item.id === id); if (!host) return;
-    if (action === "more") { const button = anchor || [...document.querySelectorAll('[data-host-action="more"]')].find(element => element.dataset.id === id && element.getClientRects().length); if (button) hostMenu.hidden ? openHostMenu(button, host) : closeHostMenu(); return; }
-    runHostAction(host, action);
-  }
-
-  hostMenu.onclick = event => { const item = event.target.closest("[data-host-action]"); if (!item) return; const host = state.config.hosts.find(entry => entry.id === hostMenu.dataset.id); closeHostMenu(); if (host) runHostAction(host, item.dataset.hostAction); };
-  document.addEventListener?.("click", event => { if (!hostMenu.hidden && !event.target.closest("#hostMenu") && !event.target.closest('[data-host-action="more"]')) closeHostMenu(); }); document.addEventListener?.("keydown", event => { if (event.key === "Escape") closeHostMenu(); });
-  window.addEventListener?.("resize", closeHostMenu); window.addEventListener?.("scroll", closeHostMenu, true); window.addEventListener?.("flowhub:hosts-changed", () => refresh().catch(error => message(String(error), true)));
+  window.addEventListener?.("flowhub:hosts-changed", () => refresh().catch(error => message(String(error), true)));
 
   window.addEventListener?.("flowhub:fleet-action", event => {
     const detail = event.detail || {};
@@ -118,7 +76,7 @@
     else if (detail.type === "add") void reactHostEditor?.open();
     else if (detail.type === "collect-selected") { const ids = new Set(detail.hostIds || []); submit(state.config.hosts.filter(host => ids.has(host.id)), "collect"); }
     else if (detail.type === "collect-host") { const host = state.config.hosts.find(item => item.id === detail.hostId); if (host) submit([host], "collect"); }
-    else if (detail.type === "host-action") handleHostAction(detail.action, detail.hostId);
+    else if (detail.type === "host-action") { const host = state.config.hosts.find(item => item.id === detail.hostId); if (host) runHostAction(host, detail.action); }
     else if (detail.type === "monitor") operate(() => api("monitor", { enabled: !!detail.enabled, interval: Number(detail.intervalSeconds) || 60 }));
   });
   if (reactCommand) window.addEventListener("flowhub:command-selection", event => { selection = new Set((event.detail?.hostIds || []).filter(id => state.config.hosts.some(host => host.id === id))); renderHosts(); });

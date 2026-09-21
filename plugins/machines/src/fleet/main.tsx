@@ -10,7 +10,7 @@ import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import { createRef } from 'react';
 import { BackupWorkspace, type BackupApi } from '../backup/BackupWorkspace';
-import type { FleetActions, FleetPageProps } from './types';
+import type { FleetActions, FleetPageProps, FleetHostAction } from './types';
 import { mountFleet } from './mount';
 
 type FleetBridgeProps = Omit<FleetPageProps, 'actions'>;
@@ -19,7 +19,7 @@ type FleetAction =
   | { type: 'selection'; hostIds: readonly string[] }
   | { type: 'collect-selected'; hostIds: readonly string[] }
   | { type: 'collect-host'; hostId: string }
-  | { type: 'host-action'; action: 'edit' | 'more'; hostId: string }
+  | { type: 'host-action'; action: FleetHostAction; hostId: string }
   | { type: 'monitor'; enabled: boolean; intervalSeconds: number };
 declare global {
   interface Window {

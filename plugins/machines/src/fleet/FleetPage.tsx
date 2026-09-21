@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
-import { Button, Checkbox, DataTable, HelpPopover, Select, cx } from '@flowhub/plugin-common/react';
+import { Button, Checkbox, DataTable, DialogShell, DropdownMenu, HelpPopover, Select, cx } from '@flowhub/plugin-common/react';
 
 import {
   fleetMetricStatus,
@@ -148,6 +148,8 @@ interface HostActionsProps {
 }
 
 function HostActions({ host, disabled, onCollect, onAction }: HostActionsProps) {
+  const [confirming, setConfirming] = useState(false);
+  const cancelRef = useRef<HTMLButtonElement>(null);
   return (
     <div className="fleet__row-actions">
       <Button
@@ -170,17 +172,17 @@ function HostActions({ host, disabled, onCollect, onAction }: HostActionsProps) 
       >
         编辑
       </Button>
-      <Button
-        data-host-action="more"
-        data-id={host.id}
-        size="sm"
-        variant="ghost"
-        aria-haspopup="menu"
-        aria-label={`打开 ${host.name} 的更多操作`}
-        onClick={() => onAction('more', host)}
-      >
-        更多
-      </Button>
+      <DropdownMenu label="更多" ariaLabel={`打开 ${host.name} 的更多操作`} items={[
+        { id: 'collections', label: '采集记录', onSelect: () => onAction('collections', host) },
+        { id: 'command', label: '命令', disabled, onSelect: () => onAction('command', host) },
+        { id: 'terminal', label: '系统终端', disabled: disabled || host.readOnly, onSelect: () => onAction('terminal', host) },
+        { id: 'copy', label: '复制', disabled, onSelect: () => onAction('copy', host) },
+        { id: 'delete', label: '移除机器', danger: true, disabled, onSelect: () => setConfirming(true) },
+      ]} />
+      <DialogShell open={confirming} onOpenChange={setConfirming} title="移除机器" initialFocusRef={cancelRef} className="fleet__remove-dialog"
+        footer={<><Button ref={cancelRef} variant="ghost" onClick={() => setConfirming(false)}>取消</Button><Button variant="danger" disabled={disabled} onClick={() => { if (disabled) return; setConfirming(false); onAction('delete', host); }}>确认移除</Button></>}>
+        <p>确定从清单移除“{host.name}”？不会删除远端数据。</p>
+      </DialogShell>
     </div>
   );
 }
