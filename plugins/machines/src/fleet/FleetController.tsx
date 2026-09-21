@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { MachineShell } from './MachineShell';
+import { CollectionWorkspace } from '../collections/CollectionWorkspace';
+import type { BackupApi } from '../backup/BackupWorkspace';
 import type { MachinesApi, MachinesRun } from '../api/machines';
 import type { HistoryJob } from '../history/types';
 import { FleetPage } from './FleetPage';
@@ -14,10 +16,11 @@ interface MachineState {
 const emptyState: MachineState = { config: { hosts: [], enabled: false, installed: null, interval: 60 }, metrics: {}, active: [], history: [] };
 
 /** Owns application state and supplies the shell through React props. */
-export function FleetController({ api, run }: { api: MachinesApi | null; run: MachinesRun | null }) {
+export function FleetController({ api, run, backupApi = null }: { api: MachinesApi | null; run: MachinesRun | null; backupApi?: BackupApi | null }) {
   const [state, setState] = useState(emptyState);
   const [selected, setSelected] = useState<readonly string[]>([]);
   const [notice, setNotice] = useState({ text: '', error: false });
+  const [collectionHostId, setCollectionHostId] = useState<string | null>(null);
   const current = useRef(state);
   const alive = useRef(false);
   const busy = useRef(false);
@@ -48,7 +51,7 @@ export function FleetController({ api, run }: { api: MachinesApi | null; run: Ma
           current.current = next;
           setState(next);
           setSelected(ids => ids.filter(id => next.config.hosts.some(host => host.id === id)));
-          window.FlowHubCollections?.update([...next.active, ...next.history]);
+          setCollectionHostId(id => next.config.hosts.some(host => host.id === id) ? id : null);
         }
       })().finally(() => { flight = null; });
       return flight;
@@ -115,7 +118,7 @@ export function FleetController({ api, run }: { api: MachinesApi | null; run: Ma
     onHostAction: (action, item) => {
       const host = current.current.config.hosts.find(host => host.id === item.id);
       if (!host) return;
-      if (action === 'collections') { window.FlowHubCollections?.open(host); return; }
+      if (action === 'collections') { setCollectionHostId(host.id); return; }
       if (!enabled) return;
       if (action === 'terminal' && host.readOnly) return;
       if (action === 'edit' || action === 'copy') { void window.FlowHubHostEditor?.open(host.id, { copy: action === 'copy' }).catch(error => message(String(error), true)); return; }
@@ -131,6 +134,8 @@ export function FleetController({ api, run }: { api: MachinesApi | null; run: Ma
     },
   };
   return <MachineShell
+    backupApi={backupApi}
+    collections={<CollectionWorkspace host={state.config.hosts.find(host => host.id === collectionHostId) ?? null} jobs={[...state.active, ...state.history]} api={api} onClose={() => setCollectionHostId(null)} />}
     selectedHostIds={selected}
     onSelectionChange={select}
     api={api}

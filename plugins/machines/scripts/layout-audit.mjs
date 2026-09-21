@@ -265,6 +265,26 @@ async function main() {
         if (document.querySelector('#commandReactRoot textarea') !== draft || draft.value !== 'audit draft — never execute') throw Error('Navigation discarded command draft');
         setDraft(''); await frame();
         window.FlowHubMachineTabs.show('fleet'); await frame(); verify(0);
+        for (const selector of ['#monitorSettingsReactRoot button', '#openBackup']) {
+          const trigger = document.querySelector(selector);
+          trigger.focus(); trigger.click(); await frame();
+          const dialogs = [...document.querySelectorAll('dialog[open]')];
+          if (dialogs.length !== 1) throw Error('Expected one settings dialog');
+          const close = [...dialogs[0].querySelectorAll('button')].find(button => button.getAttribute('aria-label') === '关闭' || button.textContent.trim() === '关闭');
+          if (!close) throw Error('Dialog close missing');
+          close.click(); await frame();
+          if (document.querySelector('dialog[open]')) throw Error('Dialog failed to close');
+          if (document.activeElement !== trigger) throw Error('Dialog focus was not restored');
+        }
+        const more = [...document.querySelectorAll('#fleetReactRoot button')].find(button => button.getAttribute('aria-label')?.startsWith('打开 ') && button.getBoundingClientRect().width > 0);
+        more.click(); await frame();
+        const records = [...document.querySelectorAll('[role="menuitem"]')].find(item => item.textContent.trim() === '采集记录');
+        if (!records) throw Error('Collection menu item missing');
+        records.click(); await frame();
+        const collection = document.querySelector('dialog.collections[open]');
+        if (!collection || !collection.textContent.includes('采集记录')) throw Error('Collection dialog did not open');
+        collection.querySelector('button[aria-label="关闭"]').click(); await frame();
+        if (document.querySelector('dialog[open]')) throw Error('Collection dialog failed to close');
         return true;
       })()` });
       if (navigation.exceptionDetails) throw new Error(navigation.exceptionDetails.exception?.description || 'React Tab 验证失败');

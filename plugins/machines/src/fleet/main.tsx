@@ -2,39 +2,27 @@ import './styles.css';
 import './MachineShell.css';
 
 import { resolveMachinesApi, resolveMachinesRun } from '../api/machines';
-import { mountCollections } from '../collections/mount';
-import { MonitorSettings } from '../monitoring/MonitorSettings';
 import { HostEditorController, type HostEditorControllerHandle } from '../host-editor/HostEditorController';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import { createRef } from 'react';
-import { BackupWorkspace, type BackupApi } from '../backup/BackupWorkspace';
+import type { BackupApi } from '../backup/BackupWorkspace';
 import { FleetController } from './FleetController';
 
 declare global {
   interface Window {
     FlowHubHostEditor?: { open: (hostId?: string, options?: { copy?: boolean }) => Promise<void>; close: () => void };
-    FlowHubCollections?: ReturnType<typeof mountCollections>;
   }
 }
 
 const workspaceContainer = document.querySelector('#machineAppRoot');
 if (workspaceContainer) {
-  const root = createRoot(workspaceContainer);
-  flushSync(() => root.render(<FleetController api={resolveMachinesApi()} run={resolveMachinesRun()} />));
-}
-
-const monitorSettingsContainer = document.querySelector('#monitorSettingsReactRoot');
-if (monitorSettingsContainer) createRoot(monitorSettingsContainer).render(<MonitorSettings api={resolveMachinesApi()} />);
-const collectionsContainer = document.querySelector('#collectionsReactRoot');
-if (collectionsContainer) window.FlowHubCollections = mountCollections(collectionsContainer, resolveMachinesApi());
-const backupContainer = document.querySelector('#backupReactRoot');
-if (backupContainer) {
   const invoke = window.FlowHubPlugin?.invoke ?? window.__TAURI__?.core?.invoke;
-  const api: BackupApi | null = invoke
+  const backupApi: BackupApi | null = invoke
     ? (action, password, token) => invoke('backup_api', { action, password, token }) as ReturnType<BackupApi>
     : null;
-  createRoot(backupContainer).render(<BackupWorkspace api={api} />);
+  const root = createRoot(workspaceContainer);
+  flushSync(() => root.render(<FleetController api={resolveMachinesApi()} run={resolveMachinesRun()} backupApi={backupApi} />));
 }
 
 const hostEditorContainer = document.querySelector('#hostEditorReactRoot');

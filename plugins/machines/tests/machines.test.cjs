@@ -41,6 +41,8 @@ test('React shell owns availability, escaped notices and embedded layout', () =>
   const location = { search: '' };
   vm.runInNewContext(code, { exports, window, location, URLSearchParams, require(name) {
     if (name === './MachineWorkspace') return { MachineWorkspace: ({ fleet }) => fleet };
+    if (name === '../monitoring/MonitorSettings') return { MonitorSettings: () => null };
+    if (name === '../backup/BackupWorkspace') return { BackupWorkspace: () => null };
     return require(name);
   } });
   const render = props => renderToStaticMarkup(React.createElement(exports.MachineShell, props));
@@ -82,6 +84,7 @@ function controllerHarness(api) {
       };
       if (name === 'react/jsx-runtime') return { jsx: () => null, jsxs: () => null };
       if (name === './MachineShell') return { MachineShell() {} };
+      if (name === '../collections/CollectionWorkspace') return { CollectionWorkspace() {} };
       if (name === './FleetPage') return { FleetPage() {} };
       throw Error(name);
     },
@@ -106,10 +109,12 @@ test('controller coalesces refreshes and ignores responses after unmount', async
   assert.equal(h.states[0].config.hosts.length, 0, 'stale response must not publish');
   assert.equal(pending.length, 2);
   h.states[1] = ['fresh', 'removed'];
+  h.states[3] = 'removed';
   pending[1](state('fresh'));
   await tick();
   assert.equal(h.states[0].config.hosts[0].id, 'fresh');
   assert.equal(JSON.stringify(h.states[1]), '["fresh"]', 'removed machines must leave the shared selection');
+  assert.equal(h.states[3], null, 'removing a machine must close its collection dialog');
   assert.equal(h.timers.size, 1);
   h.listeners.get('flowhub:hosts-changed')();
   await tick();
@@ -183,8 +188,10 @@ test('collection records use React/common without the old dialog or output rende
   }
   assert(!script.includes('renderCollections'));
   assert(!css.includes('.collection-job'));
-  assert.match(script, /FlowHubCollections\?\.update/);
-  assert.match(script, /FlowHubCollections\?\.open\(host\)/);
+  assert(!script.includes('FlowHubCollections'));
+  assert(!fs.existsSync(path.join(__dirname, '../src/collections/mount.tsx')));
+  assert.match(script, /setCollectionHostId\(host.id\)/);
+  assert.match(script, /<CollectionWorkspace/);
   assert.match(workspace, /DialogShell/);
   assert.match(workspace, /if \(!expanded \|\| !job.finishedAt \|\| detail \|\| !api\) return/);
   assert.match(workspace, /disposed = true/);
