@@ -4,6 +4,19 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
+test('monitor settings are owned by React and the legacy script is removed', () => {
+  const html = fs.readFileSync(path.join(__dirname, '../ui/machines.html'), 'utf8');
+  const source = fs.readFileSync(path.join(__dirname, '../src/monitoring/MonitorSettings.tsx'), 'utf8');
+  assert.match(html, /id="monitorSettingsReactRoot"/);
+  assert(!html.includes('monitoring/monitoring.js'));
+  assert(!fs.existsSync(path.join(__dirname, '../ui/monitoring/monitoring.js')));
+  for (const action of ['state', 'monitorSettings', 'exporterTest', 'metricHistory']) assert(source.includes(`api('${action}'`));
+  assert.match(source, /Number.isInteger\(retention\)/);
+  assert.match(source, /alive.current = false/);
+  assert.match(source, /pen = false; return null/);
+  assert.match(source, /DialogShell/);
+});
+
 test('collection records use React/common without the old dialog or output renderer', () => {
   const html = fs.readFileSync(path.join(__dirname, '../ui/machines.html'), 'utf8');
   const script = fs.readFileSync(path.join(__dirname, '../ui/machines.js'), 'utf8');

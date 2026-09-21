@@ -4,6 +4,7 @@ import { resolveMachinesApi, resolveMachinesRun } from '../api/machines';
 import { mountCommand } from '../command/mount';
 import { mountHistory } from '../history/mount';
 import { mountCollections } from '../collections/mount';
+import { MonitorSettings } from '../monitoring/MonitorSettings';
 import { HostEditorController, type HostEditorControllerHandle } from '../host-editor/HostEditorController';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
@@ -31,6 +32,8 @@ declare global {
 }
 
 const commandContainer = document.querySelector('#commandReactRoot');
+const monitorSettingsContainer = document.querySelector('#monitorSettingsReactRoot');
+if (monitorSettingsContainer) createRoot(monitorSettingsContainer).render(<MonitorSettings api={resolveMachinesApi()} />);
 const collectionsContainer = document.querySelector('#collectionsReactRoot');
 if (collectionsContainer) window.FlowHubCollections = mountCollections(collectionsContainer, resolveMachinesApi());
 const backupContainer = document.querySelector('#backupReactRoot');
