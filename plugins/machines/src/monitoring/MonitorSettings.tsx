@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Button, DialogShell, EmptyState, Field, HelpPopover, Input, Select, Tabs } from '@flowhub/plugin-common/react';
+import { Button, DialogShell, EmptyState, Field, HelpPopover, Input, Combobox, Select, Tabs } from '@flowhub/plugin-common/react';
 import type { MachinesApi } from '../api/machines';
 import './settings.css';
 
@@ -108,7 +108,7 @@ function SettingsSession({ api, onSaved }: { api: MachinesApi; onSaved: () => vo
     </Tabs.Panel>
     <Tabs.Panel value="history"><div className="monitor-settings__form">
       <div className="monitor-settings__queries">
-        <Select ariaLabel="机器" value={hostId} options={config.hosts.map(host => ({ value: host.id, label: host.name }))} disabled={busy} onChange={value => { setHostId(value); setHistory(null); }} />
+        <Combobox placeholder="搜索机器" ariaLabel="机器" value={hostId} options={config.hosts.map(host => ({ value: host.id, label: host.name }))} disabled={busy} onChange={value => { setHostId(value); setHistory(null); }} />
         <Select ariaLabel="指标" value={metric} options={metrics} disabled={busy} onChange={value => { setMetric(value); setHistory(null); }} />
         <Select ariaLabel="时间范围" value={range} options={ranges} disabled={busy} onChange={value => { setRange(value); setHistory(null); }} />
       </div><div className="monitor-settings__actions"><Button disabled={busy || !hostId} onClick={() => void run(async () => {

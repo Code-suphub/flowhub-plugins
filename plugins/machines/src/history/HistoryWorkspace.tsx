@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Button, DataTable, EmptyState, Pagination, Select, Toolbar } from '@flowhub/plugin-common/react';
+import { Button, DataTable, EmptyState, Pagination, Combobox, Select, Toolbar } from '@flowhub/plugin-common/react';
 import type { DataTableColumn } from '@flowhub/plugin-common/react';
 import type { HistoryHost, HistoryJob, HistoryJobDetail, HistoryResponse, HistoryStatus, HistoryWorkspaceProps } from './types';
 import './styles.css';
@@ -117,7 +117,7 @@ export function HistoryWorkspace({ api, active = true }: HistoryWorkspaceProps) 
   if (!api) return <section className="history-react"><EmptyState title="执行记录仅在 FlowHub 中可用" description="当前浏览器环境没有插件调用桥。" /></section>;
   return <section className="history-react" aria-labelledby="history-react-title">
     <header className="history-react__head"><div><h2 id="history-react-title">执行记录</h2><p>命令输出保存在本机；展开时读取完整详情。</p></div><Button size="sm" variant="ghost" disabled={loading} onClick={() => void load()}>{loading ? '刷新中…' : '刷新'}</Button></header>
-    <Toolbar label="执行记录筛选" className="history-react__toolbar"><div className="history-react__filters"><Select className="history-react__host-filter" aria-label="实例" value={hostId} options={hostOptions} onChange={(value) => { setHostId(value); setPage(1); }} /><Select className="history-react__status-filter" aria-label="执行状态" value={status} options={STATUS_OPTIONS} onChange={(value) => { setStatus(value); setPage(1); }} /></div></Toolbar>
+    <Toolbar label="执行记录筛选" className="history-react__toolbar"><div className="history-react__filters"><Combobox placeholder="搜索机器" className="history-react__host-filter" aria-label="实例" value={hostId} options={hostOptions} onChange={(value) => { setHostId(value); setPage(1); }} /><Select className="history-react__status-filter" aria-label="执行状态" value={status} options={STATUS_OPTIONS} onChange={(value) => { setStatus(value); setPage(1); }} /></div></Toolbar>
     {error ? <p className="history-react__error" role="alert">读取执行记录失败：{error}</p> : null}
     <div className="history-react__desktop"><DataTable columns={columns} rows={[...jobs]} getRowKey={(job) => job.id} caption="执行记录列表" emptyState={loading ? '正在读取执行记录…' : '暂无执行记录'} />{jobs.map((job) => expanded.has(job.id) ? <div className="history-react__desktop-output" key={`${job.id}-output`}><div><strong>{job.alias}</strong><Button size="sm" variant="ghost" onClick={() => void toggle(job)}>收起</Button></div><JobOutput detail={details[job.id]} /></div> : null)}</div>
     <div className="history-react__mobile">{jobs.length ? jobs.map((job) => <JobCard key={job.id} job={job} expanded={expanded.has(job.id)} detail={details[job.id]} busy={loading} onToggle={() => void toggle(job)} onCancel={() => void cancel(job)} />) : <EmptyState size="compact" title={loading ? '正在读取执行记录…' : '暂无执行记录'} />}</div>

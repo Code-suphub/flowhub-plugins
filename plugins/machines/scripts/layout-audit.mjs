@@ -296,6 +296,30 @@ async function main() {
         document.querySelector('#addHost').click(); await frame();
         for (let attempt = 0; attempt < 50 && !document.querySelector('#host-editor-name'); attempt++) await frame();
         if (document.querySelector('#host-editor-name')?.value !== '') throw Error('New machine retained old values');
+        const country = document.querySelector('#host-editor-country');
+        if (country?.getAttribute('role') !== 'combobox') throw Error('Country must be searchable');
+        const filterCountry = async (text) => {
+          country.focus();
+          Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(country, text);
+          country.dispatchEvent(new Event('input', {bubbles:true}));
+          await frame();
+        };
+        for (const query of ['新加坡', 'SG', 'Singapore']) {
+          await filterCountry(query);
+          const options = document.querySelectorAll('#host-editor-country-listbox [role="option"]');
+          if (options.length !== 1 || options[0].textContent !== '新加坡') throw Error('Country search failed: ' + query);
+        }
+        country.dispatchEvent(new KeyboardEvent('keydown', {key:'Enter',isComposing:true,bubbles:true,cancelable:true})); await frame();
+        if (country.getAttribute('aria-expanded') !== 'true') throw Error('IME Enter must not select');
+        country.dispatchEvent(new KeyboardEvent('keydown', {key:'Enter',bubbles:true,cancelable:true})); await frame();
+        if (country.value !== '新加坡' || country.getAttribute('aria-expanded') !== 'false') throw Error('Keyboard country selection failed');
+        await filterCountry('no-such-country');
+        if (!document.querySelector('#host-editor-country-listbox')?.textContent.includes('没有匹配')) throw Error('Missing empty search feedback');
+        country.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape',bubbles:true,cancelable:true})); await frame();
+        if (!document.querySelector('dialog.host-editor[open]') || country.value !== '新加坡') throw Error('Escape should cancel search, not close editor or change country');
+        await filterCountry('不设置');
+        document.querySelector('#host-editor-country-listbox [role="option"]').click(); await frame();
+        if (country.value !== '不设置') throw Error('Country clear option missing');
         document.querySelector('dialog.host-editor button[aria-label="关闭"]').click(); await frame();
         more.click(); await frame();
         [...document.querySelectorAll('[role="menuitem"]')].find(item => item.textContent.trim() === '复制').click(); await frame();

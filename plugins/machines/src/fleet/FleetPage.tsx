@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
-import { Button, Checkbox, DataTable, DialogShell, DropdownMenu, HelpPopover, Select, cx } from '@flowhub/plugin-common/react';
+import { Button, Checkbox, DataTable, DialogShell, DropdownMenu, HelpPopover, Combobox, Select, cx } from '@flowhub/plugin-common/react';
 
 import {
   fleetMetricStatus,
@@ -471,13 +471,14 @@ export function FleetPage({
           </label>
           <div className="fleet__filter">
             <span className="fleet__filter-label">分组</span>
-            <Select
+            <Combobox
+              placeholder="搜索分组"
               id="group"
               ariaLabel="筛选分组"
               value={group}
               options={[{ value: '', label: '全部分组' }, ...groups.map((value) => ({ value, label: value }))]}
               onChange={setGroup}
-              triggerClassName="fleet__select-trigger"
+
             />
           </div>
           <Button

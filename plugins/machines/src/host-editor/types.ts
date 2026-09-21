@@ -54,6 +54,7 @@ export interface HostEditorAsyncState {
 }
 
 export interface HostEditorOption {
+  search?: string;
   value: string;
   label: string;
   disabled?: boolean;

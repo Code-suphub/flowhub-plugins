@@ -54,6 +54,7 @@ interface HostEditorControllerProps {
 }
 
 interface MachineRegion {
+  search?: string;
   code: string;
   label: string;
 }
@@ -130,7 +131,7 @@ export const HostEditorController = forwardRef<HostEditorControllerHandle, HostE
     setOpen(true); setTab('basic'); setErrors({}); setTestState(idle('尚未测试当前连接')); setOperationState(idle()); setSaving(false);
     revision.current = ''; loadedAlias.current = ''; baseline.current = profileSignature(EMPTY_VALUE);
     const regions = window.FlowHubMachineRegions;
-    setResolvedCountryOptions(countryOptions ?? (regions?.length ? [{ value: '', label: '不设置' }, ...regions.map((region) => ({ value: region.code, label: region.label }))] : undefined));
+    setResolvedCountryOptions(countryOptions ?? (regions?.length ? [{ value: '', label: '不设置' }, ...regions.map((region) => ({ value: region.code, label: region.label, search: region.search }))] : undefined));
     if (!api) { setValue(EMPTY_VALUE); return; }
     try {
       const state = await api('state') as MachineState;

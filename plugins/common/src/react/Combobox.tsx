@@ -11,7 +11,9 @@ import {
 import type { SelectOption } from "./Select";
 import { cx } from "./cx";
 
-export type ComboboxOption = SelectOption;
+export interface ComboboxOption extends SelectOption {
+  search?: string;
+}
 
 export interface ComboboxProps {
   options: ComboboxOption[];
@@ -69,7 +71,7 @@ export function Combobox({
   const filteredOptions = useMemo(() => {
     const keyword = normalize(query);
     if (!keyword) return options;
-    return options.filter((option) => normalize(option.label).includes(keyword));
+    return options.filter((option) => normalize(`${option.label} ${option.value} ${option.search ?? ''}`).includes(keyword));
   }, [options, query]);
 
   const activeOption = filteredOptions[activeIndex];
@@ -129,6 +131,7 @@ export function Combobox({
   }
 
   function handleKeyDown(event: ReactKeyboardEvent<HTMLInputElement>): void {
+    if (event.nativeEvent.isComposing || event.keyCode === 229) return;
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       if (!open) openMenu();
@@ -138,6 +141,7 @@ export function Combobox({
       commit(activeOption);
     } else if (event.key === "Escape" && open) {
       event.preventDefault();
+      event.stopPropagation();
       closeMenu();
     } else if (event.key === "Tab") {
       closeMenu();
@@ -170,6 +174,9 @@ export function Combobox({
           aria-required={required || undefined}
           disabled={disabled}
           onFocus={openMenu}
+          onBlur={(event) => {
+            if (!shellRef.current?.contains(event.relatedTarget as Node)) closeMenu();
+          }}
           onChange={handleInput}
           onKeyDown={handleKeyDown}
         />

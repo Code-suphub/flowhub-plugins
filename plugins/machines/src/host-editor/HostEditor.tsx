@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } 
 import {
   Button,
   Checkbox,
+  Combobox,
   DialogShell,
   Field,
   Input,
@@ -139,7 +140,8 @@ function BasicPanel({
       <Section title="归属与生命周期">
         <div className="host-editor__grid host-editor__grid--two">
           <Field label="分组" htmlFor="host-editor-group" error={errors?.groupChoice}>
-            <Select
+            <Combobox
+              placeholder="搜索分组"
               id="host-editor-group"
               value={value.groupChoice}
               options={groupOptions}
@@ -147,7 +149,9 @@ function BasicPanel({
             />
           </Field>
           <Field label="国家 / 地区" htmlFor="host-editor-country" error={errors?.countryCode}>
-            <Select
+            <Combobox
+              placeholder="搜索国家 / 地区或代码"
+              emptyMessage="没有匹配的国家 / 地区"
               id="host-editor-country"
               value={value.countryCode}
               options={[...countryOptions]}
