@@ -1,4 +1,5 @@
 import './styles.css';
+import './MachineShell.css';
 
 import { resolveMachinesApi, resolveMachinesRun } from '../api/machines';
 import { mountCommand } from '../command/mount';
@@ -11,7 +12,6 @@ import { createRoot } from 'react-dom/client';
 import { createRef } from 'react';
 import { BackupWorkspace, type BackupApi } from '../backup/BackupWorkspace';
 import { FleetController } from './FleetController';
-import { MachineWorkspace } from './MachineWorkspace';
 
 declare global {
   interface Window {
@@ -22,10 +22,10 @@ declare global {
   }
 }
 
-const workspaceContainer = document.querySelector('#machineWorkspaceRoot');
+const workspaceContainer = document.querySelector('#machineAppRoot');
 if (workspaceContainer) {
   const root = createRoot(workspaceContainer);
-  flushSync(() => root.render(<MachineWorkspace />));
+  flushSync(() => root.render(<FleetController api={resolveMachinesApi()} run={resolveMachinesRun()} />));
 }
 
 const commandContainer = document.querySelector('#commandReactRoot');
@@ -52,9 +52,6 @@ if (historyContainer) {
   mountHistory(historyContainer, { api: resolveMachinesApi() });
   window.FlowHubHistory = { mounted: true };
 }
-
-const container = document.querySelector('#fleetReactRoot');
-if (container) createRoot(container).render(<FleetController api={resolveMachinesApi()} run={resolveMachinesRun()} />);
 
 const hostEditorContainer = document.querySelector('#hostEditorReactRoot');
 if (hostEditorContainer) {

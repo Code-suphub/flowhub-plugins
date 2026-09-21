@@ -1,6 +1,6 @@
 @layer flowhub-legacy {
 body.widget-settings{padding:24px;background:#201e21;color:#eeeae6}
-body.widget-settings>.masthead,.widget-settings .machine-tabs,.widget-settings #commandPanel,.widget-settings #historyPanel,.widget-settings #unavailable{display:none!important}
+.widget-settings .masthead,.widget-settings .machine-tabs,.widget-settings #commandPanel,.widget-settings #historyPanel,.widget-settings #unavailable{display:none!important}
 .widget-settings main{display:block!important;padding:0;max-width:none}
 .widget-settings #fleetPanel{display:block!important}
 .widget-settings #fleetReactRoot{display:none}

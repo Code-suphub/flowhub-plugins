@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Tabs } from '@flowhub/plugin-common/react';
 
 const pages = [
@@ -8,7 +8,7 @@ const pages = [
 ] as const;
 
 /** Keep the islands mounted so navigation cannot discard commands or running sessions. */
-export function MachineWorkspace() {
+export function MachineWorkspace({ fleet }: { fleet: ReactNode }) {
   const [active, setActive] = useState('fleet');
   const triggers = useRef<Record<string, HTMLButtonElement | null>>({});
   useEffect(() => {
@@ -34,7 +34,7 @@ export function MachineWorkspace() {
       {pages.map(page => <Tabs.Trigger key={page.value} value={page.value} ref={node => { triggers.current[page.value] = node; }}>{page.label}</Tabs.Trigger>)}
     </Tabs.List>
     {pages.map(page => <Tabs.Panel key={page.value} value={page.value} forceMount>
-      <div id={`${page.value}Panel`} hidden={active !== page.value}><div id={page.root} /></div>
+      <div id={`${page.value}Panel`} hidden={active !== page.value}><div id={page.root}>{page.value === 'fleet' ? fleet : null}</div></div>
     </Tabs.Panel>)}
   </Tabs>;
 }

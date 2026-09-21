@@ -268,6 +268,15 @@ async function main() {
       report.push({ label: view.label, columns: view.columns, rows });
     }
 
+    const widgetShell = await client.send('Runtime.evaluate', { returnByValue: true, expression: `(() => {
+      document.body.classList.add('widget-settings');
+      try {
+        const hidden = selector => getComputedStyle(document.querySelector(selector)).display === 'none';
+        return hidden('.masthead') && hidden('.machine-tabs') && hidden('#fleetReactRoot') && getComputedStyle(document.querySelector('main')).display === 'block';
+      } finally { document.body.classList.remove('widget-settings'); }
+    })()` });
+    if (widgetShell.exceptionDetails || !widgetShell.result.value) failures.push('Widget 设置模式未正确隐藏页面壳');
+
     if (jsonOnly) {
       console.log(JSON.stringify({ report, failures }, null, 2));
     } else {

@@ -66,29 +66,14 @@ select:focus-visible,
 textarea:focus-visible,
 summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 
-.embedded .masthead { padding: 16px 22px 12px; }
-.embedded .masthead .eyebrow { display: none; }
-.embedded .masthead h1 { margin: 0; font-size: 20px; }
-.embedded main { padding: 16px 22px 28px; }
-.embedded .notice { padding: 9px 22px; }
 
-.masthead {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 24px clamp(20px, 4vw, 56px) 17px;
-  border-bottom: 1px solid var(--line);
-  background: rgba(13, 20, 16, .72);
-}
 
 .eyebrow { color: var(--muted); font: 10px/1.5 Menlo, monospace; letter-spacing: .14em; }
 h1 { margin: 7px 0 0; font-size: 27px; font-weight: 600; letter-spacing: -.045em; }
 h2 { margin: 5px 0 0; font-size: 18px; font-weight: 600; letter-spacing: -.02em; }
 h3 { font-weight: 500; }
 p { color: var(--muted); line-height: 1.65; }
-.version { margin-left: 12px; padding: 3px 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--accent); font: 10px Menlo, monospace; vertical-align: middle; }
 
-main { width: min(100%, 1440px); margin: 0 auto; padding: 18px clamp(20px, 4vw, 56px) 40px; }
 .panel { margin-bottom: 16px; padding: var(--panel-pad); border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
 .section-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 15px; }
 .section-head p { margin-bottom: 0; }
@@ -106,9 +91,6 @@ main { width: min(100%, 1440px); margin: 0 auto; padding: 18px clamp(20px, 4vw, 
 .empty-mark { color: #577663; font: 44px Menlo, monospace; }
 .empty p { font-size: 12px; }
 
-.notice { margin: 0; padding: 10px clamp(20px, 4vw, 56px); border-bottom: 1px solid var(--line); background: #1b2b21; color: var(--accent); white-space: pre-wrap; overflow-wrap: anywhere; }
-.notice:empty { display: none; }
-.notice.error { background: #2b201d; color: var(--bad); }
 .info { margin: 10px 0; color: var(--muted); font-size: 12px; line-height: 1.8; white-space: pre-wrap; }
 details { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
 summary { color: var(--accent); cursor: pointer; }
@@ -145,15 +127,12 @@ body > .panel[aria-label="插件开发预览"] button { min-height: 28px; paddin
 
 @media (max-width: 850px) {
   :root { --panel-pad: 16px; }
-  .masthead { padding: 20px 20px 14px; }
-  main { padding: 16px 20px 32px; }
   .section-head { align-items: flex-start; flex-wrap: wrap; }
 }
 
 
 
 @media (max-width: 600px) {
-  .masthead .actions { flex: 0 0 auto; }
   .section-head > .actions { width: 100%; }
   body > .panel[aria-label="插件开发预览"] { margin-inline: 20px; }
 }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { MachineShell } from './MachineShell';
 import type { MachinesApi, MachinesRun } from '../api/machines';
 import type { HistoryJob } from '../history/types';
 import { FleetPage } from './FleetPage';
@@ -13,7 +13,7 @@ interface MachineState {
 }
 const emptyState: MachineState = { config: { hosts: [], enabled: false, installed: null, interval: 60 }, metrics: {}, active: [], history: [] };
 
-/** Owns fleet state; the remaining static shell is updated only at this boundary. */
+/** Owns application state and supplies the shell through React props. */
 export function FleetController({ api, run }: { api: MachinesApi | null; run: MachinesRun | null }) {
   const [state, setState] = useState(emptyState);
   const [selected, setSelected] = useState<readonly string[]>([]);
@@ -88,17 +88,6 @@ export function FleetController({ api, run }: { api: MachinesApi | null; run: Ma
   }, [api]);
 
   const enabled = !!api && !!state.config.installed && state.config.enabled;
-  useEffect(() => {
-    const main = document.querySelector('main');
-    const unavailable = document.querySelector<HTMLElement>('#unavailable');
-    const available = !!state.config.installed && state.config.enabled;
-    if (main) main.hidden = !available;
-    if (unavailable) unavailable.hidden = available;
-    const embedded = window.parent !== window && new URLSearchParams(location.search).has('embedded');
-    document.body.classList.toggle('embedded', embedded);
-    return () => { if (main) main.hidden = true; document.body.classList.remove('embedded'); };
-  }, [state.config.installed, state.config.enabled]);
-  useEffect(() => { document.querySelector('#notice')?.classList.toggle('error', notice.error); }, [notice.error]);
 
   const operate = async (operation: () => Promise<unknown>) => {
     if (!enabled || busy.current) return;
@@ -148,13 +137,12 @@ export function FleetController({ api, run }: { api: MachinesApi | null; run: Ma
       });
     },
   };
-  const version = document.querySelector('#version');
-  const noticeTarget = document.querySelector('#notice');
-  return <>
-    {version && createPortal(state.config.installed ? `v${state.config.installed.version}${state.config.enabled ? '' : ' · 已停用'}` : '未安装', version)}
-    {noticeTarget && createPortal(notice.text, noticeTarget)}
-    <FleetPage snapshot={{ hosts: state.config.hosts, metrics: state.metrics, activeJobs: state.active }} config={{ enabled, monitoring: !!state.config.monitoring, intervalSeconds: state.config.interval || 60 }} selectedHostIds={selected} actions={actions} now={Date.now()} />
-  </>;
+  return <MachineShell
+    available={!!state.config.installed && state.config.enabled}
+    version={state.config.installed ? `v${state.config.installed.version}${state.config.enabled ? '' : ' · 已停用'}` : '未安装'}
+    notice={notice}
+    fleet={<FleetPage snapshot={{ hosts: state.config.hosts, metrics: state.metrics, activeJobs: state.active }} config={{ enabled, monitoring: !!state.config.monitoring, intervalSeconds: state.config.interval || 60 }} selectedHostIds={selected} actions={actions} now={Date.now()} />}
+  />;
 }
 
 declare global {
