@@ -74,13 +74,6 @@ if (container) {
     update: (props) => mounted.update({ ...props, actions }),
   };
 
-  // The checked-in fleet remains a no-JavaScript fallback. React owns the
-  // interactive machine list once this island mounts.
-  const panel = container.closest('#fleetPanel');
-  const legacyOverview = panel?.querySelector(':scope > .overview');
-  const legacyFleet = panel?.querySelector(':scope > .panel.fleet');
-  legacyOverview?.remove();
-  legacyFleet?.remove();
 }
 
 const hostEditorContainer = document.querySelector('#hostEditorReactRoot');

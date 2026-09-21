@@ -3,7 +3,23 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const M = require('../ui/machines-model.js');
+
+test('fleet has one React renderer and no hidden legacy import or table', () => {
+  const html = fs.readFileSync(path.join(__dirname, '../ui/machines.html'), 'utf8');
+  const script = fs.readFileSync(path.join(__dirname, '../ui/machines.js'), 'utf8');
+  const entry = fs.readFileSync(path.join(__dirname, '../src/fleet/main.tsx'), 'utf8');
+  assert.match(html, /id="fleetReactRoot"/);
+  for (const id of ['discoveryPanel', 'sshDiscovery', 'hostRows', 'totalCount', 'healthyCount', 'failedCount', 'activeCount']) {
+    assert(!html.includes(`id="${id}"`), `${id} must not remain hidden in HTML`);
+    assert(!script.includes(`#${id}`), `${id} must have no legacy renderer`);
+  }
+  assert(!script.includes('if (!reactFleet)'));
+  assert(!entry.includes('legacy.remove()'));
+  for (const file of ['machines-model.js', 'ssh/ssh-discovery.js']) {
+    assert(!fs.existsSync(path.join(__dirname, '../ui', file)), `${file} must be deleted`);
+    assert(!html.includes(file));
+  }
+});
 
 test('React host editor owns machine and SSH persistence without a legacy form bridge', () => {
   const html = fs.readFileSync(path.join(__dirname, '../ui/machines.html'), 'utf8');
@@ -74,31 +90,6 @@ test('React owns command execution, history and templates without legacy DOM ada
   assert.match(workspace, /run\(\{ hostId: job\.hostId, expectedAlias: job\.alias/);
 });
 
-test('instance and SSH discovery filters compose without conflating aliases', () => {
-  const jobs = [{ id: '1', hostId: 'old', alias: 'same', status: 'success', kind: 'collect' }, { id: '2', hostId: 'new', alias: 'same', status: 'failed', kind: 'command' }];
-  assert.deepEqual(M.visibleJobs(jobs, 'old', 'success', 'collect').map(j => j.id), ['1']);
-  assert.equal(M.visibleJobs(jobs, 'old', 'failed', '').length, 0);
-  assert.deepEqual(M.visibleJobs(jobs, '', '', 'command').map(j => j.id), ['2']);
-  const hosts = [{ alias: 'a', sources: ['/config:1', '/included:2'] }, { alias: 'b', sources: ['/included:8'] }];
-  const managed = new Set(['a']);
-  assert.deepEqual(M.visibleDiscovered(hosts, managed, '', 'managed', '/included').map(h => h.alias), ['a']);
-  assert.deepEqual(M.visibleDiscovered(hosts, managed, 'B', 'unmanaged', '/included').map(h => h.alias), ['b']);
-  assert.equal(M.visibleDiscovered(hosts, managed, '', 'unmanaged', '/config').length, 0);
-});
-
-test('host filtering and batch targets preserve stable IDs across filters', () => {
-  const hosts = [{ id: 'a', alias: 'prod-1', name: '应用', group: '生产' }, { id: 'b', alias: 'dev-1', name: '应用', group: '开发' }];
-  assert.deepEqual(M.visibleHosts(hosts, 'PROD', ''), [hosts[0]]);
-  assert.deepEqual(M.visibleHosts(hosts, '应用', '开发'), [hosts[1]]);
-  assert.deepEqual(M.targets(hosts, new Set(['a', 'deleted'])), [hosts[0]]);
-});
-test('old metrics cannot appear as freshly healthy and remote text is escaped', () => {
-  assert.equal(M.metricStatus({ status: 'success', at: 1 }, 60, 200000), 'stale');
-  assert.equal(M.metricStatus({ status: 'failed', at: 190000 }, 60, 200000), 'failed');
-  assert.equal(M.metricStatus(null, 60), 'unknown');
-  assert.equal(M.escape('<script>&"'), '&lt;script&gt;&amp;&quot;');
-  for (const value of ['-oProxyCommand=bad', 'a;ls', 'a\nb', '$(id)']) assert.equal(M.validAlias(value), false);
-});
 test('browser preview never invokes SSH or exposes enabled write controls', async () => {
   const elements = new Map();
   const element = selector => {
@@ -108,52 +99,16 @@ test('browser preview never invokes SSH or exposes enabled write controls', asyn
     });
     return elements.get(selector);
   };
-  const writes = ['#sourceUrl', '#sourceKey', '#checkUpdate', '#installPending'].map(element);
+  let fleetProps;
   let intervals = 0;
   const context = vm.createContext({
-    window: { FlowHubMachines: M }, document: { body: { classList: { contains: () => false, add() {}, toggle() {} } }, querySelector: element, querySelectorAll: selector => selector.includes('#sourceForm') ? writes : [] },
+    window: { FlowHubFleet: { update(props) { fleetProps = props; } } }, document: { body: { classList: { contains: () => false, add() {}, toggle() {} } }, querySelector: element, querySelectorAll: () => [] },
     Set, Date, String, Number, JSON, Promise, Option: function(text, value) { this.text = text; this.value = value; },
     setInterval() { intervals++; },
   });
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../ui/machines.js'), 'utf8'), context);
   await new Promise(resolve => setImmediate(resolve));
   assert.match(element('#notice').textContent, /只读浏览器预览/);
-  for (const id of ['addHost', 'collectSelected', 'monitor']) assert.equal(element('#' + id).disabled, true);
+  assert.equal(fleetProps.config.enabled, false);
   assert.equal(element('main').hidden, true); assert.equal(intervals, 0);
-});
-test('SSH import scans, connects and adopts only on explicit user actions', async () => {
-  const elements = new Map();
-  const element = id => { if (!elements.has(id)) elements.set(id, { value: '', textContent: '', innerHTML: '', hidden: false, disabled: false }); return elements.get(id); };
-  const calls = [];
-  const config = { enabled: true, installed: { capabilities: ['ssh:configure'] }, hosts: [{ id: 'a', alias: 'existing', name: 'existing', group: '' }] };
-  const api = async (action, payload) => {
-    calls.push({ action, payload });
-    if (action === 'discoverSsh') return { hosts: [{ alias: 'existing', sources: ['/tmp/config:1'] }, { alias: 'new', sources: ['/tmp/included.conf:2'] }], files: 2, root: '/tmp/config', warnings: [] };
-    if (action === 'sshRead') return { effective: { hostname: 'test.example', user: 'tester', port: '22', proxyJump: 'none' }, inheritedKeys: ['~/.ssh/test'] };
-    if (action === 'sshProbe') return { reason: '测试通过', durationMs: 5 };
-    if (action === 'state') return { config };
-    if (action === 'hosts') config.hosts = payload.hosts;
-  };
-  const window = { FlowHubMachines: M };
-  const context = vm.createContext({ window, document: { body: { classList: { contains: () => false, add() {}, toggle() {} } }, querySelector: element }, crypto: { randomUUID: () => 'new-id' } });
-  vm.runInContext(fs.readFileSync(path.join(__dirname, '../ui/ssh/ssh-discovery.js'), 'utf8'), context);
-  const update = () => window.FlowHubSshDiscovery.update(config, api, update);
-  update(); await new Promise(resolve => setImmediate(resolve)); update();
-  assert.deepEqual(calls, []);
-  await element('#rescanSsh').onclick();
-  assert.deepEqual(calls.map(c => c.action), ['discoverSsh']);
-  assert(!element('#discoveryRows').innerHTML.includes('data-view="existing"'));
-  assert.match(element('#discoveryRows').innerHTML, /included.conf:2/);
-  await element('#discoveryRows').onclick({ target: { closest: () => ({ dataset: { view: 'new' } }) } });
-  assert.match(element('#discoveryConfig').textContent, /test.example/);
-  assert(!calls.some(c => c.action === 'sshProbe'));
-  await element('#probeDiscovered').onclick();
-  assert.deepEqual(JSON.parse(JSON.stringify(calls.find(c => c.action === 'sshProbe').payload)), { alias: 'new' });
-  element('#discoveryRows').onchange({ target: { dataset: { alias: 'new' }, checked: true } });
-  await element('#adoptSsh').onclick();
-  assert.equal(config.hosts.length, 2);
-  assert.equal(config.hosts[1].alias, 'new');
-  assert(!element('#discoveryRows').innerHTML.includes('data-view="new"'));
-  assert.match(element('#discoveryRows').innerHTML, /全部纳管/);
-  assert.equal(calls.filter(c => c.action === 'discoverSsh').length, 1);
 });

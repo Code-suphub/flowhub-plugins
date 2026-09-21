@@ -1,8 +1,7 @@
 (function () {
   "use strict";
   const $ = selector => document.querySelector(selector);
-  const M = window.FlowHubMachines;
-  const esc = M.escape;
+  const esc = value => String(value ?? "").replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
   const embedded = window.parent && window.parent !== window && new URLSearchParams(window.location.search).has("embedded");
   const invoke = window.FlowHubPlugin?.invoke || window.__TAURI__?.core?.invoke;
   const readonly = !invoke;
@@ -12,8 +11,6 @@
   let state = { config: { hosts: [], enabled: false, installed: null, interval: 60 }, metrics: {}, active: [], history: [] };
   let selection = new Set();
   let busy = false;
-  let lastHosts = "";
-  let lastGroups = "";
   let refreshVersion = 0;
   const jobDetails = new Map();
   let collectionHost = null;
@@ -65,51 +62,17 @@
     try { await fn(); await refresh(); } catch (error) { message(String(error), true); }
     finally { busy = false; }
   }
-  function filtered() { return M.visibleHosts(state.config.hosts, $("#filter")?.value || "", $("#group")?.value || ""); }
-  function chosen() { return M.targets(state.config.hosts, selection); }
-
   function render() {
     const config = state.config;
     selection = new Set([...selection].filter(id => config.hosts.some(host => host.id === id)));
     $("#version").textContent = config.installed ? `v${config.installed.version}${config.enabled ? "" : " · 已停用"}` : "未安装";
     $("main").hidden = !config.installed || !config.enabled;
     $("#unavailable").hidden = !!config.installed && config.enabled;
-    for (const id of ["addHost", "collectSelected", "monitor", "interval"]) {
-      const control = $("#" + id);
-      if (control) control.disabled = readonly || !config.enabled;
-    }
-    if (!reactFleet) {
-      $("#monitor").checked = !!config.monitoring;
-      if (![...$("#interval").options].some(option => option.value === String(config.interval || 60))) $("#interval").add(new Option(`每 ${config.interval} 秒`, String(config.interval)));
-      $("#interval").value = String(config.interval || 60);
-      const currentGroup = $("#group").value;
-      const groups = [...new Set(config.hosts.map(host => host.group).filter(Boolean))].sort();
-      const options = '<option value="">全部分组</option>' + groups.map(group => `<option value="${esc(group)}">${esc(group)}</option>`).join("");
-      if (options !== lastGroups) { $("#group").innerHTML = options; lastGroups = options; }
-      $("#group").value = groups.includes(currentGroup) ? currentGroup : "";
-      const statuses = config.hosts.map(host => M.metricStatus(state.metrics[host.id], config.interval || 60));
-      $("#totalCount").textContent = config.hosts.length;
-      $("#healthyCount").textContent = statuses.filter(status => status === "success").length;
-      $("#failedCount").textContent = statuses.filter(status => status !== "success" && status !== "unknown").length;
-      $("#activeCount").textContent = state.active.length;
-    }
     renderHosts(); renderCollections(); window.FlowHubSelects?.sync();
   }
 
   function renderHosts() {
-    if (reactFleet) {
-      reactFleet.update({ snapshot: { hosts: state.config.hosts, metrics: state.metrics, activeJobs: state.active }, config: { enabled: !readonly && !!state.config.enabled, monitoring: !!state.config.monitoring, intervalSeconds: state.config.interval || 60 }, selectedHostIds: [...selection], now: Date.now() });
-      return;
-    }
-    const hosts = filtered();
-    const markup = hosts.map(host => {
-      const metric = state.metrics[host.id]; const status = M.metricStatus(metric, state.config.interval || 60); const values = status === "success" ? metric.values : null;
-      const pct = key => values ? `${Number(values[key]).toFixed(1)}<small>%</small>` : "—"; const disabled = readonly || !state.config.enabled ? "disabled" : "";
-      return `<tr><td><input type="checkbox" data-select="${esc(host.id)}" ${selection.has(host.id) ? "checked" : ""} aria-label="选择 ${esc(host.name)}"></td><td><strong>${esc(host.name)}${host.readOnly ? " · 仅查询" : ""}</strong><small>${esc(host.alias)}${host.group ? " / " + esc(host.group) : ""}</small></td><td><span class="status ${esc(status)}" title="${esc(metric?.error || "")}">${labels[status] || esc(status)}</span><small>${metric ? new Date(metric.at).toLocaleTimeString() : ""}</small></td><td>${pct("cpu")}</td><td>${pct("memory")}</td><td>${pct("disk")}</td><td>${values ? `${Number(values.load).toFixed(2)}<small>${Math.floor(values.uptime / 86400)} 天 ${Math.floor(values.uptime % 86400 / 3600)} 时</small>` : "—"}</td><td><div class="host-actions"><button data-host-action="collect" data-id="${esc(host.id)}" ${disabled}>采集</button><button data-host-action="edit" data-id="${esc(host.id)}" ${disabled}>编辑</button><button data-host-action="more" data-id="${esc(host.id)}" aria-haspopup="menu" aria-expanded="false">更多</button></div></td></tr>`;
-    }).join("");
-    if (markup !== lastHosts) { $("#hostRows").innerHTML = markup; lastHosts = markup; }
-    $("#empty").hidden = hosts.length > 0; $("#empty h3").textContent = state.config.hosts.length ? "没有匹配的机器" : "从一台机器开始";
-    $("#selectAll").checked = hosts.length > 0 && hosts.every(host => selection.has(host.id)); $("#selectAll").indeterminate = hosts.some(host => selection.has(host.id)) && !$("#selectAll").checked;
+    reactFleet?.update({ snapshot: { hosts: state.config.hosts, metrics: state.metrics, activeJobs: state.active }, config: { enabled: !readonly && !!state.config.enabled, monitoring: !!state.config.monitoring, intervalSeconds: state.config.interval || 60 }, selectedHostIds: [...selection], now: Date.now() });
   }
 
   function renderCollections() {
@@ -171,12 +134,7 @@
   document.addEventListener?.("click", event => { if (!hostMenu.hidden && !event.target.closest("#hostMenu") && !event.target.closest('[data-host-action="more"]')) closeHostMenu(); }); document.addEventListener?.("keydown", event => { if (event.key === "Escape") closeHostMenu(); });
   window.addEventListener?.("resize", closeHostMenu); window.addEventListener?.("scroll", closeHostMenu, true); window.addEventListener?.("flowhub:hosts-changed", () => refresh().catch(error => message(String(error), true)));
 
-  if (!reactFleet) {
-    $("#filter").oninput = renderHosts; $("#group").onchange = renderHosts; $("#selectAll").onchange = event => { for (const host of filtered()) event.target.checked ? selection.add(host.id) : selection.delete(host.id); renderHosts(); };
-    $("#hostRows").onchange = event => { if (event.target.dataset.select) { event.target.checked ? selection.add(event.target.dataset.select) : selection.delete(event.target.dataset.select); renderHosts(); } }; $("#hostRows").onclick = event => { const button = event.target.closest("[data-host-action]"); if (button) handleHostAction(button.dataset.hostAction, button.dataset.id, button); };
-    $("#addHost").onclick = () => void reactHostEditor?.open(); $("#collectSelected").onclick = () => submit(chosen(), "collect");
-    for (const selector of ["#monitor", "#interval"]) $(selector).onchange = () => operate(() => api("monitor", { enabled: $("#monitor").checked, interval: Number($("#interval").value) }));
-  } else window.addEventListener("flowhub:fleet-action", event => {
+  window.addEventListener?.("flowhub:fleet-action", event => {
     const detail = event.detail || {};
     if (detail.type === "selection") { selection = new Set((detail.hostIds || []).filter(id => state.config.hosts.some(host => host.id === id))); reactCommand?.setTargets([...selection]); renderHosts(); }
     else if (detail.type === "add") void reactHostEditor?.open();

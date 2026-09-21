@@ -1,4 +1,4 @@
 (() => {
-  const controls = window.FlowHubCommon?.selects.mount(document, { searchIds: ['hostCountry'] });
+  const controls = window.FlowHubCommon?.selects.mount(document);
   window.FlowHubSelects = controls || { sync() {} };
 })();

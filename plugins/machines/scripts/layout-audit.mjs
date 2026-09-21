@@ -4,14 +4,12 @@
 // 容易悄悄回退的事：表格是否溢出、首列是否与面板其它文字对齐、概况栏在窄窗是否
 // 换行、工具栏控件高度是否一致、页面头部的 gap 有没有被别的样式表改写。
 //
-// 不依赖 FlowHub 宿主：脚本标签会被去掉，表格塞入合成行，因此只验证 CSS/结构，
-// 不代表运行时数据。没有 Chrome 时跳过（exit 0）。
-//
+// 加载真实 React 构建和隔离的模拟适配器，不连接真实机器。
 //   node scripts/layout-audit.mjs            # 打印各断点的数字
 //   node scripts/layout-audit.mjs --check    # 断言阈值，超了 exit 1
 //   node scripts/layout-audit.mjs --json     # 只输出 JSON
 import { createServer } from 'node:http';
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -20,8 +18,8 @@ import { fileURLToPath } from 'node:url';
 
 const here = resolve(fileURLToPath(new URL('.', import.meta.url)));
 const ui = resolve(here, '..', 'ui');
-const WIDTHS = [1400, 1024, 850, 600, 420, 360];
-const ROWS = 12;
+const WIDTHS = [1400, 1024, 850, 600, 380];
+
 const CHROME_CANDIDATES = [
   process.env.CHROME_PATH,
   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
@@ -33,126 +31,28 @@ const CHROME_CANDIDATES = [
 
 const TYPES = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png' };
 
-function rowMarkup(index) {
-  const status = ['success', 'failed', 'stale', 'unknown'][index % 4];
-  const label = { success: '正常', failed: '连接失败', stale: '数据过期', unknown: '未采集' }[status];
-  const pct = value => `<span class="usage-bar"><i style="width:${value}%"></i></span><small>${value}%</small>`;
-  return `<tr>
-    <td><input type="checkbox" aria-label="选择 machine-${index}"></td>
-    <td><strong>machine-${index}</strong><small>alias-${index} / 生产环境</small></td>
-    <td><span class="status ${status}">${label}</span><small>12:0${index % 10}:00</small></td>
-    <td>${pct(20 + index)}</td>
-    <td>${pct(30 + index)}</td>
-    <td>${pct(40 + index)}</td>
-    <td>${(index / 4).toFixed(2)}<small>${index} 天 3 时</small></td>
-    <td><div class="host-actions"><button data-host-action="collect">采集</button><button data-host-action="edit">编辑</button><button data-host-action="more" aria-haspopup="menu">更多</button></div></td>
-  </tr>`;
-}
-
 async function fixture() {
-  const html = await readFile(join(ui, 'machines.html'), 'utf8');
-  let body = html.slice(html.indexOf('<body>') + '<body>'.length, html.indexOf('</body>'));
-  body = body.replace(/<script[\s\S]*?<\/script>/g, '');
-  body = body.replace('<main hidden>', '<main>');
-  body = body.replace(
-    /<tbody id="hostRows">[\s\S]*?<\/tbody>/,
-    `<tbody id="hostRows">${Array.from({ length: ROWS }, (_, index) => rowMarkup(index)).join('')}</tbody>`
-  );
-  const links = [...html.matchAll(/<link[^>]*href="([^"]+)"[^>]*>/g)].map(match => match[1]);
-  const styles = links
-    .filter(href => href.endsWith('.css'))
-    .map(href => `<link rel="stylesheet" href="/${href}">`)
-    .join('');
-  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">${styles}</head>${body}</html>`;
+  execFileSync('npm', ['run', 'build:fleet'], { cwd: resolve(here, '..'), stdio: 'pipe' });
+  const { inlineCommonHtml } = await import('../../../scripts/inline-common.mjs');
+  return inlineCommonHtml((await readFile(join(ui, 'machines.html'), 'utf8'))
+    .replace('<script src="plugin-bridge.js">', '<script src="/__preview.js"></script><script src="plugin-bridge.js">')
+    .replace('<link data-flowhub-fleet rel="stylesheet">', '<link rel="stylesheet" href="/react/fleet.css">')
+    .replace('<script data-flowhub-fleet></script>', '<script src="/react/fleet.js"></script>'));
 }
 
-const HELPERS = `
-  const one = (selector) => document.querySelector(selector);
-  const contentLeft = (element) => {
-    const box = element && element.getBoundingClientRect();
-    if (!box) return null;
-    const style = getComputedStyle(element);
-    return Math.round((box.left + (parseFloat(style.borderLeftWidth) || 0) + parseFloat(style.paddingLeft || '0')) * 10) / 10;
-  };
-  const height = (selector) => {
-    const element = one(selector);
-    const box = element && element.getBoundingClientRect();
-    return box ? Math.round(box.height * 10) / 10 : null;
-  };
-  // 元素往上数有几层带可见边框的容器：卡片套卡片会在这里露出来。
-  const borderDepth = (element) => {
-    if (!element) return null;
-    let count = (parseFloat(getComputedStyle(element).borderTopWidth) || 0) > 0 ? 1 : 0;
-    for (let node = element.parentElement; node && node !== document.body; node = node.parentElement) {
-      const style = getComputedStyle(node);
-      if (style.display === 'none') continue;
-      const widths = ['Top', 'Right', 'Bottom', 'Left'].map(side => parseFloat(style['border' + side + 'Width']) || 0);
-      if (widths.some(width => width > 0)) count += 1;
-    }
-    return count;
-  };
-  const tooltips = (selectors) => selectors.map(selector => {
-    const element = one(selector);
-    if (!element) return null;
-    const wasHidden = element.hidden;
-    element.hidden = false;
-    const box = element.getBoundingClientRect();
-    const viewport = document.documentElement.clientWidth;
-    const overflow = Math.round(Math.max(0, -box.left) + Math.max(0, box.right - viewport));
-    const side = box.left < 0 ? 'left' : box.right > viewport ? 'right' : 'inside';
-    element.hidden = wasHidden;
-    return { selector, overflow, side };
-  }).filter(Boolean);
-`;
-
+const HELPERS = 'const one = selector => document.querySelector(selector);';
 const MEASURE_FLEET = `(() => {
-${HELPERS}
-  const wrap = one('.table-wrap');
-  const table = wrap && wrap.querySelector('table');
-  const firstCell = one('#hostRows tr:first-child td:first-child');
-  const machineCell = one('#hostRows tr:first-child td:nth-child(2)');
-  const panelTitle = one('#fleetTitle');
-  const overview = one('.overview');
-  const columns = overview ? [...overview.children] : [];
-  const masthead = one('.masthead');
-  const actions = one('#hostRows tr:first-child .host-actions');
+  const root = document.querySelector('#fleetReactRoot');
+  const visible = selector => [...root.querySelectorAll(selector)].filter(el => el.getBoundingClientRect().width > 0);
+  const controls = visible('#filter, #group, #interval, #addHost');
   return {
-    width: Math.round(document.documentElement.clientWidth),
-    pageOverflow: Math.round(document.documentElement.scrollWidth - document.documentElement.clientWidth),
-    tableWidth: table ? Math.round(table.getBoundingClientRect().width) : null,
-    tableOverflow: wrap ? Math.round(wrap.scrollWidth - wrap.clientWidth) : null,
-    firstColumnDelta: firstCell && panelTitle ? Math.round((contentLeft(firstCell) - contentLeft(panelTitle)) * 10) / 10 : null,
-    // 横向滚到最右时：机器名是否还在视口里，以及固定列有没有把操作列压住。
-    ...(() => {
-      if (!wrap || !machineCell) return { machineColumnVisibleAtRight: null, actionsVisibleAtRight: null, actionsWidthAtRight: null };
-      const before = wrap.scrollLeft;
-      wrap.scrollLeft = wrap.scrollWidth;
-      const wrapBox = wrap.getBoundingClientRect();
-      const machineBox = machineCell.getBoundingClientRect();
-      const actionsBox = actions && actions.getBoundingClientRect();
-      const visible = actionsBox ? Math.max(0, Math.round(Math.min(actionsBox.right, wrapBox.right) - Math.max(actionsBox.left, machineBox.right))) : null;
-      wrap.scrollLeft = before;
-      return {
-        machineColumnVisibleAtRight: machineBox.right > wrapBox.left + 1,
-        actionsVisibleAtRight: visible,
-        actionsWidthAtRight: actionsBox ? Math.round(actionsBox.width) : null
-      };
-    })(),
-    overviewRows: new Set(columns.map((element) => Math.round(element.getBoundingClientRect().top))).size,
-    overviewColumns: getComputedStyle(overview).gridTemplateColumns.split(' ').filter(Boolean).length,
-    overviewMinColumn: columns.length ? Math.round(Math.min(...columns.map((element) => element.getBoundingClientRect().width))) : null,
-    controlHeights: { filter: height('#filter'), group: height('#group'), collect: height('#collectSelected'), interval: height('#interval'), addHost: height('#addHost') },
-    mastheadGap: masthead ? getComputedStyle(masthead).gap : null
-  };
-})()`;
-
-const MEASURE_DISCOVERY = `(() => {
-${HELPERS}
-  return {
-    width: Math.round(document.documentElement.clientWidth),
-    pageOverflow: Math.round(document.documentElement.scrollWidth - document.documentElement.clientWidth),
-    tooltips: tooltips(['#discoveryHelpText']).filter(tip => tip.overflow > 0).map(tip => tip.selector + ':' + tip.side + tip.overflow).join(' ') || 'ok',
-    rowsScrolls: (() => { const rows = one('#discoveryRows'); return rows ? rows.scrollHeight > rows.clientHeight : null; })()
+    width: innerWidth,
+    pageOverflow: document.documentElement.scrollWidth - innerWidth,
+    machines: visible('.fleet__identity').length,
+    layout: visible('.fleet__card').length ? 'cards' : 'table',
+    legacyNodes: document.querySelectorAll('#discoveryPanel, .overview, .panel.fleet').length,
+    controlsOverflow: controls.some(el => { const r=el.getBoundingClientRect(); return r.left < 0 || r.right > innerWidth; }),
+    summary: visible('.fleet__summary').length
   };
 })()`;
 
@@ -184,30 +84,18 @@ const heightPart = value => Number(String(value).split('x')[1]);
 
 const VIEWS = [
   {
-    label: '机器列表',
-    show: "document.querySelector('#fleetPanel').hidden=false;document.querySelector('#commandPanel').hidden=true;document.querySelector('#discoveryPanel').hidden=true;",
+    label: 'React 机器列表',
+    show: "window.FlowHubMachineTabs.show('fleet');",
     measure: MEASURE_FLEET,
-    columns: [
-      ['宽度', row => `${row.width}`], ['页溢出', row => `${row.pageOverflow}`], ['表宽', row => `${row.tableWidth}`],
-      ['表溢出', row => `${row.tableOverflow}`], ['首列偏差', row => `${row.firstColumnDelta}`],
-      ['滚到底见机器名', row => `${row.machineColumnVisibleAtRight === null ? '—' : row.machineColumnVisibleAtRight ? '是' : '否'}(${row.actionsVisibleAtRight}/${row.actionsWidthAtRight})`],
-      ['概况行×列', row => `${row.overviewRows}×${row.overviewColumns}`], ['概况最小列', row => `${row.overviewMinColumn}`],
-      ['控件高度', row => Object.entries(row.controlHeights).filter(([, value]) => value).map(([key, value]) => `${key}:${value}`).join(' ')],
-      ['masthead gap', row => `${row.mastheadGap}`]
-    ],
+    columns: [['宽度', row => row.width], ['页溢出', row => row.pageOverflow], ['机器', row => row.machines], ['布局', row => row.layout], ['旧节点', row => row.legacyNodes]],
     check: row => {
       const problems = [];
-      if (row.pageOverflow > 0) problems.push(`${row.width}px 页面横向溢出 ${row.pageOverflow}px`);
-      if (row.firstColumnDelta !== null && Math.abs(row.firstColumnDelta) > 1) problems.push(`${row.width}px 表格首列与面板文字错位 ${row.firstColumnDelta}px`);
-      if (row.tableOverflow > 0 && row.machineColumnVisibleAtRight === false) problems.push(`${row.width}px 横向滚动后机器名不可见`);
-      if (row.actionsVisibleAtRight !== null && row.actionsWidthAtRight !== null && row.actionsVisibleAtRight < row.actionsWidthAtRight - 1) {
-        problems.push(`${row.width}px 横向滚动后操作列被固定列遮住 ${row.actionsWidthAtRight - row.actionsVisibleAtRight}px`);
-      }
-      if (row.width <= 600 && row.overviewRows < 2) problems.push(`${row.width}px 概况栏仍未换行（${row.overviewColumns} 列一行）`);
-      if (row.mastheadGap !== 'normal') problems.push(`${row.width}px 页面头部 gap 被外部样式表改写为 ${row.mastheadGap}`);
-      const heights = [...new Set(Object.values(row.controlHeights).filter(Boolean))];
-      if (heights.length > 1 && row.width > 600) problems.push(`${row.width}px 工具栏控件高度不一致：${heights.join(' / ')}`);
-      return problems;
+      if (row.pageOverflow > 0) problems.push('页面横向溢出');
+      if (row.machines !== 2) problems.push('模拟机器未正确显示');
+      if (row.legacyNodes) problems.push('旧列表或导入节点残留');
+      if (row.controlsOverflow) problems.push('操作控件超出视口');
+      if (row.summary !== 1) problems.push('紧凑统计缺失');
+      return problems.map(problem => row.width + 'px ' + problem);
     }
   },
   {
@@ -261,21 +149,7 @@ const VIEWS = [
       return problems;
     }
   },
-  {
-    label: 'SSH 导入',
-    show: "document.querySelector('#fleetPanel').hidden=true;document.querySelector('#commandPanel').hidden=true;document.querySelector('#discoveryPanel').hidden=false;",
-    measure: MEASURE_DISCOVERY,
-    columns: [
-      ['宽度', row => `${row.width}`], ['页溢出', row => `${row.pageOverflow}`],
-      ['气泡出界', row => `${row.tooltips}`], ['候选列表可滚动', row => `${row.rowsScrolls}`]
-    ],
-    check: row => {
-      const problems = [];
-      if (row.pageOverflow > 0) problems.push(`${row.width}px SSH 导入横向溢出 ${row.pageOverflow}px`);
-      if (row.tooltips !== 'ok') problems.push(`${row.width}px 帮助气泡超出视口：${row.tooltips}`);
-      return problems;
-    }
-  }
+
 ];
 
 function table(lines, head) {
@@ -362,7 +236,11 @@ async function main() {
     if (jsonOnly) console.log('{"skipped":"no-chrome"}');
     return;
   }
-  const bodies = new Map([['__audit.html', await fixture()]]);
+  const bodies = new Map([['__audit.html', await fixture()],
+    ['__preview.js', await readFile(resolve(here, '../dev/machines-preview.js'))],
+    ['react/fleet.js', await readFile(resolve(here, '../build/ui/react/fleet.js'))],
+    ['react/fleet.css', await readFile(resolve(here, '../build/ui/react/fleet.css'))]
+  ]);
   const server = await serve(bodies);
   const { port: pagePort } = server.address();
   const launched = await launch(chrome);
@@ -384,6 +262,14 @@ async function main() {
     await client.send('Page.enable');
     await client.send('Page.navigate', { url: `http://127.0.0.1:${pagePort}/__audit.html` });
     await loadedPromise;
+    let ready = false;
+    for (let attempt = 0; attempt < 100; attempt++) {
+      const { result } = await client.send('Runtime.evaluate', { expression: "document.querySelectorAll('.fleet__identity').length >= 2", returnByValue: true });
+      if (result.value) { ready = true; break; }
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    if (!ready) throw new Error('React 机器列表未挂载');
+
 
     const report = [];
     const failures = [];

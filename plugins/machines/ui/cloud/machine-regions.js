@@ -3,6 +3,4 @@
   const english=new Intl.DisplayNames(['en'],{type:'region'});const names=new Intl.DisplayNames(['zh-CN'],{type:'region'});
   const regions=codes.sort((a,b)=>names.of(a).localeCompare(names.of(b),'zh-CN')).map(code=>({code,label:names.of(code),search:english.of(code)}));
   window.FlowHubMachineRegions=regions;
-  const select=document.querySelector('#hostCountry');
-  if(select)for(const region of regions){const option=document.createElement('option');option.value=region.code;option.dataset.search=region.search;option.textContent=region.label;select.append(option);}
 })();

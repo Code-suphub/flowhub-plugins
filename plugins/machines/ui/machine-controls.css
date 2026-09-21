@@ -31,10 +31,6 @@
 .collection-empty p { margin: 0; }
 .collection-job.is-failed summary { border-left: 3px solid var(--bad); }
 
-#fleetPanel .toolbar .search-label { flex: 1 1 240px; min-width: 180px; }
-#fleetPanel .toolbar .select-shell { width: 112px; min-width: 0; }
-#fleetPanel .toolbar .select-trigger { display: block; overflow: hidden; padding-right: 27px; text-overflow: ellipsis; }
-#fleetPanel .toolbar .monitor { flex: none; white-space: nowrap; }
 
 .select-trigger { min-height: var(--control-h); }
 .select-shell { position: relative; display: inline-block; min-width: 150px; max-width: 100%; vertical-align: middle; }
@@ -47,25 +43,8 @@
 .select-menu > button[aria-selected="true"] { background: #293e30; color: var(--accent); }
 .select-menu > button:hover, .select-menu > button:focus { outline: 0; background: #304837; }
 
-.filter-bar { display: flex; align-items: end; flex-wrap: wrap; gap: 14px; margin: 14px 0; }
-.filter-bar label { display: grid; min-width: 140px; max-width: 100%; gap: 6px; }
-.filter-bar select { max-width: 420px; }
-#fleetPanel .toolbar { flex-wrap: wrap; }
-
-.discovery-heading { display: flex; align-items: center; gap: 9px; }
-.discovery-heading .help-content { right: auto; left: 0; }
-#discoveryHelpText::before { content: ""; position: absolute; top: -9px; right: 0; left: 0; height: 9px; }
-.discovery-help { position: relative; display: inline-flex; }
-#discoveryHelpButton { display: grid; place-items: center; width: 23px; height: 23px; padding: 0; border-radius: 50%; color: var(--muted); font-size: 12px; }
-.help-content, .select-menu { --popup-max: calc(100vw - 24px); }
-#discoveryHelpText { position: absolute; top: calc(100% + 8px); left: 0; z-index: 40; width: min(330px, 65vw); padding: 12px; border: 1px solid #4a6151; border-radius: 7px; background: #243329; box-shadow: 0 8px 26px #0006; color: var(--ink); font-size: 12px; line-height: 1.75; }
-#sshDiscovery > .section-head { margin-bottom: 10px; }
-.discovery-meta { display: flex; flex-wrap: wrap; gap: 7px 18px; padding: 9px 0 12px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 11px; line-height: 1.6; }
-.discovery-path { display: flex; min-width: 0; max-width: 100%; gap: 7px; }
-.discovery-path code { min-width: 0; overflow-wrap: anywhere; font-size: 11px; }
-
 @media (max-width: 760px) {
-  .help-content, #discoveryHelpText { position: fixed; right: 12px; bottom: 12px; left: 12px; top: auto; width: auto; max-width: none; }
+  .help-content { position: fixed; right: 12px; bottom: 12px; left: 12px; top: auto; width: auto; max-width: none; }
 }
 
 @media (max-width: 600px) {

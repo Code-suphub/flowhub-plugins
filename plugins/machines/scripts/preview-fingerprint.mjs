@@ -1,6 +1,6 @@
 // 自绘下拉（select-control.js + 各页 CSS）的「计算样式指纹」。
 //
-// 同一个组件在 4 个页面里各写了一份 CSS，样式很容易在重构中悄悄漂移肉眼又看不出。
+// 静态组件页面的下拉样式容易在重构中漂移，机器 React 页面另由 layout-audit 覆盖。
 // 这里把 `.select-shell/.select-trigger/.select-menu/[role=option]` 的计算样式（只取
 // 声明性属性，不含依赖字体度量的 width/height）落成基线文件，重构后必须逐项一致。
 //
@@ -29,7 +29,8 @@ const PROPERTIES = [
   'textAlign', 'whiteSpace', 'overflow', 'overflowY', 'gap', 'justifyContent', 'alignItems', 'cursor'
 ];
 const SELECTORS = ['.select-shell', '.select-trigger', '.select-trigger::after', '.select-menu', '.select-menu [role="option"]', '.select-menu [aria-selected="true"]', '.select-search'];
-const PAGES = ['machines.html', 'widget-card.html', 'widget-editor.html', 'widget-detail.html'];
+// React 机器页由 layout-audit 验证；这里仅覆盖仍使用静态下拉的组件页面。
+const PAGES = ['widget-card.html', 'widget-editor.html', 'widget-detail.html'];
 const WIDTHS = [1400, 700];
 const TYPES = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json' };
 
