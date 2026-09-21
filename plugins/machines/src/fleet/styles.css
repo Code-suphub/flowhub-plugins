@@ -622,3 +622,27 @@ dialog.fleet__remove-dialog { width: min(420px, calc(100vw - 24px)); }
     transition: none;
   }
 }
+
+.machine-tabs {
+  display: flex;
+  gap: 18px;
+  margin-bottom: 16px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--line);
+}
+
+.machine-tabs [role="tab"] {
+  padding: 10px 3px 9px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  min-height: 40px;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.machine-tabs [role="tab"]:hover { background: transparent; color: var(--ink); }
+.machine-tabs [aria-selected="true"] { border-bottom-color: var(--accent); color: var(--accent); }

@@ -223,6 +223,32 @@ async function main() {
     }
     if (!ready) throw new Error('React 机器列表未挂载');
 
+    // Exercise the real common Tabs at desktop and narrow widths without executing commands.
+    for (const width of [1400, 600, 380]) {
+      await client.send('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: false });
+      const navigation = await client.send('Runtime.evaluate', { awaitPromise: true, returnByValue: true, expression: `(async () => {
+        const frame = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        const roots = ['fleet', 'command', 'history'].map(name => document.getElementById(name + 'ReactRoot'));
+        const tabs = [...document.querySelectorAll('.machine-tabs [role="tab"]')];
+        const verify = index => {
+          const tab = tabs[index], panel = document.getElementById(tab.getAttribute('aria-controls'));
+          if (tab.getAttribute('aria-selected') !== 'true' || panel.hidden || panel.getAttribute('aria-labelledby') !== tab.id) throw Error('Tab ARIA/visibility mismatch');
+          if (tabs.filter(item => item.tabIndex === 0).length !== 1) throw Error('Tab focus order mismatch');
+          if (roots.some((root, i) => document.getElementById(['fleet', 'command', 'history'][i] + 'ReactRoot') !== root)) throw Error('Navigation remounted an island');
+        };
+        window.FlowHubMachineTabs.show('fleet', true); await frame(); verify(0);
+        for (const [key, index] of [['ArrowRight', 1], ['End', 2], ['ArrowRight', 0], ['ArrowLeft', 2], ['Home', 0]]) {
+          document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+          await frame(); verify(index);
+          if (document.activeElement !== tabs[index]) throw Error('Keyboard focus lost');
+        }
+        tabs[1].click(); await frame(); verify(1);
+        window.FlowHubMachineTabs.show('fleet'); await frame(); verify(0);
+        return true;
+      })()` });
+      if (navigation.exceptionDetails) throw new Error(navigation.exceptionDetails.exception?.description || 'React Tab 验证失败');
+    }
+
 
     const report = [];
     const failures = [];

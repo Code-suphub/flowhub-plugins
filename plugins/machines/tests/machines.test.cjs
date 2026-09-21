@@ -135,7 +135,8 @@ test('fleet has one React renderer and no hidden legacy import or table', () => 
   const html = fs.readFileSync(path.join(__dirname, '../ui/machines.html'), 'utf8');
   const script = fs.readFileSync(path.join(__dirname, '../src/fleet/FleetController.tsx'), 'utf8');
   const entry = fs.readFileSync(path.join(__dirname, '../src/fleet/main.tsx'), 'utf8');
-  assert.match(html, /id="fleetReactRoot"/);
+  assert.match(html, /id="machineWorkspaceRoot"/);
+  assert.match(fs.readFileSync(path.join(__dirname, '../src/fleet/MachineWorkspace.tsx'), 'utf8'), /root: 'fleetReactRoot'/);
   for (const id of ['discoveryPanel', 'sshDiscovery', 'hostRows', 'totalCount', 'healthyCount', 'failedCount', 'activeCount']) {
     assert(!html.includes(`id="${id}"`), `${id} must not remain hidden in HTML`);
     assert(!script.includes(`#${id}`), `${id} must have no legacy renderer`);
@@ -205,8 +206,12 @@ test('React owns command execution, history and templates without legacy DOM ada
   const html = fs.readFileSync(path.join(__dirname, '../ui/machines.html'), 'utf8');
   const script = fs.readFileSync(path.join(__dirname, '../src/fleet/FleetController.tsx'), 'utf8');
   const workspace = fs.readFileSync(path.join(__dirname, '../src/command/CommandWorkspace.tsx'), 'utf8');
-  assert.match(html, /id="commandReactRoot"/);
-  assert.match(html, /id="historyReactRoot"/);
+  const shell = fs.readFileSync(path.join(__dirname, '../src/fleet/MachineWorkspace.tsx'), 'utf8');
+  assert.match(shell, /root: 'commandReactRoot'/);
+  assert.match(shell, /root: 'historyReactRoot'/);
+  assert.match(shell, /forceMount/);
+  assert(!fs.existsSync(path.join(__dirname, '../ui/machine-tabs.js')));
+  assert(!html.includes('machine-tabs.js'));
   for (const legacyId of ['commandLegacy', 'historyLegacy', 'templateEditor', 'runCommand', 'consoleOutput', 'historyPageSize']) {
     assert(!html.includes(`id="${legacyId}"`), `${legacyId} should be physically removed`);
     assert(!script.includes(`#${legacyId}`), `${legacyId} should have no legacy listener`);

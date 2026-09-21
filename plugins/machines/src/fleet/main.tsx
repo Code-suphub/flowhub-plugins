@@ -11,6 +11,7 @@ import { createRoot } from 'react-dom/client';
 import { createRef } from 'react';
 import { BackupWorkspace, type BackupApi } from '../backup/BackupWorkspace';
 import { FleetController } from './FleetController';
+import { MachineWorkspace } from './MachineWorkspace';
 
 declare global {
   interface Window {
@@ -19,6 +20,12 @@ declare global {
     FlowHubCollections?: ReturnType<typeof mountCollections>;
     FlowHubCommand?: { mounted: true; setTargets: (hostIds: readonly string[]) => void };
   }
+}
+
+const workspaceContainer = document.querySelector('#machineWorkspaceRoot');
+if (workspaceContainer) {
+  const root = createRoot(workspaceContainer);
+  flushSync(() => root.render(<MachineWorkspace />));
 }
 
 const commandContainer = document.querySelector('#commandReactRoot');

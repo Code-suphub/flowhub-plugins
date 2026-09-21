@@ -24,6 +24,9 @@ for (const reference of ['react/fleet.js', 'react/fleet.css']) {
   if (!machinesHtml.includes(reference)) throw new Error(`machines 页面未引用 ${reference}`);
 }
 const fleetBundle = fs.readFileSync(path.join(ui, 'react/fleet.js'), 'utf8');
+if (machinesHtml.includes('machine-tabs.js') || fs.existsSync(path.join(ui, 'machine-tabs.js'))) {
+  throw new Error('发布构建不应保留旧 machine-tabs.js');
+}
 for (const bridge of ['FlowHubHostEditor']) {
   if (!fleetBundle.includes(bridge)) throw new Error(`machines React 构建缺少 ${bridge} 桥接`);
 }

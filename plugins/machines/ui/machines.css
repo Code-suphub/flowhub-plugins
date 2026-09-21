@@ -94,26 +94,6 @@ main { width: min(100%, 1440px); margin: 0 auto; padding: 18px clamp(20px, 4vw, 
 .section-head p { margin-bottom: 0; }
 .actions { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
 
-.machine-tabs {
-  display: flex;
-  gap: 18px;
-  margin-bottom: 16px;
-  overflow-x: auto;
-  border-bottom: 1px solid var(--line);
-}
-
-.machine-tabs [role="tab"] {
-  padding: 10px 3px 9px;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  border-radius: 0;
-  background: transparent;
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.machine-tabs [role="tab"]:hover { background: transparent; color: var(--ink); }
-.machine-tabs [aria-selected="true"] { border-bottom-color: var(--accent); color: var(--accent); }
 
 .caption { color: var(--muted); font-size: 11px; line-height: 1.65; }
 
