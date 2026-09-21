@@ -1,13 +1,13 @@
-// 自绘下拉（select-control.js + 各页 CSS）的「计算样式指纹」。
+// Widget React 构建产物的交互回归与公共下拉计算样式指纹。
 //
-// 静态组件页面的下拉样式容易在重构中漂移，机器 React 页面另由 layout-audit 覆盖。
-// 这里把 `.select-shell/.select-trigger/.select-menu/[role=option]` 的计算样式（只取
+// 机器 React 页面另由 layout-audit 覆盖。这里把公共 Select 的计算样式（只取
 // 声明性属性，不含依赖字体度量的 width/height）落成基线文件，重构后必须逐项一致。
 //
 //   node scripts/preview-fingerprint.mjs --write    # 重新生成基线
 //   node scripts/preview-fingerprint.mjs            # 与基线比对，不一致 exit 1
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -17,6 +17,7 @@ import { inlineCommonHtml } from '../../../scripts/inline-common.mjs';
 
 const here = resolve(fileURLToPath(new URL('.', import.meta.url)));
 const ui = resolve(here, '..', 'ui');
+const buildUi = resolve(here, '..', 'build/ui');
 const baselinePath = resolve(here, '..', 'tests', 'fixtures', 'select-control-fingerprint.json');
 const write = process.argv.includes('--write');
 
@@ -28,17 +29,19 @@ const PROPERTIES = [
   'backgroundColor', 'color', 'fontSize', 'fontWeight', 'fontFamily', 'lineHeight',
   'textAlign', 'whiteSpace', 'overflow', 'overflowY', 'gap', 'justifyContent', 'alignItems', 'cursor'
 ];
-const SELECTORS = ['.select-shell', '.select-trigger', '.select-trigger::after', '.select-menu', '.select-menu [role="option"]', '.select-menu [aria-selected="true"]', '.select-search'];
-// React 机器页由 layout-audit 验证；这里仅覆盖仍使用静态下拉的组件页面。
-const PAGES = ['widget-card.html', 'widget-detail.html'];
-const WIDTHS = [1400, 700];
+const SELECTORS = ['.fh-select', '.fh-select__trigger', '.fh-select__menu', '.fh-select__option', '.fh-select__option[aria-selected="true"]'];
+// 这里必须加载真实构建产物，不允许空页面/旧脚本 404 被当成有效基线。
+const PAGES = ['widget-card.html', 'widget-detail.html', 'widget-editor.html'];
+const WIDTHS = [1400, 600, 380];
 const TYPES = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json' };
 
 function server() {
   const instance = createServer(async (request, response) => {
     const name = decodeURIComponent(new URL(request.url, 'http://x').pathname).replace(/^\/+/, '') || 'machines.html';
-    const path = resolve(ui, name);
-    if (!path.startsWith(ui) || !existsSync(path)) { response.writeHead(404).end(); return; }
+    const generated = /^(?:react\/widget-editor|widget\/(?:card|detail))\.(?:js|css)$/.test(name);
+    const base = generated ? buildUi : ui;
+    const path = resolve(base, name);
+    if (!path.startsWith(base + '/') || !existsSync(path)) { response.writeHead(404).end(); return; }
     response.writeHead(200, { 'content-type': TYPES[extname(name)] || 'application/octet-stream', 'cache-control': 'no-store' });
     const raw = await readFile(path, 'utf8');
     response.end(extname(name) === '.html' ? inlineCommonHtml(raw) : raw);
@@ -69,9 +72,11 @@ async function chrome() {
   });
   const pending = new Map();
   const events = [];
+  const errors = [];
   let nextId = 1;
   socket.addEventListener('message', event => {
     const message = JSON.parse(event.data);
+    if (message.method === 'Runtime.exceptionThrown') errors.push(message.params.exceptionDetails.exception?.description || message.params.exceptionDetails.text);
     if (message.id && pending.has(message.id)) { pending.get(message.id)(message.result); pending.delete(message.id); return; }
     events.push(message.method);
   });
@@ -84,9 +89,20 @@ async function chrome() {
     send,
     async load(url) {
       events.length = 0;
+      errors.length = 0;
       await send('Page.navigate', { url });
       for (let attempt = 0; attempt < 100 && !events.includes('Page.loadEventFired'); attempt += 1) await new Promise(resolve => setTimeout(resolve, 50));
-      await new Promise(resolve => setTimeout(resolve, 700));
+      // React and the preview JSON initialize asynchronously; do not measure a blank frame.
+      for (let attempt = 0; attempt < 100; attempt++) {
+        const ready = await send('Runtime.evaluate', {expression: '!!document.querySelector("#widget-root > *, #root .fh-select")', returnByValue:true});
+        if (ready.result?.value) {
+          await send('Runtime.evaluate', {expression:'document.fonts.ready',awaitPromise:true});
+          return;
+        }
+        if (errors.length) throw Error(`${url}: ${errors.join('; ')}`);
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      throw Error(`${url}: React 初始化超时 ${errors.join('; ')}`);
     },
     async close() {
       socket.close();
@@ -99,53 +115,79 @@ async function chrome() {
   };
 }
 
-const EXPRESSION = `(() => {
+const EXPRESSION = `(async () => {
   const properties = ${JSON.stringify(PROPERTIES)};
   const capture = (element, pseudo) => {
     if (!element) return null;
     const style = getComputedStyle(element, pseudo || undefined);
     return Object.fromEntries(properties.map(property => [property, style[property]]));
   };
-  // 没有宿主时页面会把 main 藏起来（显示“插件尚未启用”）；这里只为量样式而展开，
-  // 不代表运行时状态。
-  const page = document.querySelector('main');
-  if (page) page.hidden = false;
-  const unavailable = document.querySelector('#unavailable');
-  if (unavailable) unavailable.hidden = true;
-  for (const panel of document.querySelectorAll('[role="tabpanel"]')) panel.hidden = panel.id !== 'fleetPanel';
-  const bastion = document.querySelector('#bastionWorkbench');
-  if (bastion) bastion.hidden = true;
-
   const out = {};
-  const all = [...document.querySelectorAll('.select-shell')];
+  const all = [...document.querySelectorAll('.fh-select')];
   // 只量当前可见的下拉：隐藏面板/未打开的 dialog 里 rect 为 0，量不到真实样式。
   const shells = all.filter(shell => shell.getBoundingClientRect().width > 0);
   out.__selects = all.length;
   out.__visibleSelects = shells.length;
   const scope = shells[0] || null;
+  const frame = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  const trigger = scope?.querySelector('.fh-select__trigger');
+  if (trigger) { trigger.click(); await frame(); }
   for (const selector of ${JSON.stringify(SELECTORS)}) {
-    const element = scope ? scope.querySelector(selector.replace('::after', '')) : null;
-    out[selector] = capture(element, selector.endsWith('::after') ? '::after' : null);
+    const element = scope?.matches(selector) ? scope : scope?.querySelector(selector);
+    out[selector] = capture(element, null);
   }
-  const trigger = scope?.querySelector('.select-trigger');
   if (trigger) {
-    trigger.click();
-    const menu = scope.querySelector('.select-menu');
-    if (menu && !menu.hidden) {
-      out['.select-menu'] = capture(menu, null);
-      out['.select-menu [role="option"]'] = capture(menu.querySelector('[role="option"]'), null);
-      out['.select-menu [aria-selected="true"]'] = capture(menu.querySelector('[aria-selected="true"]'), null);
-      out['.select-search'] = capture(menu.querySelector('.select-search'), null);
-      out.__menuOpen = true;
-      trigger.click();
-    } else {
-      out.__menuOpen = false;
-    }
+    out.__menuOpen = !!scope.querySelector('[role="listbox"]');
+    if (!out.__menuOpen) throw Error('React 下拉未能打开');
+    trigger.click(); await frame();
   }
+  if (!document.querySelector('#widget-root > *, #root > *')) throw Error('Widget 未渲染，不能用空页面通过检查');
+  if (location.pathname.includes('detail') && document.querySelectorAll('#charts svg').length !== 6) throw Error('详情曲线未加载');
+  if (!location.pathname.includes('card') && !trigger) throw Error('Widget 缺少 React 下拉');
+  if (document.documentElement.scrollWidth > innerWidth + 1) throw Error('Widget 页面横向溢出');
   return out;
 })()`;
 
+const INTERACTIONS = `(async () => {
+  const tick = () => new Promise(resolve => setTimeout(resolve, 30));
+  const check = (condition, message) => { if (!condition) throw Error(message); };
+  const init = context => window.postMessage({type:'flowhub:widget-init',token:null,context}, '*');
+  if (location.pathname.includes('card')) {
+    const card = document.querySelector('.card');
+    const snapshot = {rows:[{id:'a',name:'A',status:'healthy',values:{cpu:25}}]};
+    init({config:{view:'widget',row:'a'},title:'自定义标题',snapshot}); await tick();
+    check(document.querySelector('.card') === card, '重复初始化不能重复创建 React root');
+    check(document.querySelector('h2')?.textContent.includes('自定义标题'), '宿主标题必须保留');
+    check(document.querySelector('.gauges svg'), '兼容旧 widget 视图');
+    init({config:{row:'removed'},snapshot}); await tick();
+    check(document.body.textContent.includes('目标已移除'), '已删除目标不能回退显示另一机器');
+  }
+  if (location.pathname.includes('detail')) {
+    const calls = [];
+    window.FlowHubWidget.invoke = params => new Promise((resolve,reject) => calls.push({params,resolve,reject}));
+    init({config:{row:'first'},preview:false}); await tick();
+    check(calls.length === 6, '应查询六项历史指标');
+    init({config:{row:'second'},preview:false}); await tick();
+    check(calls.length === 12, '目标更新应重新读取历史');
+    calls.slice(6).forEach((call,index) => index === 0 ? call.reject(Error('mock failed')) : call.resolve({data:[[1,22],[2,23]],unit:'%'}));
+    await tick();
+    check(document.querySelector('[role="alert"]')?.textContent.includes('mock failed'), '错误必须可见，不能丢弃其它成功曲线');
+    check(document.querySelectorAll('#charts svg').length === 5, '成功指标仍应显示');
+    calls.slice(0,6).forEach(call=>call.resolve({data:[[1,99]],unit:'%'})); await tick();
+    check(!document.querySelector('#charts')?.textContent.includes('99.00'), '过期请求不得覆盖当前结果');
+    document.querySelectorAll('.chart-card')[1].click(); await tick();
+    const dialog = document.querySelector('dialog[open]');
+    check(dialog && dialog.getBoundingClientRect().width > 0, '放大弹窗应显示');
+    check(getComputedStyle(dialog).position === 'fixed', '公共弹窗必须有构建后的定位样式');
+    check(dialog.getBoundingClientRect().right <= innerWidth + 1, '放大弹窗不能越界');
+    dialog.querySelector('button[aria-label="关闭"]')?.click(); await tick();
+    check(!document.querySelector('dialog[open]'), '关闭弹窗');
+  }
+  return true;
+})()`;
+
 async function main() {
+  execFileSync('npm', ['run', 'build:react'], { cwd: resolve(here, '..'), stdio: 'inherit' });
   const instance = await server();
   const port = instance.address().port;
   const client = await chrome();
@@ -157,13 +199,24 @@ async function main() {
   const fingerprint = {};
   try {
     await client.send('Page.enable');
+    await client.send('Runtime.enable');
     for (const page of PAGES) {
       fingerprint[page] = {};
       for (const width of WIDTHS) {
         await client.send('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: false });
         await client.load(`http://127.0.0.1:${port}/${page}`);
-        const { result } = await client.send('Runtime.evaluate', { expression: EXPRESSION, returnByValue: true });
+        const { result, exceptionDetails } = await client.send('Runtime.evaluate', { expression: EXPRESSION, returnByValue: true, awaitPromise: true });
+        if (exceptionDetails) throw new Error(`${page} @${width}: ${exceptionDetails.exception?.description || exceptionDetails.text}`);
         fingerprint[page][width] = result.value;
+        if (width === 380 && process.argv.includes('--screenshots')) {
+          const folder = await mkdtemp(join(tmpdir(), 'flowhub-widget-review-'));
+          const shot = await client.send('Page.captureScreenshot', { format: 'png' });
+          const target = join(folder, page.replace('.html', '.png'));
+          await writeFile(target, Buffer.from(shot.data, 'base64'));
+          console.log(`Screenshot: ${target}`);
+        }
+        const interaction = await client.send('Runtime.evaluate', {expression:INTERACTIONS,returnByValue:true,awaitPromise:true});
+        if (interaction.exceptionDetails) throw Error(`${page} @${width}: ${interaction.exceptionDetails.exception?.description || interaction.exceptionDetails.text}`);
       }
     }
   } finally {

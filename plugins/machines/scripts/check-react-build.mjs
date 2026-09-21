@@ -38,14 +38,22 @@ if (/src=["']machines\.js["']/.test(machinesHtml) || fs.existsSync(path.join(ui,
 if (fleetBundle.includes('flowhub:fleet-action') || /\.FlowHubFleet\b/.test(fleetBundle)) {
   throw new Error('React 构建不应保留旧列表事件桥接');
 }
-const bundles = [bundle, fleetBundle];
+const bundles = [bundle, fleetBundle, ...['card', 'detail'].map(name => fs.readFileSync(path.join(ui, `widget/${name}.js`), 'utf8'))];
+for (const name of ['card', 'detail']) {
+  const page = fs.readFileSync(path.join(ui, `widget-${name}.html`), 'utf8');
+  if (page.includes('data-flowhub-common')) throw new Error(`Widget ${name} 包含未处理的资源占位符`);
+  for (const extension of ['js', 'css']) {
+    if (!page.includes(`widget/${name}.${extension}`)) throw new Error(`Widget ${name} 未引用构建产物`);
+  }
+}
+if (fleetBundle.includes('FlowHubMachineTabs')) throw new Error('构建不应保留旧页签全局桥接');
 for (const source of bundles) {
   if (source.includes('@flowhub/plugin-common')) throw new Error('React 构建仍包含未解析的 common 包导入');
   if (/(?:^|[;\n])\s*import\s*(?:[\w*{]|["']|\()/m.test(source)) throw new Error('React 构建仍包含运行时模块导入');
 }
 if (/https?:\/\//.test(html)) throw new Error('React 页面不能依赖远程运行时资源');
 if (!html.includes('data-flowhub-ready="editor"')) throw new Error('React 编辑器必须在注册保存函数后再通知宿主就绪');
-for (const stale of ['widget/widget-editor.js', 'widget/widget-editor.css']) {
+for (const stale of ['widget/widget-editor.js', 'widget/widget-editor.css', 'widget/widget-card.js', 'widget/widget-card.css', 'widget/widget-detail.js', 'widget/widget-detail.css', 'widget/widget-metadata.js']) {
   if (fs.existsSync(path.join(ui, stale))) throw new Error(`发布构建不应保留已迁移的旧编辑器资源：${stale}`);
 }
 

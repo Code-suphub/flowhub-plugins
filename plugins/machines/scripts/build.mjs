@@ -18,13 +18,6 @@ try {
     .replace('<link data-flowhub-fleet rel="stylesheet">','<link rel="stylesheet" href="react/fleet.css">')
     .replace('<script data-flowhub-fleet></script>','<script src="react/fleet.js"></script>');
   writeFileSync(machinesHtml,machines);
-  const widgetCardHtml=readFileSync('ui/widget-card.html','utf8')
-    .replace('widget/card.css', 'widget/card.css')
-    .replace('<script src="widget/card.js"></script>', '<script src="widget/card.js"></script>');
-  const widgetDetailHtml=readFileSync('ui/widget-detail.html','utf8');
-  mkdirSync('build/ui/widget',{recursive:true});
-  writeFileSync('build/ui/widget-card.html', widgetCardHtml);
-  writeFileSync('build/ui/widget-detail.html', widgetDetailHtml);
   execFileSync(process.execPath,['scripts/check-react-build.mjs'],{stdio:'inherit'});
 } catch (error) {
   // 失败产物不能伪装成可安装插件；下一次成功构建会重新生成整个目录。

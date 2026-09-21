@@ -1,0 +1,9 @@
+@layer theme, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+@import "../../ui/widget/detail.css";
+@source "../../../common/src/react";
+
+#widget-root, #widget-root *, dialog, dialog * {
+  box-sizing: border-box;
+}

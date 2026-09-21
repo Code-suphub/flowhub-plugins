@@ -1,62 +1,44 @@
-# 机器管理页面的布局约束与工具
+# 机器管理与 Widget 布局回归
 
-页面布局的问题大多不是"没写对"，而是**写过好几种**：同一个选择器在多个样式表里定义、
-同一段布局叠了好几代、资源顺序散在文档里。这里记录当前生效的规则和用来守住它们的工具。
+## 当前入口
 
-## 度量与回归工具
+- 机器管理由 `src/fleet/main.tsx` 的单个 React 根节点管理。页签、机器编辑器、监控与采集弹窗通过 React 属性、状态和 ref 协作，不使用旧全局导航接口。
+- Widget 卡片与详情由 `src/widget/card.tsx`、`src/widget/detail.tsx` 渲染；编辑器由 `src/widget-editor/main.tsx` 渲染。
+- Widget 宿主初始化可以重复发送，每页只能创建一个 React 根节点。保留消息来源、Token 和请求关联校验，不把宿主桥接误当作无用渲染代码删除。
+- 公共交互组件来自 `@flowhub/plugin-common/react`；打包产物不依赖源码目录或 CDN。
 
-```sh
-node scripts/layout-audit.mjs            # 三个视图 × 六档宽度的几何数字
-node scripts/layout-audit.mjs --check    # 超阈值 exit 1（已接入 npm test）
-node scripts/preview-fingerprint.mjs     # 自绘下拉的计算样式与基线比对（已接入 npm test）
-node scripts/preview-fingerprint.mjs --write   # 确实要改外观时更新基线
-node scripts/prune-dead-css.mjs --apply  # 删除永不生效的声明
-npm test                                 # cargo + node --test + 上面两项
-```
+## 验证
 
-没有 Chrome 时两个浏览器工具都会跳过（不失败）；用 `CHROME_PATH` 指定其它浏览器。
-
-## 真实预览复核
-
-几何度量用的是"真实 CSS + 合成 DOM"，要看**真实渲染与真实数据**时走插件自带的预览：
+从插件目录运行：
 
 ```sh
-npm run dev -- --port 5183        # 启动 ui/ 的 vite 预览（dev/machines-preview.js 提供模拟数据）
-# 浏览器打开 http://127.0.0.1:5183/machines.html ，或在 FlowHub 里用
-# plugin-canvas.html?preview=http://127.0.0.1:5183/ 加载
+node scripts/layout-audit.mjs --check
+node scripts/preview-fingerprint.mjs
+node scripts/preview-fingerprint.mjs --screenshots
+npm test
 ```
 
-2026-09-17 用 headless Chrome 依次在 1400/600/380px 复核过：预览横幅与 2 台模拟机器
-正常渲染（概况合计 2），概况栏 4/2/1 列随宽度切换，380px 横向滚到最右仍能看到机型列，
-直连与堡垒机两个终端外壳都在，无 JS 异常与控制台错误。
+`layout-audit` 使用真实 React 页面和模拟机器数据，检查机器列表、Netdata、云流量在 1400、1024、850、600、380px 下的溢出与旧节点，以及页签键盘导航、草稿保持、选择同步和编辑弹窗。
 
-## 强制约束
+`preview-fingerprint` 先构建 React 产物，再检查卡片、详情、编辑器在 1400、600、380px 下的真实渲染和公共 Select 样式。资源缺失、空页面、无法展开下拉、曲线未加载或页面溢出必须失败，不能通过更新空基线掩盖问题。交互回归覆盖重复初始化、目标移除、查询错误、请求乱序和曲线放大弹窗。
 
-- **面板内边距**只有 `--panel-pad` 一个来源，表格的负边距与首末列内边距都跟着它走：
-  窄断点改一个变量即可，不会出现首列与面板文字错位（历史问题：≤850px 时差 5px）。
-- **控件高度**统一到 `--control-h`（输入框、原生下拉、按钮、自绘下拉触发器），
-  紧凑场景（表格行内按钮、命令输入行）才另给尺寸。
-- **概况栏**在 ≤760px 变两列、≤420px 变一列，分隔线随列数切换。
-- **机器表格**首列（勾选）与机型列 sticky；窄窗限制机型列宽与末列 `min-width`，
-  保证横向滚动时不遮住操作列。
-- **终端**：直连命令与堡垒机共用 `.terminal-shell` + `.console-toolbar` +
-  `.console-output-area` + `.terminal-input`；输出框只有在紧跟工具栏时才去掉上边框与上圆角。
-- **帮助气泡**：宽屏按所在行布局左右对齐（默认右对齐，`.discovery-heading` 内左对齐），
-  ≤760px 固定贴住可视区底部，不再逐处写定位补丁。
-- **一个页面内不允许重复定义同一选择器**：谁生效只由 `<link>` 顺序决定，等价于随机
-  （`tests/css-scope.test.cjs`）。样式表全部在 `<head>`、脚本全部集中在文档末尾。
-- **不允许永不生效的声明**：同文件里后面还有一条同选择器、同属性、无条件声明的，
-  前面那条在任何视口都不会赢（`tests/css-dead-declarations.test.cjs`）。
-- **DOM id 契约**：脚本里 `$('#id')` 引用的元素必须在页面或脚本自身渲染的标记里存在
-  （`tests/dom-id-contract.test.cjs`）。
-- **自绘下拉**的外观由 `tests/fixtures/select-control-fingerprint.json` 锁定：
-  4 个页面 × 2 档宽度，逐属性比对计算样式。
+确实改变下拉外观时，先检查截图，再运行 `node scripts/preview-fingerprint.mjs --write` 更新基线。没有 Chrome 时浏览器工具会跳过，可用 `CHROME_PATH` 指定浏览器；跳过不等于完成视觉验证。
 
-## 有意保留的重复
+仓库根目录联合验收：
 
-两套静态自绘下拉样式（`machine-controls.css`、`widget/widget-detail.css`）与 React
-公共下拉组件**刻意不合并**：实测静态页在 padding、控件高度、配色、
-圆角、字体、箭头几何、菜单偏移/阴影/z-index 等 **71 处**属性上各不相同，真正一致且
-有意义的只有 9 处（多数还来自各自页面的 `button` 规则）。抽公共文件需要按页提供
-70 多个变量去复现静态页设计，比小副本更难维护；改为用上面的指纹基线锁住它们，
-避免以后悄悄漂移。整页机器管理页与 widget 页面配色本就分属两套主题，同理。
+```sh
+npm test
+npm run layout:machines -- --check
+npm run build
+```
+
+## 开发预览
+
+`npm run dev -- --port 5183` 提供机器页及三个 Widget 页，并构建、监听 React/common 源码。所有调试使用模拟数据，不执行真实 SSH 或修改用户配置。
+
+## 样式边界
+
+- 主页面旧静态兼容 CSS 放在 `flowhub-legacy` 层；已替代的脚本、HTML 和专用样式实际删除。
+- Widget 展示与机器管理可保留不同主题，交互行为统一使用公共组件。
+- 详情页的 Tailwind 仅加载 theme/utilities，不引入全局 preflight；公共弹窗与下拉必须有对应构建样式。
+- 静态资源顺序、重复选择器、无效声明、DOM id 和发布产物自包含均有测试约束。

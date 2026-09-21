@@ -39,6 +39,8 @@ function checkUiAssets(directory, fail) {
       // React island assets are emitted into the package build directory after
       // this source-tree convention check runs.
       if (reference.startsWith('react/')) continue;
+      const widgetEntry = /^widget\/(card|detail)\.js$/.exec(reference);
+      if (path.basename(directory) === 'machines' && widgetEntry && fs.existsSync(path.join(directory, 'src/widget', `${widgetEntry[1]}.tsx`))) continue;
       if (!fs.existsSync(path.join(path.dirname(file), reference))) {
         fail(`${path.relative(directory, file)} 引用了不存在的资源：${reference}`);
       }

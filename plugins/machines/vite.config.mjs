@@ -22,11 +22,16 @@ const buildFleet=()=>execFileSync('npm',['run','build:fleet'],{
   stdio:'inherit',
   env:{...process.env,NODE_ENV:'production'}
 });
+const buildWidgets=()=>{
+  execFileSync('npm',['run','build:widget-editor'],{cwd:pluginRoot,stdio:'inherit'});
+  for(const name of ['card','detail']) execFileSync('npx',['vite','build','--config',`vite.widget-${name}.config.mjs`],{cwd:pluginRoot,stdio:'inherit'});
+};
 
 export default defineConfig({
   root:'ui',server:{host:'127.0.0.1',port:5183,strictPort:true,cors:{origin:/^(?:null|http:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?)$/}},
   plugins:[{name:'isolated-preview',configureServer(server){
     buildFleet();
+    buildWidgets();
     server.middlewares.use((request,response,next)=>{
       if(request.url==='/'||request.url==='/index.html'){
         response.statusCode=302;response.setHeader('Location','/machines.html');response.end();return;
@@ -35,17 +40,29 @@ export default defineConfig({
     });
     server.middlewares.use('/react/',(request,response,next)=>{
       const name=new URL(request.url,'http://local').pathname.replace(/^\/+/, '');
-      if(!['fleet.js','fleet.css'].includes(name)){next();return;}
+      if(!['fleet.js','fleet.css','widget-editor.js','widget-editor.css'].includes(name)){next();return;}
       response.setHeader('Content-Type',name.endsWith('.css')?'text/css; charset=utf-8':'text/javascript; charset=utf-8');
       response.setHeader('Cache-Control','no-store');
       response.end(readFileSync(join(fleetBuild,name)));
     });
+    server.middlewares.use('/widget/',(request,response,next)=>{
+      const name=new URL(request.url,'http://local').pathname.replace(/^\/+/, '');
+      if(!['card.js','card.css','detail.js','detail.css'].includes(name)){next();return;}
+      response.setHeader('Content-Type',name.endsWith('.css')?'text/css; charset=utf-8':'text/javascript; charset=utf-8');
+      response.setHeader('Cache-Control','no-store');
+      response.end(readFileSync(join(pluginRoot,'build/ui/widget',name)));
+    });
     const fixture=new URL('./dev/machines-preview.js',import.meta.url);
     const commonFiles=[new URL('../common/ui/flowhub-common.js',import.meta.url).pathname,new URL('../common/ui/flowhub-common.css',import.meta.url).pathname];
     const reactSources=[fleetSource,hostEditorSource,monitoringSource,trafficSource,historySource,commandSource,apiSource,backupSource,collectionsSource,commonReact];
-    server.watcher.add([fixture.pathname,...commonFiles,...reactSources]);
-    let fleetTimer;
+    const widgetSources=[join(pluginRoot,'src/widget'),join(pluginRoot,'src/widget-editor'),join(pluginRoot,'ui/widget/card.css'),join(pluginRoot,'ui/widget/detail.css')];
+    server.watcher.add([fixture.pathname,...commonFiles,...reactSources,...widgetSources]);
+    let fleetTimer,widgetTimer;
     server.watcher.on('change',p=>{
+      if(widgetSources.some(source=>p.startsWith(source))||p.startsWith(commonReact)){
+        clearTimeout(widgetTimer);
+        widgetTimer=setTimeout(()=>{buildWidgets();server.ws.send({type:'full-reload'});},120);
+      }
       if(reactSources.some(source=>p.startsWith(source))){
         clearTimeout(fleetTimer);
         fleetTimer=setTimeout(()=>{buildFleet();server.ws.send({type:'full-reload'});},120);
