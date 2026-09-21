@@ -72,8 +72,6 @@ export interface HostEditorActions {
   onProbeSsh: () => void | Promise<void>;
   onRetrySsh?: () => void | Promise<void>;
   onChooseIdentity?: () => void | Promise<void>;
-  onOpenCloudTraffic?: () => void;
-  onOpenNetdata?: () => void;
 }
 
 export interface HostEditorProps {

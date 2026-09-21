@@ -51,8 +51,6 @@ interface HostEditorControllerProps {
   api: HostEditorMachineApi | null;
   countryOptions?: readonly HostEditorOption[];
   onSaved?: (host: HostRecord) => void;
-  onOpenCloudTraffic?: (hostId: string, hostName: string) => void;
-  onOpenNetdata?: (hostId: string, hostName: string) => void;
 }
 
 interface MachineRegion {
@@ -96,7 +94,7 @@ function validate(value: HostEditorValue, requireProfile: boolean): Partial<Reco
   return errors;
 }
 
-export const HostEditorController = forwardRef<HostEditorControllerHandle, HostEditorControllerProps>(function HostEditorController({ api, countryOptions, onSaved, onOpenCloudTraffic, onOpenNetdata }, ref) {
+export const HostEditorController = forwardRef<HostEditorControllerHandle, HostEditorControllerProps>(function HostEditorController({ api, countryOptions, onSaved }, ref) {
   const [open, setOpen] = useState(false);
   const [value, setValue] = useState<HostEditorValue>(EMPTY_VALUE);
   const [tab, setTab] = useState<HostEditorTab>('basic');
@@ -236,8 +234,6 @@ export const HostEditorController = forwardRef<HostEditorControllerHandle, HostE
       try { const result = await api('chooseIdentity') as { canceled?: boolean; path?: string }; if (!result.canceled && result.path) change('sshIdentity', result.path); }
       catch (reason) { setOperationState({ status: 'error', message: errorText(reason) }); }
     },
-    onOpenCloudTraffic: () => value.id && onOpenCloudTraffic?.(value.id, value.name || value.alias),
-    onOpenNetdata: () => value.id && onOpenNetdata?.(value.id, value.name || value.alias),
   };
 
   return <HostEditor open={open} value={value} activeTab={tab} actions={actions} groups={groups} countryOptions={resolvedCountryOptions} errors={errors} loadState={loadState} testState={testState} operationState={operationState} saving={saving} saved={Boolean(value.id)} monitoringApi={api ?? undefined} />;

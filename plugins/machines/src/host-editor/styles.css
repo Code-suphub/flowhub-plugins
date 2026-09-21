@@ -312,9 +312,6 @@ dialog.host-editor {
   background: #0d1b13;
 }
 
-.host-editor__monitor-card--locked {
-  opacity: 0.68;
-}
 
 .host-editor__monitor-card-head {
   display: flex;

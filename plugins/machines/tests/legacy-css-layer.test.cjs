@@ -9,8 +9,6 @@ const legacyStyles = [
   path.join(pluginRoot, 'ui/machines.css'),
   path.join(pluginRoot, 'ui/machine-controls.css'),
   path.join(pluginRoot, 'ui/widget/widget-settings.css'),
-  path.join(pluginRoot, 'ui/monitoring/netdata.css'),
-  path.join(pluginRoot, 'ui/cloud/cloud-traffic.css'),
 ];
 
 for (const file of legacyStyles) {

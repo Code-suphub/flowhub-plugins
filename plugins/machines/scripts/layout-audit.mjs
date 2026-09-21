@@ -40,7 +40,6 @@ async function fixture() {
     .replace('<script data-flowhub-fleet></script>', '<script src="/react/fleet.js"></script>'));
 }
 
-const HELPERS = 'const one = selector => document.querySelector(selector);';
 const MEASURE_FLEET = `(() => {
   const root = document.querySelector('#fleetReactRoot');
   const visible = selector => [...root.querySelectorAll(selector)].filter(el => el.getBoundingClientRect().width > 0);
@@ -55,32 +54,6 @@ const MEASURE_FLEET = `(() => {
     summary: visible('.fleet__summary').length
   };
 })()`;
-
-const MEASURE_DIALOG_FAMILY = `(() => {
- ${HELPERS}
-  const box = element => element ? element.getBoundingClientRect() : null;
-  const sizeOf = element => { const rect = box(element); return rect ? { w: Math.round(rect.width), h: Math.round(rect.height) } : null; };
-  const shells = window.__auditDialogs || {};
-  shells.netdata.showModal();
-  shells.traffic.showModal();
-  const measure = element => { const rect = sizeOf(element); return rect ? rect.w + 'x' + rect.h : null; };
-  const rows = {
-    width: Math.round(document.documentElement.clientWidth),
-    height: Math.round(document.documentElement.clientHeight),
-    netdata: measure(shells.netdata),
-    traffic: measure(shells.traffic)
-  };
-  const expected = Math.round(Math.min(document.documentElement.clientHeight - 24, 920));
-  rows.expected = expected;
-  shells.netdata.close();
-  shells.traffic.close();
-  return rows;
-})()`;
-
-/** '820x776' → 820 */
-const widthPart = value => Number(String(value).split('x')[0]);
-/** '820x776' → 776 */
-const heightPart = value => Number(String(value).split('x')[1]);
 
 const VIEWS = [
   {
@@ -98,57 +71,37 @@ const VIEWS = [
       return problems.map(problem => row.width + 'px ' + problem);
     }
   },
-  {
-    label: '弹窗尺寸一致性',
-    // Netdata / 云流量仍由旧静态样式驱动；React 机器编辑器由组件测试与浏览器验证覆盖。
-    //  - 宽度：.netdata-dialog 的 min(820px,94vw)。谁单独写死一个更小的值，宽窗口下就会比兄弟弹窗窄
-    //    （云流量曾单独写 780px，比另两个窄 40px）。
-    //  - 高度：撑满 min(calc(100vh - 24px),920px)。.netdata-dialog 只有 max-height:88vh，没有 height，
-    //    于是会按内容长度“长一半就停”（云流量曾只有 480px，而编辑机器 522px，正文被压到 314px 并出现滚动条）。
-    sizes: [[1400, 900], [760, 900], [660, 700], [1200, 800], [718, 546]],
-    // 云流量和 Netdata 的弹窗由脚本动态创建，而审计页不加载脚本，这里只放一个同样带类名的空壳：
-    // 量的是 CSS 给这个家族的宽高，与弹窗内容无关。
-    show: "for (const p of document.querySelectorAll('[role=\"tabpanel\"]')) p.hidden = p.id !== 'fleetPanel';",
-    prepare: `(() => {
-      const add = (name, className, title) => {
-        let dialog = document.querySelector('dialog.audit-' + name);
-        if (!dialog) {
-          dialog = document.createElement('dialog');
-          dialog.className = 'netdata-dialog audit-shell audit-' + name + (className ? ' ' + className : '');
-          dialog.innerHTML = '<div class="section-head"><h2>' + title + '</h2><button type="button" data-close>关闭</button></div>';
-          document.body.append(dialog);
+  ...['netdata', 'traffic'].map(view => ({
+    label: view === 'netdata' ? 'React Netdata' : 'React 云流量',
+    show: `(async () => {
+      const wait = async (selector) => {
+        for (let i=0; i<100; i++) {
+          const el=document.querySelector(selector);
+          if (el && el.getBoundingClientRect().width) return el;
+          await new Promise(resolve=>setTimeout(resolve,20));
         }
-        return dialog;
+        throw new Error('React 元素未显示：'+selector);
       };
-      window.__auditDialogs = { netdata: add('netdata', '', 'Netdata 监控'), traffic: add('traffic', 'traffic-dialog', '云流量') };
+      await window.FlowHubHostEditor.open('demo-app');
+      await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+      await wait('dialog.host-editor[open]');
+      [...document.querySelectorAll('dialog.host-editor [role="tab"]')].find(el=>el.textContent==='监控与流量').click();
+      await wait('.host-editor__monitor-card');
+      const cards=[...document.querySelectorAll('.host-editor__monitor-card')];
+      cards.find(el=>el.querySelector('strong')?.textContent==='${view === 'netdata' ? 'Netdata' : '云流量'}').querySelector('button').click();
+      await wait('${view === 'netdata' ? '.nd-panel' : '.ct-panel'}');
     })()`,
-    measure: MEASURE_DIALOG_FAMILY,
-    columns: [
-      ['视口', row => `${row.width}x${row.height}`],
-      ['应达高度', row => `${row.expected}`],
-      ['Netdata', row => `${row.netdata}`],
-      ['云流量', row => `${row.traffic}`]
-    ],
-    check: row => {
-      const problems = [];
-      const values = [['Netdata', row.netdata], ['云流量', row.traffic]];
-      const limit = Math.min(Math.round(row.width * 0.94), 820);
-      for (const [label, value] of values) {
-        if (value === null) { problems.push(`${row.width}px ${label}弹窗量不到尺寸`); continue; }
-        const width = widthPart(value);
-        const height = heightPart(value);
-        if (width < Math.min(row.width * 0.94, 820) - 1) problems.push(`${row.width}px ${label}弹窗只有 ${width}px 宽，窄于设计上限 ${limit}px`);
-        // Netdata 面板内容是自适应的，只约束宽度；云流量使用满可用高度。
-        if (label !== 'Netdata' && height < row.expected - 1) problems.push(`${row.width}x${row.height} ${label}弹窗只有 ${height}px 高，未撑满可用高度 ${row.expected}px`);
-      }
-      const widths = values.map(([, value]) => widthPart(value));
-      if (widths.every(Number.isFinite)) {
-        const spread = Math.max(...widths) - Math.min(...widths);
-        if (spread > 0 && row.width * 0.94 > 820) problems.push(`${row.width}px 三个弹窗宽度不一致，相差 ${spread}px：${values.map(([label, value]) => label + ' ' + value).join(' / ')}`);
-      }
-      return problems;
-    }
-  },
+    measure: `(() => {
+      const dialog=document.querySelector('dialog.host-editor[open]');
+      const panel=dialog.querySelector('${view === 'netdata' ? '.nd-panel' : '.ct-panel'}');
+      return {width:innerWidth, dialogs:document.querySelectorAll('dialog[open]').length,
+        old:document.querySelectorAll('.netdata-dialog,.traffic-dialog').length,
+        overflow:dialog.scrollWidth-dialog.clientWidth,
+        panelOverflow:panel.scrollWidth-panel.clientWidth};
+    })()`,
+    columns: [['宽度',r=>r.width],['弹窗数',r=>r.dialogs],['旧节点',r=>r.old],['溢出',r=>r.overflow],['面板溢出',r=>r.panelOverflow]],
+    check: r => r.dialogs !== 1 || r.old || r.overflow > 1 || r.panelOverflow > 1 ? [r.width+'px React 监控面板溢出或旧弹窗残留'] : [],
+  })),
 
 ];
 
@@ -277,10 +230,12 @@ async function main() {
       const rows = [];
       for (const size of (view.sizes || WIDTHS.map(width => [width, 900]))) {
         await client.send('Emulation.setDeviceMetricsOverride', { width: size[0], height: size[1], deviceScaleFactor: 1, mobile: false });
-        await client.send('Runtime.evaluate', { expression: view.show, returnByValue: true });
+        const shown = await client.send('Runtime.evaluate', { expression: view.show, returnByValue: true, awaitPromise: true });
+        if (shown.exceptionDetails) throw new Error(shown.exceptionDetails.exception?.description || shown.exceptionDetails.text);
         if (view.prepare) await client.send('Runtime.evaluate', { expression: view.prepare, returnByValue: true });
         await new Promise(resolve => setTimeout(resolve, 60));
-        const { result } = await client.send('Runtime.evaluate', { expression: view.measure, returnByValue: true });
+        const { result, exceptionDetails } = await client.send('Runtime.evaluate', { expression: view.measure, returnByValue: true });
+        if (exceptionDetails) throw new Error(exceptionDetails.exception?.description || exceptionDetails.text);
         rows.push(result.value);
         failures.push(...view.check(result.value).map(problem => `[${view.label}] ${problem}`));
       }

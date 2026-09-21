@@ -92,8 +92,6 @@ if (hostEditorContainer) {
     ref={controller}
     api={api}
     onSaved={() => window.dispatchEvent(new CustomEvent('flowhub:hosts-changed'))}
-    onOpenCloudTraffic={(hostId, hostName) => (window as Window & { FlowHubCloudTraffic?: { open: (id: string, name: string) => void } }).FlowHubCloudTraffic?.open(hostId, hostName)}
-    onOpenNetdata={(hostId, hostName) => (window as Window & { FlowHubNetdata?: { open: (id: string, name: string) => void } }).FlowHubNetdata?.open(hostId, hostName)}
   />));
   window.FlowHubHostEditor = {
     open: (hostId, options) => controller.current?.open(hostId, options) ?? Promise.resolve(),

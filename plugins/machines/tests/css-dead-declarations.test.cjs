@@ -18,7 +18,7 @@ function cssFiles(directory, found = []) {
 }
 
 const files = cssFiles(ui);
-assert.ok(files.length >= 8, `ui/ 下的样式表应有 8 个以上，实际 ${files.length}`);
+assert.ok(files.length >= 6, `ui/ 下的样式表应有 6 个以上，实际 ${files.length}`);
 
 const problems = [];
 let declarations = 0;

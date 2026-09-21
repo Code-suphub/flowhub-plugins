@@ -342,35 +342,9 @@ function ConnectionPanel({ value, errors, actions, loadState, testState, change 
   );
 }
 
-function MonitoringPanel({ saved, actions, hostId, hostName, api }: { saved: boolean; actions: HostEditorActions; hostId: string; hostName: string; api?: HostEditorProps['monitoringApi'] }) {
+function MonitoringPanel({ saved, hostId, hostName, api }: { saved: boolean; hostId: string; hostName: string; api?: HostEditorProps['monitoringApi'] }) {
   if (saved && api) return <MonitoringWorkspace hostId={hostId} hostName={hostName} api={api} />;
-  const monitoringHint = saved ? '保存后由机器管理器定时采集。' : '请先保存机器，才能配置监控与流量。';
-
-  return (
-    <div className="host-editor__panel-grid">
-      <Section title="数据源" hint={monitoringHint}>
-        <div className="host-editor__monitor-grid">
-          <div className={cx('host-editor__monitor-card', !saved && 'host-editor__monitor-card--locked')}>
-            <div className="host-editor__monitor-card-head">
-              <strong>云流量</strong>
-              <span className="host-editor__monitor-chip">TRAFFIC</span>
-            </div>
-            <p>按已保存的云服务商配置查询自然月用量。</p>
-            <Button size="sm" variant="ghost" disabled={!saved || !actions.onOpenCloudTraffic} onClick={actions.onOpenCloudTraffic}>配置云流量</Button>
-          </div>
-          <div className={cx('host-editor__monitor-card', !saved && 'host-editor__monitor-card--locked')}>
-            <div className="host-editor__monitor-card-head">
-              <strong>Netdata</strong>
-              <span className="host-editor__monitor-chip">AGENT</span>
-            </div>
-            <p>读取机器上的 Netdata 节点，展示 CPU、内存、磁盘与流量。</p>
-            <Button size="sm" variant="ghost" disabled={!saved || !actions.onOpenNetdata} onClick={actions.onOpenNetdata}>配置 Netdata</Button>
-          </div>
-        </div>
-      </Section>
-      {!saved ? <p className="host-editor__locked-note" role="status" aria-live="polite">监控设置将在首次保存后启用。</p> : null}
-    </div>
-  );
+  return <p className="host-editor__locked-note" role="status">{saved ? '当前环境无法配置监控，请在 FlowHub 中打开。' : '请先保存机器，才能配置监控与流量。'}</p>;
 }
 
 export function HostEditor({
@@ -434,7 +408,7 @@ export function HostEditor({
             <ConnectionPanel value={value} errors={errors} actions={actions} loadState={loadState} testState={testState} change={change} />
           </Tabs.Panel>
           <Tabs.Panel value="monitoring" className="host-editor__tab-panel">
-            <MonitoringPanel saved={saved} actions={actions} hostId={value.id ?? ''} hostName={value.name || value.alias} api={monitoringApi} />
+            <MonitoringPanel saved={saved} hostId={value.id ?? ''} hostName={value.name || value.alias} api={monitoringApi} />
           </Tabs.Panel>
         </Tabs>
         {loadState.status === 'loading' ? <span className="host-editor__sr-status" role="status" aria-live="polite">正在加载机器配置</span> : null}

@@ -4,6 +4,20 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
+test('Netdata and traffic use only the React monitoring workspace', () => {
+  const html = fs.readFileSync(path.join(__dirname, '../ui/machines.html'), 'utf8');
+  for (const file of ['monitoring/netdata.js', 'monitoring/netdata.css', 'cloud/cloud-traffic.js', 'cloud/cloud-traffic.css']) {
+    assert(!html.includes(file));
+    assert(!fs.existsSync(path.join(__dirname, '../ui', file)), `${file} should be physically deleted`);
+  }
+  for (const file of ['fleet/main.tsx', 'host-editor/HostEditorController.tsx', 'host-editor/types.ts']) {
+    const source = fs.readFileSync(path.join(__dirname, '../src', file), 'utf8');
+    assert(!/onOpenCloudTraffic|onOpenNetdata|FlowHubCloudTraffic|FlowHubNetdata/.test(source));
+  }
+  const editor = fs.readFileSync(path.join(__dirname, '../src/host-editor/HostEditor.tsx'), 'utf8');
+  assert.match(editor, /saved && api\) return <MonitoringWorkspace/);
+});
+
 test('monitor settings are owned by React and the legacy script is removed', () => {
   const html = fs.readFileSync(path.join(__dirname, '../ui/machines.html'), 'utf8');
   const source = fs.readFileSync(path.join(__dirname, '../src/monitoring/MonitorSettings.tsx'), 'utf8');
