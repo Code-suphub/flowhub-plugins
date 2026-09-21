@@ -6,6 +6,7 @@ import { HostEditorController, type HostEditorControllerHandle } from '../host-e
 import type { MachinesApi, MachinesRun } from '../api/machines';
 import type { HistoryJob } from '../history/types';
 import { FleetPage } from './FleetPage';
+import type { MachineTab } from './MachineWorkspace';
 import type { FleetActions, FleetActiveJob, FleetHost, FleetSnapshot } from './types';
 
 interface MachineState {
@@ -22,11 +23,17 @@ export function FleetController({ api, run, backupApi = null }: { api: MachinesA
   const [selected, setSelected] = useState<readonly string[]>([]);
   const [notice, setNotice] = useState({ text: '', error: false });
   const [collectionHostId, setCollectionHostId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<MachineTab>('fleet');
+  const [focusTab, setFocusTab] = useState<MachineTab | null>(null);
   const editor = useRef<HostEditorControllerHandle>(null);
   const current = useRef(state);
   const alive = useRef(false);
   const busy = useRef(false);
   const refresh = useRef<() => Promise<void>>(async () => {});
+  const navigate = (tab: MachineTab, focus = false) => {
+    setActiveTab(tab);
+    setFocusTab(focus ? tab : null);
+  };
   const message = (text: string, error = false) => {
     if (alive.current) setNotice({ text: text.replace(/^(?:Error:\s*)+/, ''), error });
   };
@@ -121,7 +128,7 @@ export function FleetController({ api, run, backupApi = null }: { api: MachinesA
       if (!enabled) return;
       if (action === 'terminal' && host.readOnly) return;
       if (action === 'edit' || action === 'copy') { void editor.current?.open(host.id, { copy: action === 'copy' }).catch(error => message(String(error), true)); return; }
-      if (action === 'command') { select([host.id]); window.FlowHubMachineTabs?.show('command', true); return; }
+      if (action === 'command') { select([host.id]); navigate('command', true); return; }
       void operate(async () => {
         if (action === 'terminal') await api!(host.bastion ? 'bastionTerminal' : 'terminal', { hostId: host.id });
         if (action === 'delete') {
@@ -139,6 +146,9 @@ export function FleetController({ api, run, backupApi = null }: { api: MachinesA
     collections={<CollectionWorkspace host={state.config.hosts.find(host => host.id === collectionHostId) ?? null} jobs={[...state.active, ...state.history]} api={api} onClose={() => setCollectionHostId(null)} />}
     selectedHostIds={selected}
     onSelectionChange={select}
+    activeTab={activeTab}
+    onTabChange={navigate}
+    focusTab={focusTab}
     api={api}
     run={run}
     available={!!state.config.installed && state.config.enabled}
@@ -151,6 +161,5 @@ export function FleetController({ api, run, backupApi = null }: { api: MachinesA
 declare global {
   interface Window {
     machineSettingsContext?: { config?: { row?: string } };
-    FlowHubMachineTabs?: { show: (name: string, focus?: boolean) => void };
   }
 }

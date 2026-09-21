@@ -8,6 +8,7 @@ test('fleet and command share controlled selection without event bridges', () =>
   for (const file of ['fleet/FleetController.tsx', 'fleet/MachineWorkspace.tsx', 'fleet/main.tsx', 'command/CommandWorkspace.tsx']) {
     const source = fs.readFileSync(path.join(__dirname, '../src', file), 'utf8');
     assert(!/FlowHubCommand|flowhub:command-selection|flowhub:command-targets/.test(source));
+    assert(!source.includes('FlowHubMachineTabs'));
   }
   const command = fs.readFileSync(path.join(__dirname, '../src/command/CommandWorkspace.tsx'), 'utf8');
   assert.match(command, /new Set\(selectedHostIds\)/);
@@ -365,6 +366,10 @@ test('React owns command execution, history and templates without legacy DOM ada
   assert.match(workspace, /disabled=\{running \|\| !selectedHosts\.length \|\| !command\.trim\(\)\}/);
   assert.match(workspace, /api\('templates', \{ templates: next \}\)/);
   assert.match(workspace, /run\(\{ hostId: job\.hostId, expectedAlias: job\.alias/);
+  assert.match(shell, /activeTab/);
+  assert.match(shell, /onTabChange/);
+  assert.match(script, /navigate\('command', true\)/);
+  assert(!script.includes('FlowHubMachineTabs'));
 });
 
 test('fleet controller owns lifecycle and physically replaces the legacy orchestrator', () => {

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { Tabs } from '@flowhub/plugin-common/react';
 import { CommandWorkspace } from '../command/CommandWorkspace';
 import { HistoryWorkspace } from '../history/HistoryWorkspace';
@@ -10,32 +10,23 @@ const pages = [
   { value: 'history', label: '执行记录', root: 'historyReactRoot' },
 ] as const;
 
+export type MachineTab = typeof pages[number]['value'];
+
 /** Keep the islands mounted so navigation cannot discard commands or running sessions. */
-export function MachineWorkspace({ fleet, api, run, available, selectedHostIds, onSelectionChange }: { fleet: ReactNode; api: MachinesApi | null; run: MachinesRun | null; available: boolean; selectedHostIds: readonly string[]; onSelectionChange: (hostIds: readonly string[]) => void }) {
-  const [active, setActive] = useState('fleet');
+export function MachineWorkspace({ fleet, api, run, available, selectedHostIds, onSelectionChange, activeTab, onTabChange, focusTab }: { fleet: ReactNode; api: MachinesApi | null; run: MachinesRun | null; available: boolean; selectedHostIds: readonly string[]; onSelectionChange: (hostIds: readonly string[]) => void; activeTab: MachineTab; onTabChange: (tab: MachineTab) => void; focusTab: MachineTab | null }) {
   const triggers = useRef<Record<string, HTMLButtonElement | null>>({});
   useEffect(() => {
-    const bridge = {
-      show(name: string, focus = false) {
-        if (!pages.some(page => page.value === name)) return;
-        setActive(name);
-        if (focus) triggers.current[name]?.focus();
-      },
-    };
-    window.FlowHubMachineTabs = bridge;
-    return () => {
-      if (window.FlowHubMachineTabs === bridge) delete window.FlowHubMachineTabs;
-    };
-  }, []);
+    if (focusTab === activeTab) triggers.current[activeTab]?.focus();
+  }, [activeTab, focusTab]);
 
-  return <Tabs value={active} onValueChange={setActive}>
+  return <Tabs value={activeTab} onValueChange={value => onTabChange(value as MachineTab)}>
     <Tabs.List className="machine-tabs" aria-label="机器管理页面">
       {pages.map(page => <Tabs.Trigger key={page.value} value={page.value} ref={node => { triggers.current[page.value] = node; }}>{page.label}</Tabs.Trigger>)}
     </Tabs.List>
     {pages.map(page => <Tabs.Panel key={page.value} value={page.value} forceMount>
-      <div id={`${page.value}Panel`} hidden={active !== page.value}><div id={page.root}>{page.value === 'fleet' ? fleet : page.value === 'command'
-        ? <CommandWorkspace api={api} run={run} active={available && active === 'command'} selectedHostIds={selectedHostIds} onSelectionChange={onSelectionChange} />
-        : <HistoryWorkspace api={api} active={available && active === 'history'} />}</div></div>
+      <div id={`${page.value}Panel`} hidden={activeTab !== page.value}><div id={page.root}>{page.value === 'fleet' ? fleet : page.value === 'command'
+        ? <CommandWorkspace api={api} run={run} active={available && activeTab === 'command'} selectedHostIds={selectedHostIds} onSelectionChange={onSelectionChange} />
+        : <HistoryWorkspace api={api} active={available && activeTab === 'history'} />}</div></div>
     </Tabs.Panel>)}
   </Tabs>;
 }

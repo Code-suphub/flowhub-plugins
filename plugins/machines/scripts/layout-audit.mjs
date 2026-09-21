@@ -58,7 +58,7 @@ const MEASURE_FLEET = `(() => {
 const VIEWS = [
   {
     label: 'React 机器列表',
-    show: "window.FlowHubMachineTabs.show('fleet');",
+    show: "document.querySelector('.machine-tabs [data-tabs-value=\"fleet\"]').click();",
     measure: MEASURE_FLEET,
     columns: [['宽度', row => row.width], ['页溢出', row => row.pageOverflow], ['机器', row => row.machines], ['布局', row => row.layout], ['旧节点', row => row.legacyNodes]],
     check: row => {
@@ -243,16 +243,17 @@ async function main() {
           if (tabs.filter(item => item.tabIndex === 0).length !== 1) throw Error('Tab focus order mismatch');
           if (roots.some((root, i) => document.getElementById(['fleet', 'command', 'history'][i] + 'ReactRoot') !== root)) throw Error('Navigation remounted an island');
         };
-        window.FlowHubMachineTabs.show('fleet', true); await frame(); verify(0);
+        const showTab = (name, focus = false) => { const tab = document.querySelector('.machine-tabs [data-tabs-value="' + name + '"]'); tab.click(); if (focus) tab.focus(); };
+        showTab('fleet', true); await frame(); verify(0);
         const fleetChoice = document.querySelector('#fleetReactRoot input[data-select="demo-app"]');
         if (!fleetChoice) throw Error('Fleet selection missing');
         fleetChoice.click(); await frame();
-        window.FlowHubMachineTabs.show('command'); await frame();
+        showTab('command'); await frame();
         for (let attempt = 0; attempt < 50 && !document.querySelector('.command-react__target input'); attempt++) await frame();
         const commandChoice = document.querySelector('.command-react__target input');
         if (!commandChoice?.checked) throw Error('Fleet selection did not reach command page');
         commandChoice.click(); await frame();
-        window.FlowHubMachineTabs.show('fleet', true); await frame();
+        showTab('fleet', true); await frame();
         if (fleetChoice.checked) throw Error('Command deselection did not reach fleet');
         for (const [key, index] of [['ArrowRight', 1], ['End', 2], ['ArrowRight', 0], ['ArrowLeft', 2], ['Home', 0]]) {
           document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
@@ -267,11 +268,11 @@ async function main() {
           draft.dispatchEvent(new Event('input', { bubbles: true }));
         };
         setDraft('audit draft — never execute'); await frame();
-        window.FlowHubMachineTabs.show('history'); await frame(); verify(2);
-        window.FlowHubMachineTabs.show('command'); await frame(); verify(1);
+        showTab('history'); await frame(); verify(2);
+        showTab('command'); await frame(); verify(1);
         if (document.querySelector('#commandReactRoot textarea') !== draft || draft.value !== 'audit draft — never execute') throw Error('Navigation discarded command draft');
         setDraft(''); await frame();
-        window.FlowHubMachineTabs.show('fleet'); await frame(); verify(0);
+        showTab('fleet'); await frame(); verify(0);
         for (const selector of ['#monitorSettingsReactRoot button', '#openBackup']) {
           const trigger = document.querySelector(selector);
           trigger.focus(); trigger.click(); await frame();
