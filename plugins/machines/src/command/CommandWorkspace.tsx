@@ -3,6 +3,7 @@ import {
   Button,
   Checkbox,
   Combobox,
+  DialogShell,
   MultiCombobox,
   EmptyState,
   HelpPopover,
@@ -51,6 +52,7 @@ function TemplateManager({ initial, busy, onSave }: {
   const [error, setError] = useState('');
   const locked = busy || pending;
   const operation = useRef(false);
+  const templateNameRef = useRef<HTMLInputElement>(null);
 
   function edit(index: number) {
     setError(''); setRemoving(null);
@@ -77,24 +79,38 @@ function TemplateManager({ initial, busy, onSave }: {
     await persist(index < 0 ? [...initial, draft] : initial.map((item, i) => i === index ? draft : item));
   }
 
-  const editor = editing ? <form className="command-react__template-editor" onSubmit={event => { event.preventDefault(); void save(); }}>
-    <label><span>模板名称</span><Input autoFocus disabled={locked} value={editing.draft.name} maxLength={100} placeholder="例如：查看磁盘使用" onChange={event => setEditing({ ...editing, draft: { ...editing.draft, name: event.target.value } })} /></label>
-    <label><span>命令内容</span><Textarea disabled={locked} rows={3} value={editing.draft.command} placeholder="df -h /" onChange={event => setEditing({ ...editing, draft: { ...editing.draft, command: event.target.value } })} /></label>
-    <div className="command-react__template-actions"><Button size="sm" variant="ghost" disabled={locked} onClick={() => { setEditing(null); setError(''); }}>取消</Button><Button type="submit" size="sm" variant="primary" disabled={locked}>{locked ? '保存中…' : '保存'}</Button></div>
-  </form> : null;
+  function closeEditor() {
+    if (locked) return;
+    setEditing(null);
+    setError('');
+  }
 
-  return <section className="command-react__template-manager" aria-labelledby="command-template-title">
-    <header><div className="command-react__template-heading"><h3 id="command-template-title">模板列表</h3></div><Button size="sm" variant="primary" disabled={locked || editing !== null || initial.length >= 50} onClick={() => edit(-1)}>新建模板</Button></header>
+  return <section className="command-react__template-manager" aria-label="命令模板列表">
+    <header><Button size="sm" variant="primary" disabled={locked || editing !== null || initial.length >= 50} onClick={() => edit(-1)}>新建模板</Button></header>
     <div className="command-react__template-list">
-      {editing?.index === -1 ? editor : null}
       {initial.map((item, index) => <section key={index}>
         <div className="command-react__template-row"><strong title={item.name}>{item.name}</strong><code title={item.command}>{item.command.replace(/\s+/g, ' ')}</code>
         <div className="command-react__template-actions">{removing === index ? <><span>删除此模板？</span><Button size="sm" variant="ghost" disabled={locked} onClick={() => setRemoving(null)}>取消</Button><Button size="sm" variant="ghost" disabled={locked} onClick={() => void persist(initial.filter((_, i) => i !== index))}>确认删除</Button></> : <><Button size="sm" variant="ghost" disabled={locked || editing !== null} aria-expanded={editing?.index === index} onClick={() => edit(index)}>编辑</Button><Button size="sm" variant="ghost" disabled={locked || editing !== null} onClick={() => { setRemoving(index); setError(''); }}>删除</Button></>}</div></div>
-        {editing?.index === index ? editor : null}
       </section>)}
       {!initial.length && !editing ? <EmptyState size="compact" title="还没有命令模板" description="点击右上角“新建模板”添加常用命令。" /> : null}
     </div>
-    {error ? <p className="command-react__error" role="alert">{error}</p> : null}
+    {error && !editing ? <p className="command-react__error" role="alert">{error}</p> : null}
+    <DialogShell
+      open={editing !== null}
+      onOpenChange={next => { if (!next) closeEditor(); }}
+      onCancel={event => { if (locked) event.preventDefault(); }}
+      title={editing?.index === -1 ? '新建命令模板' : '编辑命令模板'}
+      initialFocusRef={templateNameRef}
+      initialFocusSelection="end"
+      className="command-react__template-dialog"
+      footer={<><Button variant="ghost" disabled={locked} onClick={closeEditor}>取消</Button><Button type="submit" form="command-template-form" variant="primary" disabled={locked}>{locked ? '保存中…' : '保存模板'}</Button></>}
+    >
+      {editing ? <form id="command-template-form" className="command-react__template-editor" autoComplete="off" onSubmit={event => { event.preventDefault(); void save(); }}>
+        <label><span>模板名称</span><Input ref={templateNameRef} type="text" name="command-template-title" autoComplete="off" disabled={locked} value={editing.draft.name} maxLength={100} placeholder="例如：查看磁盘使用" onChange={event => setEditing({ ...editing, draft: { ...editing.draft, name: event.target.value } })} /></label>
+        <label><span>命令内容</span><Textarea name="command-template-content" autoComplete="off" disabled={locked} rows={4} value={editing.draft.command} placeholder="df -h /" onChange={event => setEditing({ ...editing, draft: { ...editing.draft, command: event.target.value } })} /></label>
+        {error ? <p className="command-react__error" role="alert">{error}</p> : null}
+      </form> : null}
+    </DialogShell>
   </section>;
 }
 

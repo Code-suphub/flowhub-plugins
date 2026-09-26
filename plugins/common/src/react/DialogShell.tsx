@@ -21,6 +21,7 @@ export interface DialogShellProps
   children: ReactNode;
   closeLabel?: string;
   initialFocusRef?: { current: HTMLElement | null };
+  initialFocusSelection?: "end";
   contentClassName?: string;
 }
 
@@ -52,6 +53,7 @@ export const DialogShell = forwardRef<HTMLDialogElement, DialogShellProps>(
       children,
       closeLabel = "关闭",
       initialFocusRef,
+      initialFocusSelection,
       className,
       contentClassName,
       onCancel,
@@ -95,6 +97,10 @@ export const DialogShell = forwardRef<HTMLDialogElement, DialogShellProps>(
               ? initialFocusRef.current
               : null) ?? closeButtonRef.current;
           target?.focus();
+          if (initialFocusSelection === "end" && (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)) {
+            const end = target.value.length;
+            target.setSelectionRange(end, end);
+          }
         });
       } else if (!open && dialog.open) {
         dialog.close();
@@ -109,7 +115,7 @@ export const DialogShell = forwardRef<HTMLDialogElement, DialogShellProps>(
           }
         });
       }
-    }, [initialFocusRef, open]);
+    }, [initialFocusRef, initialFocusSelection, open]);
 
     function handleClose(event: SyntheticEvent<HTMLDialogElement>): void {
       onClose?.(event);

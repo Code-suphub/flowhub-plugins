@@ -30,7 +30,6 @@ export type {
   FleetMetricResultStatus,
   FleetMetricStatus,
   FleetMetricValues,
-  FleetMonitoringChange,
   FleetPageProps,
   FleetSnapshot,
 } from './types';

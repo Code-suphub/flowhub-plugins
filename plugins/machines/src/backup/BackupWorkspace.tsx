@@ -87,11 +87,11 @@ export function BackupWorkspace({ api }: { api: BackupApi | null }) {
           <Tabs.Panel value={mode}>
             <div className="backup-workspace__fields" aria-busy={busy}>
               <Field label="备份口令" htmlFor="backup-password">
-                <Input ref={passwordRef} id="backup-password" type="password" autoComplete="new-password" value={password} disabled={disabled}
+                <Input ref={passwordRef} id="backup-password" type="password" autoComplete="off" value={password} disabled={disabled}
                   placeholder="至少 12 个字符" onChange={(event) => { setPassword(event.currentTarget.value); setPreview(null); setStatus(null); }} />
               </Field>
               {mode === 'backup' ? <Field label="确认口令" htmlFor="backup-repeat">
-                <Input id="backup-repeat" type="password" autoComplete="new-password" value={repeat} disabled={disabled}
+                <Input id="backup-repeat" type="password" autoComplete="off" value={repeat} disabled={disabled}
                   placeholder="再次输入备份口令" onChange={(event) => setRepeat(event.currentTarget.value)} />
               </Field> : null}
               {preview ? <section className="backup-workspace__preview" aria-label="待恢复备份">

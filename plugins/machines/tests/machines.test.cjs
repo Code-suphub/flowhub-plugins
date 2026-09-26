@@ -191,6 +191,7 @@ test('monitor save notifies its parent after success even when the dialog closes
       if (name === 'react/jsx-runtime') return { jsx, jsxs: jsx };
       if (name === '@flowhub/plugin-common/react') return { Tabs: { List() {}, Trigger() {}, Panel() {} } };
       if (name === './settings.css') return {};
+      if (name === './TimeSeriesChart') return { TimeSeriesChart() {} };
       throw Error(name);
     } });
     exports.SettingsSession({ api: () => new Promise((resolve, reject) => { complete = () => fails ? reject(new Error('save failed')) : resolve({}); }), onSaved: () => saved++ });
@@ -248,10 +249,12 @@ test('monitor settings are owned by React and the legacy script is removed', () 
   assert.match(fs.readFileSync(path.join(__dirname, '../src/fleet/MachineShell.tsx'), 'utf8'), /id="monitorSettingsReactRoot"/);
   assert(!html.includes('monitoring/monitoring.js'));
   assert(!fs.existsSync(path.join(__dirname, '../ui/monitoring/monitoring.js')));
-  for (const action of ['state', 'monitorSettings', 'exporterTest', 'metricHistory']) assert(source.includes(`api('${action}'`));
+  for (const action of ['state', 'monitorSettings', 'metricHistory']) assert(source.includes(`api('${action}'`));
+  const workspace = fs.readFileSync(path.join(__dirname, '../src/monitoring/MonitoringWorkspace.tsx'), 'utf8');
+  for (const action of ['exporterConfigSave', 'exporterTest']) assert(workspace.includes(`api('${action}'`));
   assert.match(source, /Number.isInteger\(retention\)/);
   assert.match(source, /alive.current = false/);
-  assert.match(source, /pen = false; return null/);
+  assert.match(source, /TimeSeriesChart/);
   assert.match(source, /DialogShell/);
 });
 

@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 
 export type AsyncState = { status: 'idle' | 'loading' | 'success' | 'error'; message?: ReactNode };
-export type NetdataInstance = { id: string; name: string; url: string; networkChart: string };
+export type NetdataInstance = { id: string; name: string; url: string; networkChart: string; hostId?: string | null };
 export type NetdataChart = { id: string; units?: string };
 export type NetdataDraft = { id?: string; name: string; url: string; networkChart: string };
 export type NetdataHistoryQuery = { instanceId: string; chartId: string; seconds: number };
@@ -14,9 +14,9 @@ export interface NetdataPanelActions {
   onDraftChange: <K extends keyof NetdataDraft>(field: K, value: NetdataDraft[K]) => void;
   onEdit: (instance: NetdataInstance) => void;
   onRemove: (instance: NetdataInstance) => void;
+  onClaim: (instance: NetdataInstance) => void;
   onTest: () => void;
   onSave: () => void;
-  onReset: () => void;
   onHistoryChange: <K extends keyof NetdataHistoryQuery>(field: K, value: NetdataHistoryQuery[K]) => void;
   onQueryHistory: () => void;
   onInstallChange: <K extends keyof NetdataInstallDraft>(field: K, value: NetdataInstallDraft[K]) => void;
@@ -27,12 +27,14 @@ export interface NetdataPanelActions {
 
 export interface NetdataPanelProps {
   instances: readonly NetdataInstance[];
+  unassigned: readonly NetdataInstance[];
   charts: readonly NetdataChart[];
+  chartLoad: 'idle' | 'loading' | 'error';
   draft: NetdataDraft;
   historyQuery: NetdataHistoryQuery;
   history?: NetdataHistory;
   installDraft: NetdataInstallDraft;
-  installHosts: readonly { value: string; label: string; disabled?: boolean }[];
+  installHostName: string;
   installPreview?: NetdataInstallPreview;
   suggestion?: NetdataSuggestion;
   state: AsyncState;

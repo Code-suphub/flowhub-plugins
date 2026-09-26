@@ -1,6 +1,6 @@
 import type { CloudField, CloudProvider, CloudTrafficDraft } from './types';
 
-export const FIELD_LABELS: Record<CloudField,string>={region:'地域',instanceId:'实例 ID / 名称',secretId:'Access Key ID / SecretId',secretKey:'Access Key Secret / SecretKey',token:'临时会话 Token（可选）',veid:'VEID',apiKey:'API Key / 只读 Token',packageId:'流量包 ID',site:'华为云站点',apiToken:'API Token',cookie:'Cookie 串',xsrfToken:'XSRF Token',serverId:'Server ID',limitGB:'套餐流量 / GB（可选）',netdataId:'Netdata 节点'};
+export const FIELD_LABELS: Record<CloudField,string>={region:'地域',instanceId:'实例 ID / 名称',secretId:'Access Key ID / SecretId',secretKey:'Access Key Secret / SecretKey',token:'临时会话 Token',veid:'VEID',apiKey:'API Key / 只读 Token',packageId:'流量包 ID',site:'华为云站点',apiToken:'API Token',cookie:'Cookie 串',xsrfToken:'XSRF Token',serverId:'Server ID',limitGB:'套餐流量 / GB',netdataId:'Netdata 节点'};
 export const SECRET_FIELDS:readonly CloudField[]=['secretId','secretKey','token','apiKey','apiToken','cookie','xsrfToken'];
 export const CLOUD_PROVIDERS:readonly CloudProvider[]=[
  {id:'tencent',name:'腾讯云 · Lighthouse',fields:['region','instanceId','secretId','secretKey','token'],required:['region','instanceId'],help:'查询单台轻量实例套餐余量；只读权限 lighthouse:DescribeInstancesTrafficPackages。'},

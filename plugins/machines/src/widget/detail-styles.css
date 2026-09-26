@@ -7,3 +7,6 @@
 #widget-root, #widget-root *, dialog, dialog * {
   box-sizing: border-box;
 }
+
+.chart-card { cursor: default; }
+.chart-card .fh-time-series svg { cursor: crosshair; }

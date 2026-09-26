@@ -57,11 +57,12 @@ function StatusLine({ state, label }: { state: HostEditorAsyncState; label: stri
   );
 }
 
-function Section({ title, hint, children }: { title: string; hint?: ReactNode; children: ReactNode }) {
+function Section({ title, hint, action, children }: { title: string; hint?: ReactNode; action?: ReactNode; children: ReactNode }) {
   return (
     <section className="host-editor__section">
-      <div className="host-editor__section-head">
+      <div className={cx('host-editor__section-head', action ? 'host-editor__section-head--action' : undefined)}>
         <h3>{title}</h3>
+        {action}
         {hint ? <p>{hint}</p> : null}
       </div>
       {children}
@@ -86,11 +87,6 @@ function ConnectionStatus({
         {loadState.status === 'error' && actions.onRetrySsh ? (
           <Button size="sm" variant="ghost" onClick={() => void actions.onRetrySsh?.()}>
             重试加载
-          </Button>
-        ) : null}
-        {testState.status === 'error' ? (
-          <Button size="sm" variant="ghost" onClick={() => void actions.onProbeSsh()}>
-            重试测试
           </Button>
         ) : null}
       </div>
@@ -127,10 +123,10 @@ function BasicPanel({
 
   return (
     <div className="host-editor__panel-grid">
-      <Section title="基本资料">
+      <div className="host-editor__basic">
         <div className="host-editor__grid host-editor__grid--two">
-          <Field label="显示名称" htmlFor="host-editor-name" error={errors?.name}>
-            <Input ref={nameRef} id="host-editor-name" value={value.name} onChange={(event) => change('name', event.currentTarget.value)} placeholder="应用服务 01" />
+          <Field label="显示名称" htmlFor="host-editor-name" error={errors?.name} required>
+            <Input ref={nameRef} id="host-editor-name" name="machine-display-name" autoComplete="off" value={value.name} required onChange={(event) => change('name', event.currentTarget.value)} placeholder="应用服务 01" />
           </Field>
           <Field label="分组" htmlFor="host-editor-group" error={errors?.groupChoice}>
             <Combobox
@@ -152,12 +148,24 @@ function BasicPanel({
             />
           </Field>
           {value.groupChoice === '__new' ? (
-            <Field label="新分组名称" htmlFor="host-editor-group-name" error={errors?.group}>
-              <Input id="host-editor-group-name" value={value.group} onChange={(event) => change('group', event.currentTarget.value)} autoFocus />
+            <Field label="新分组名称" htmlFor="host-editor-group-name" error={errors?.group} required>
+              <Input id="host-editor-group-name" name="machine-group-name" autoComplete="off" value={value.group} required onChange={(event) => change('group', event.currentTarget.value)} autoFocus />
             </Field>
           ) : null}
-          <Field label="到期时间（可选）" htmlFor="host-editor-expires-local" error={errors?.expiresLocal}>
-            <Input id="host-editor-expires-local" type="datetime-local" value={value.expiresLocal} onChange={(event) => change('expiresLocal', event.currentTarget.value)} />
+          <Field label="到期时间" htmlFor="host-editor-expires-local" error={errors?.expiresLocal}>
+            <Input
+              id="host-editor-expires-local"
+              type="datetime-local"
+              value={value.expiresLocal}
+              onChange={(event) => change('expiresLocal', event.currentTarget.value)}
+              onClick={(event) => {
+                try {
+                  event.currentTarget.showPicker?.();
+                } catch {
+                  // Some browsers restrict programmatic pickers; keep native editing available.
+                }
+              }}
+            />
           </Field>
         </div>
         <Checkbox
@@ -170,7 +178,7 @@ function BasicPanel({
           aria-describedby="host-editor-read-only-hint"
         />
         <p id="host-editor-read-only-hint" className="host-editor__hint">启用后不会执行远程写入命令。</p>
-      </Section>
+      </div>
 
     </div>
   );
@@ -191,16 +199,17 @@ function EndpointFields({
 }) {
   return (
     <div className="host-editor__grid host-editor__grid--two">
-      <Field label="主机地址" htmlFor="host-editor-hostname" error={errors?.sshHostname}>
-        <Input id="host-editor-hostname" value={value.sshHostname} onChange={(event) => change('sshHostname', event.currentTarget.value)} placeholder="192.168.1.100" />
+      <Field label="主机地址" htmlFor="host-editor-hostname" error={errors?.sshHostname} required>
+        <Input id="host-editor-hostname" value={value.sshHostname} required onChange={(event) => change('sshHostname', event.currentTarget.value)} placeholder="192.168.1.100" />
       </Field>
-      <Field label="登录用户" htmlFor="host-editor-user" error={errors?.sshUser}>
-        <Input id="host-editor-user" value={value.sshUser} onChange={(event) => change('sshUser', event.currentTarget.value)} autoComplete="username" placeholder="root 或 ubuntu" />
+      <Field label="登录用户" htmlFor="host-editor-user" error={errors?.sshUser} required>
+        <Input id="host-editor-user" value={value.sshUser} required onChange={(event) => change('sshUser', event.currentTarget.value)} autoComplete="off" placeholder="root 或 ubuntu" />
       </Field>
-      <Field label="SSH 端口" htmlFor="host-editor-port" error={errors?.sshPort}>
+      <Field label="SSH 端口" htmlFor="host-editor-port" error={errors?.sshPort} required>
         <Input
           id="host-editor-port"
           value={value.sshPort}
+          required
           inputMode="numeric"
           pattern="[0-9]*"
           maxLength={5}
@@ -234,7 +243,7 @@ function SshPanel({ value, errors, actions, change, usesJumpHost, onJumpHostChan
       <Section title="目标主机">
         <EndpointFields value={value} errors={errors} change={change} usesJumpHost={usesJumpHost} onJumpHostChange={onJumpHostChange} />
       </Section>
-      <Section title="认证方式" hint="凭证只由上层受控状态管理，本组件不会记录或打印密钥。">
+      <Section title="认证方式" action={
         <div className="host-editor__auth-switch" role="radiogroup" aria-label="认证方式">
           {(['key', 'password'] as const).map((method: HostAuthMethod) => (
             <button
@@ -249,9 +258,10 @@ function SshPanel({ value, errors, actions, change, usesJumpHost, onJumpHostChan
             </button>
           ))}
         </div>
+      }>
         {value.sshAuth === 'password' ? (
           <Field label="登录密码" htmlFor="host-editor-password" error={errors?.sshPassword}>
-            <Input id="host-editor-password" type="password" value={value.sshPassword} onChange={(event) => change('sshPassword', event.currentTarget.value)} autoComplete="new-password" placeholder="留空保留已保存密码" />
+            <Input id="host-editor-password" type="password" value={value.sshPassword} onChange={(event) => change('sshPassword', event.currentTarget.value)} autoComplete="off" placeholder="留空保留已保存密码" />
           </Field>
         ) : (
           <Field label="私钥路径" htmlFor="host-editor-private-key" error={errors?.sshIdentity}>
@@ -269,12 +279,14 @@ function SshPanel({ value, errors, actions, change, usesJumpHost, onJumpHostChan
 function BastionPanel({ value, errors, change }: { value: HostEditorValue; errors: HostEditorProps['errors']; change: HostEditorActions['onChange'] }) {
   return (
     <Section title="堡垒机连接" hint="机器 Alias 作为目标参数；连接时只发送一次所选指令。">
-        <Field label="脚本路径或内容" htmlFor="host-editor-relay-script" error={errors?.relayScript}>
-          <Input id="host-editor-relay-script" value={value.relayScript} onChange={(event) => change('relayScript', event.currentTarget.value)} placeholder="/Users/you/.ssh/relay.sh" />
+      <div className="host-editor__bastion-fields">
+        <Field label="脚本路径或内容" htmlFor="host-editor-relay-script" error={errors?.relayScript} required>
+          <Input id="host-editor-relay-script" value={value.relayScript} required onChange={(event) => change('relayScript', event.currentTarget.value)} placeholder="/Users/you/.ssh/relay.sh" />
         </Field>
         <Field label="目标连接指令" htmlFor="host-editor-command" error={errors?.relayCommand}>
           <Select
             id="host-editor-command"
+            className="host-editor__bastion-command"
             value={value.relayCommand}
             options={[
               { value: 'n', label: 'n · 私有云' },
@@ -287,12 +299,12 @@ function BastionPanel({ value, errors, change }: { value: HostEditorValue; error
             onChange={(next) => change('relayCommand', next)}
           />
         </Field>
+      </div>
     </Section>
   );
 }
 
 function ConnectionPanel({ value, errors, actions, loadState, testState, change }: { value: HostEditorValue; errors: HostEditorProps['errors']; actions: HostEditorActions; loadState: HostEditorAsyncState; testState: HostEditorAsyncState; change: HostEditorActions['onChange'] }) {
-  const testing = testState.status === 'loading';
   const isSsh = value.connectionType === 'ssh';
   const [usesJumpHost, setUsesJumpHost] = useState(Boolean(value.sshJump.trim()));
 
@@ -311,39 +323,41 @@ function ConnectionPanel({ value, errors, actions, loadState, testState, change 
 
   return (
     <div className="host-editor__panel-grid">
-      <Section title="连接方式">
-        <div className="host-editor__grid host-editor__grid--two">
-          <Field label="连接类型" htmlFor="host-editor-connection-type" error={errors?.connectionType}>
-            <Select
-              id="host-editor-connection-type"
-              value={value.connectionType}
-              options={[
-                { value: 'ssh', label: '普通 SSH' },
-                { value: 'bastion', label: '堡垒机交互会话' },
-              ]}
-              onChange={(next) => change('connectionType', next as HostConnectionType)}
-            />
-          </Field>
-          {!isSsh ? <Field label="堡垒机目标" htmlFor="host-editor-alias" error={errors?.alias}>
-            <Input id="host-editor-alias" value={value.alias} onChange={(event) => change('alias', event.currentTarget.value)} placeholder="prod-app-01" />
-          </Field> : null}
+      <section className="host-editor__section host-editor__section--connection">
+        <div className="host-editor__section-head host-editor__section-head--control">
+          <h3>连接方式</h3>
+          <Select
+            id="host-editor-connection-type"
+            className="host-editor__connection-select"
+            ariaLabel="连接方式"
+            ariaDescribedBy={errors?.connectionType ? 'host-editor-connection-type-error' : undefined}
+            value={value.connectionType}
+            options={[
+              { value: 'ssh', label: '普通 SSH' },
+              { value: 'bastion', label: '堡垒机交互会话' },
+            ]}
+            onChange={(next) => change('connectionType', next as HostConnectionType)}
+          />
         </div>
-      </Section>
+        {errors?.connectionType ? <p id="host-editor-connection-type-error" className="host-editor__connection-error" role="alert">{errors.connectionType}</p> : null}
+        {!isSsh ? <div className="host-editor__grid host-editor__grid--two host-editor__connection-fields">
+          <Field label="堡垒机目标" htmlFor="host-editor-alias" error={errors?.alias} required>
+            <Input id="host-editor-alias" value={value.alias} required onChange={(event) => change('alias', event.currentTarget.value)} placeholder="prod-app-01" />
+          </Field>
+        </div> : null}
+      </section>
       {isSsh ? <SshPanel value={value} errors={errors} actions={actions} change={change} usesJumpHost={usesJumpHost} onJumpHostChange={handleJumpHostChange} /> : <BastionPanel value={value} errors={errors} change={change} />}
       {isSsh ? (
         <div className="host-editor__test-bar">
           <ConnectionStatus loadState={loadState} testState={testState} actions={actions} />
-          <Button variant="secondary" disabled={testing || loadState.status === 'loading'} onClick={() => void actions.onProbeSsh()}>
-            {testing ? '测试中…' : '测试连接'}
-          </Button>
         </div>
       ) : null}
     </div>
   );
 }
 
-function MonitoringPanel({ saved, hostId, hostName, api }: { saved: boolean; hostId: string; hostName: string; api?: HostEditorProps['monitoringApi'] }) {
-  if (saved && api) return <MonitoringWorkspace hostId={hostId} hostName={hostName} api={api} />;
+function MonitoringPanel({ saved, hostId, hostName, api, footerTarget }: { saved: boolean; hostId: string; hostName: string; api?: HostEditorProps['monitoringApi']; footerTarget: HTMLElement | null }) {
+  if (saved && api) return <MonitoringWorkspace hostId={hostId} hostName={hostName} api={api} footerTarget={footerTarget} />;
   return <p className="host-editor__locked-note" role="status">{saved ? '当前环境无法配置监控，请在 FlowHub 中打开。' : '请先保存机器，才能配置监控与流量。'}</p>;
 }
 
@@ -366,6 +380,7 @@ export function HostEditor({
   className,
 }: HostEditorProps) {
   const initialFocusRef = useRef<HTMLInputElement | null>(null);
+  const [monitoringFooterTarget, setMonitoringFooterTarget] = useState<HTMLElement | null>(null);
   const change: HostEditorActions['onChange'] = (field, next) => actions.onChange(field, next);
 
   function handleOpenChange(nextOpen: boolean): void {
@@ -378,27 +393,30 @@ export function HostEditor({
       onOpenChange={handleOpenChange}
       title={<span className="host-editor__title">{title}{description ? <HelpPopover label="机器字段说明">{description}</HelpPopover> : null}</span>}
       initialFocusRef={initialFocusRef}
+      initialFocusSelection="end"
       className={cx('host-editor', className)}
       contentClassName="host-editor__shell"
       aria-label="机器编辑器"
       footer={
-        activeTab === 'monitoring' ? <Button variant="primary" onClick={actions.onClose}>完成</Button> : <>
+        activeTab === 'monitoring' ? <><div ref={setMonitoringFooterTarget} className="host-editor__monitoring-actions" /><Button variant="primary" onClick={actions.onClose}>完成</Button></> : <>
+          {activeTab === 'connection' && value.connectionType === 'ssh' ? <Button variant="secondary" disabled={testState.status === 'loading' || loadState.status === 'loading'} onClick={() => void actions.onProbeSsh()}>{testState.status === 'loading' ? '测试中…' : '测试连接'}</Button> : null}
           <Button variant="ghost" onClick={actions.onClose}>取消</Button>
           <Button variant="primary" disabled={saving || loadState.status === 'loading'} onClick={() => void actions.onSave()}>
-            {saving ? '保存中…' : '保存机器'}
+            {saving ? '保存中…' : '保存'}
           </Button>
         </>
       }
     >
       <div className="host-editor__body">
         <Tabs value={activeTab} onValueChange={(next) => actions.onTabChange(next as HostEditorTab)}>
-          <Tabs.List aria-label="机器编辑器分区" className="host-editor__tabs-list">
-            {(Object.keys(TAB_LABELS) as HostEditorTab[]).map((tab) => (
-              <Tabs.Trigger key={tab} value={tab} className="host-editor__tab-trigger">
-                {TAB_LABELS[tab]}
-              </Tabs.Trigger>
-            ))}
-          </Tabs.List>
+          <div className="host-editor__tabs-bar">
+            <Tabs.List aria-label="机器编辑器分区" className="host-editor__tabs-list">
+              {(Object.keys(TAB_LABELS) as HostEditorTab[]).map((tab) =>
+                <Tabs.Trigger key={tab} value={tab} className="host-editor__tab-trigger">{TAB_LABELS[tab]}</Tabs.Trigger>
+              )}
+            </Tabs.List>
+            <HelpPopover className="host-editor__tab-help" label="监控与流量说明">每台机器配置一个 Netdata Agent，历史保留在 Agent 上。旧版未归属节点可手动关联；云流量配置独立保存在当前机器下。</HelpPopover>
+          </div>
           <Tabs.Panel value="basic" className="host-editor__tab-panel">
             <BasicPanel value={value} groups={groups} countryOptions={countryOptions} errors={errors} change={change} nameRef={initialFocusRef} />
           </Tabs.Panel>
@@ -406,7 +424,7 @@ export function HostEditor({
             <ConnectionPanel value={value} errors={errors} actions={actions} loadState={loadState} testState={testState} change={change} />
           </Tabs.Panel>
           <Tabs.Panel value="monitoring" className="host-editor__tab-panel">
-            <MonitoringPanel saved={saved} hostId={value.id ?? ''} hostName={value.name || value.alias} api={monitoringApi} />
+            <MonitoringPanel saved={saved} hostId={value.id ?? ''} hostName={value.name || value.alias} api={monitoringApi} footerTarget={monitoringFooterTarget} />
           </Tabs.Panel>
         </Tabs>
         {loadState.status === 'loading' ? <span className="host-editor__sr-status" role="status" aria-live="polite">正在加载机器配置</span> : null}

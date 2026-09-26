@@ -4,12 +4,20 @@ use serde_json::{json, Value};
 use std::time::Duration;
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all="camelCase")]
-pub(crate) struct Instance { pub id:String, pub name:String, pub url:String, #[serde(default)] pub network_chart:String }
+pub(crate) struct Instance { pub id:String, pub name:String, pub url:String, #[serde(default)] pub network_chart:String, #[serde(default)] pub host_id:Option<String> }
 impl Instance {
     pub fn validate(&self)->Result<(),String>{
-        if self.id.is_empty()||self.id.len()>64||!self.id.bytes().all(|b|b.is_ascii_alphanumeric()||b==b'-')||self.name.trim().is_empty()||self.name.len()>120||self.network_chart.len()>256{return Err("节点名称或 ID 无效".into());}
+        if self.id.is_empty()||self.id.len()>64||!self.id.bytes().all(|b|b.is_ascii_alphanumeric()||b==b'-')||self.name.trim().is_empty()||self.name.len()>120||self.network_chart.len()>256||self.host_id.as_deref().is_some_and(str::is_empty){return Err("节点名称、机器或 ID 无效".into());}
         endpoint(&self.url,"api/v1/info").map(|_|())
     }
+}
+#[cfg(test)]
+#[test]
+fn legacy_instance_has_no_machine_until_claimed() {
+    let legacy:Instance=serde_json::from_value(json!({"id":"legacy","name":"Legacy","url":"http://127.0.0.1:19999","networkChart":"system.net"})).unwrap();
+    assert_eq!(legacy.host_id,None);
+    let associated=Instance{host_id:Some("machine-1".into()),..legacy};
+    assert_eq!(serde_json::to_value(associated).unwrap()["hostId"],"machine-1");
 }
 fn endpoint(raw:&str,path:&str)->Result<url::Url,String>{
     let mut base=url::Url::parse(raw).map_err(|_|"请输入完整的 Netdata Agent 地址")?;
@@ -249,7 +257,7 @@ pub(crate) fn is_install(script:&str)->bool{script.starts_with("set -eu\n# FlowH
     let listener=tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();let address=listener.local_addr().unwrap();
     let server=tokio::spawn(async move{for step in 0..2 {let (mut stream,_)=listener.accept().await.unwrap();let mut request=[0u8;4096];let count=stream.read(&mut request).await.unwrap();let req=String::from_utf8_lossy(&request[..count]);if step==0{assert!(req.contains("/api/v1/allmetrics?format=json"));}else{assert!(req.contains("chart=system.cpu"));assert!(req.contains("after=-86400"));}
       let body=if step==0{json!({"system.cpu":{"last_updated":chrono::Utc::now().timestamp(),"dimensions":{"user":{"value":25.}}}})}else{json!({"labels":["time","user"],"data":[[1700000000,25.]]})}.to_string();stream.write_all(format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",body.len(),body).as_bytes()).await.unwrap();}});
-    let instance=Instance{id:"test".into(),name:"Test".into(),url:format!("http://{address}"),network_chart:String::new()};assert_eq!(fetch(&instance).await.unwrap()["rows"][0]["values"]["cpu"],25.);assert_eq!(history(&instance,"system.cpu",86400).await.unwrap()["data"][0][1],25.);server.await.unwrap();
+    let instance=Instance{id:"test".into(),name:"Test".into(),url:format!("http://{address}"),network_chart:String::new(),host_id:None};assert_eq!(fetch(&instance).await.unwrap()["rows"][0]["values"]["cpu"],25.);assert_eq!(history(&instance,"system.cpu",86400).await.unwrap()["data"][0][1],25.);server.await.unwrap();
  }
  #[test]fn validate_urls_and_install_arguments(){assert!(endpoint("file:///tmp/a","api/v1/info").is_err());assert!(endpoint("https://u:p@host","api/v1/info").is_err());assert_eq!(endpoint("https://host/netdata/","api/v1/info").unwrap().path(),"/netdata/api/v1/info");assert!(install_script(19999,"0.0.0.0;id",7,1024).is_err());assert!(install_script(22,"127.0.0.1",7,1024).is_err());}
  #[test]fn install_script_retries_the_readiness_probe_instead_of_failing_once(){
@@ -369,5 +377,5 @@ pub(crate) fn is_install(script:&str)->bool{script.starts_with("set -eu\n# FlowH
   assert!(local.contains("bind to = 127.0.0.1"));
   assert!(!local.contains("SSH 转发"));
  }
- #[test]fn normalize_real_units_and_missing_data(){let i=Instance{id:"test".into(),name:"Test".into(),url:"http://host:19999".into(),network_chart:String::new()};let all=json!({"system.cpu":{"last_updated":chrono::Utc::now().timestamp(),"dimensions":{"user":{"value":12.},"system":{"value":3.},"idle":{"value":85.}}},"system.ram":{"dimensions":{"used":{"value":20.},"free":{"value":80.}}},"system.net":{"dimensions":{"received":{"value":800.},"sent":{"value":-160.}}}});let out=normalize(&i,&all).unwrap();assert_eq!(out["rows"][0]["values"]["cpu"],15.);assert_eq!(out["rows"][0]["values"]["memory"],20.);assert_eq!(out["rows"][0]["values"]["rx"],100.);assert_eq!(out["rows"][0]["values"]["tx"],20.);assert!(out["rows"][0]["values"]["disk"].is_null());}
+ #[test]fn normalize_real_units_and_missing_data(){let i=Instance{id:"test".into(),name:"Test".into(),url:"http://host:19999".into(),network_chart:String::new(),host_id:None};let all=json!({"system.cpu":{"last_updated":chrono::Utc::now().timestamp(),"dimensions":{"user":{"value":12.},"system":{"value":3.},"idle":{"value":85.}}},"system.ram":{"dimensions":{"used":{"value":20.},"free":{"value":80.}}},"system.net":{"dimensions":{"received":{"value":800.},"sent":{"value":-160.}}}});let out=normalize(&i,&all).unwrap();assert_eq!(out["rows"][0]["values"]["cpu"],15.);assert_eq!(out["rows"][0]["values"]["memory"],20.);assert_eq!(out["rows"][0]["values"]["rx"],100.);assert_eq!(out["rows"][0]["values"]["tx"],20.);assert!(out["rows"][0]["values"]["disk"].is_null());}
 }

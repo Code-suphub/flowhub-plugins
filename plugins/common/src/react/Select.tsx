@@ -1,6 +1,7 @@
 import {
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -83,6 +84,8 @@ export function Select({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLUListElement>(null);
   const [open, setOpen] = useState(false);
+  const [placement, setPlacement] = useState<"above" | "below">("below");
+  const [menuMaxHeight, setMenuMaxHeight] = useState(256);
   const selectedIndex = options.findIndex((option) => option.value === value);
   const [activeIndex, setActiveIndex] = useState(
     selectedIndex >= 0 ? selectedIndex : firstEnabledIndex(options),
@@ -99,8 +102,56 @@ export function Select({
   );
 
   useEffect(() => {
-    if (open) window.requestAnimationFrame(() => menuRef.current?.focus());
+    if (!open) return;
+    const frame = window.requestAnimationFrame(() => menuRef.current?.focus({ preventScroll: true }));
+    return () => window.cancelAnimationFrame(frame);
   }, [open]);
+
+  useLayoutEffect(() => {
+    if (!open || !shellRef.current || !menuRef.current) return;
+
+    function measure(): void {
+      const shell = shellRef.current;
+      const menu = menuRef.current;
+      if (!shell || !menu) return;
+
+      let top = 0;
+      let bottom = window.innerHeight;
+      for (let parent = shell.parentElement; parent; parent = parent.parentElement) {
+        if (!/(auto|scroll|hidden|clip)/.test(getComputedStyle(parent).overflowY)) continue;
+        const bounds = parent.getBoundingClientRect();
+        top = Math.max(top, bounds.top);
+        bottom = Math.min(bottom, bounds.bottom);
+      }
+
+      const trigger = shell.getBoundingClientRect();
+      const desiredHeight = Math.min(256, menu.scrollHeight);
+      const spaceAbove = Math.max(0, trigger.top - top - 14);
+      const spaceBelow = Math.max(0, bottom - trigger.bottom - 14);
+      const nextPlacement = spaceBelow < desiredHeight && spaceAbove > spaceBelow ? "above" : "below";
+      setPlacement(nextPlacement);
+      setMenuMaxHeight(Math.min(desiredHeight, nextPlacement === "above" ? spaceAbove : spaceBelow));
+    }
+
+    measure();
+    window.addEventListener("resize", measure);
+    window.addEventListener("scroll", measure, true);
+    return () => {
+      window.removeEventListener("resize", measure);
+      window.removeEventListener("scroll", measure, true);
+    };
+  }, [open, options.length]);
+
+  useLayoutEffect(() => {
+    if (!open || !menuRef.current || !activeOptionId) return;
+    const menu = menuRef.current;
+    const option = document.getElementById(activeOptionId);
+    if (!option) return;
+    const bounds = menu.getBoundingClientRect();
+    const item = option.getBoundingClientRect();
+    if (item.top < bounds.top) menu.scrollTop -= bounds.top - item.top;
+    else if (item.bottom > bounds.bottom) menu.scrollTop += item.bottom - bounds.bottom;
+  }, [activeOptionId, menuMaxHeight, open, placement]);
 
   useEffect(() => {
     if (!open) return;
@@ -227,8 +278,10 @@ export function Select({
           tabIndex={-1}
           aria-label={resolvedAriaLabel ?? "可选项"}
           aria-activedescendant={activeOptionId}
+          style={{ maxHeight: menuMaxHeight }}
           className={cx(
-            "fh-select__menu absolute z-50 mt-1.5 max-h-64 w-full overflow-y-auto rounded-[10px] border border-[var(--fh-border,#355442)] bg-[var(--fh-canvas,#0b1711)] p-1.5 text-sm text-[var(--fh-text,#dce9e0)] shadow-[0_18px_50px_rgba(0,0,0,0.42)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--fh-accent,#b9f2ca)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--fh-canvas,#09130e)]",
+            "fh-select__menu absolute z-50 w-full overflow-y-auto rounded-[10px] border border-[var(--fh-border,#355442)] bg-[var(--fh-canvas,#0b1711)] p-1.5 text-sm text-[var(--fh-text,#dce9e0)] shadow-[0_18px_50px_rgba(0,0,0,0.42)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--fh-accent,#b9f2ca)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--fh-canvas,#09130e)]",
+            placement === "above" ? "bottom-full mb-1.5" : "top-full mt-1.5",
             menuClassName,
           )}
           onKeyDown={handleMenuKeyDown}

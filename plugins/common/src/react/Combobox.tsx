@@ -1,6 +1,7 @@
 import {
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -79,7 +80,10 @@ function ComboboxControl({
   const listboxId = `${comboboxId}-listbox`;
   const shellRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
+  const [menuPlacement, setMenuPlacement] = useState<"above" | "below">("below");
+  const [menuMaxHeight, setMenuMaxHeight] = useState(256);
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
   const selectedOption = options.find((option) => option.value === value);
@@ -117,9 +121,32 @@ function ComboboxControl({
     setActiveIndex(filteredOptions.findIndex((option) => !option.disabled));
   }, [filteredOptions]);
 
+  useLayoutEffect(() => {
+    if (!open || !shellRef.current) return;
+    const shell = shellRef.current;
+    let scrollParent = shell.parentElement;
+    while (scrollParent && !/(auto|scroll)/.test(getComputedStyle(scrollParent).overflowY)) scrollParent = scrollParent.parentElement;
+    const boundary = scrollParent?.getBoundingClientRect();
+    const trigger = shell.getBoundingClientRect();
+    const top = Math.max(0, boundary?.top ?? 0) + 8;
+    const bottom = Math.min(window.innerHeight, boundary?.bottom ?? window.innerHeight) - 8;
+    const above = Math.max(0, trigger.top - top - 6);
+    const below = Math.max(0, bottom - trigger.bottom - 6);
+    const placement = below < 256 && above > below ? "above" : "below";
+    setMenuPlacement(placement);
+    setMenuMaxHeight(Math.min(256, placement === "above" ? above : below));
+  }, [open]);
+
   useEffect(() => {
-    if (activeOptionId) document.getElementById(activeOptionId)?.scrollIntoView({ block: 'nearest' });
-  }, [activeOptionId]);
+    if (!activeOptionId || !menuRef.current) return;
+    const option = document.getElementById(activeOptionId);
+    if (!option) return;
+    const menu = menuRef.current;
+    const item = option.getBoundingClientRect();
+    const viewport = menu.getBoundingClientRect();
+    if (item.top < viewport.top) menu.scrollTop -= viewport.top - item.top;
+    else if (item.bottom > viewport.bottom) menu.scrollTop += item.bottom - viewport.bottom;
+  }, [activeOptionId, menuMaxHeight, menuPlacement]);
 
   function openMenu(): void {
     if (disabled || !options.length) return;
@@ -232,7 +259,7 @@ function ComboboxControl({
       </div>
 
       {open && !disabled ? (
-        <div className={cx("fh-combobox__menu absolute z-50 mt-1.5 max-h-64 w-full overflow-y-auto rounded-[10px] border border-[var(--fh-border,#355442)] bg-[var(--fh-canvas,#0b1711)] p-1.5 text-sm text-[var(--fh-text,#dce9e0)] shadow-[0_18px_50px_rgba(0,0,0,0.42)]", menuClassName)}>
+        <div ref={menuRef} style={{ maxHeight: menuMaxHeight }} className={cx("fh-combobox__menu absolute z-50 w-full overflow-y-auto rounded-[10px] border border-[var(--fh-border,#355442)] bg-[var(--fh-canvas,#0b1711)] p-1.5 text-sm text-[var(--fh-text,#dce9e0)] shadow-[0_18px_50px_rgba(0,0,0,0.42)]", menuPlacement === "above" ? "bottom-full mb-1.5" : "top-full mt-1.5", menuClassName)}>
         {multipleValue ? <div className="flex items-center justify-between gap-2 px-2 py-1">
           <Button size="sm" variant="ghost" disabled={disabled || !filteredOptions.some(option => !isDisabled(option) && !isSelected(option))} onMouseDown={event => event.preventDefault()} onClick={() => onMultipleChange?.([...new Set([...multipleValue, ...filteredOptions.filter(option => !option.disabled).map(option => option.value)])].slice(0, maxSelected))}>选择筛选结果</Button>
           <Button size="sm" variant="ghost" disabled={disabled || !multipleValue.length} onMouseDown={event => event.preventDefault()} onClick={() => onMultipleChange?.([])}>清空</Button>

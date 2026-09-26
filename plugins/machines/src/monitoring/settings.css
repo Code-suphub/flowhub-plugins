@@ -1,13 +1,12 @@
 dialog.monitor-settings { width: min(720px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); }
 .monitor-settings__shell { max-height: calc(100dvh - 24px); grid-template-rows: auto minmax(0, 1fr); }
 .monitor-settings__form { display: grid; gap: 16px; padding-top: 16px; }
-.monitor-settings__retention { display: flex; align-items: end; gap: 10px; }
+.monitor-settings__retention { display: grid; gap: 8px; }
+.monitor-settings__retention-label { display: flex; align-items: center; gap: 4px; }
 .monitor-settings__retention .fh-input { max-width: 110px; }
-.monitor-settings__heading { display: flex; align-items: center; gap: 10px; }
-.monitor-settings__heading h3 { margin: 0; font-size: 14px; }
-.monitor-settings__source { display: grid; gap: 10px; border-top: 1px solid var(--fh-border,#294336); padding-top: 14px; }
-.monitor-settings__source > button { justify-self: end; }
-.monitor-settings__fields { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 12px; }
+.monitor-settings__monitoring { display: flex; align-items: center; gap: 6px; }
+.monitor-settings__form > .fh-field:has(#monitor-interval) { max-width: 220px; }
+.monitor-settings__intro { margin: 0; color: var(--fh-muted,#91a99a); font-size: 13px; }
 .monitor-settings__actions { display: flex; justify-content: end; }
 .monitor-settings__queries { display: flex; flex-wrap: wrap; gap: 10px; }
 .monitor-settings__queries > * { flex: 1 1 160px; min-width: 0; }
@@ -15,7 +14,3 @@ dialog.monitor-settings { width: min(720px, calc(100vw - 24px)); max-height: cal
 .monitor-settings__status[data-error="true"] { color: var(--fh-danger,#ff9fa8); }
 .monitor-settings__warning { color: var(--fh-danger,#e7bb73); font-size: 13px; }
 .monitor-settings__chart { margin: 0; }
-.monitor-settings__chart svg { display: block; width: 100%; background: var(--fh-canvas,#07100b); border-radius: 6px; }
-.monitor-settings__chart text { fill: var(--fh-muted,#91a99a); font-size: 12px; }
-.monitor-settings__chart figcaption { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; color: var(--fh-muted,#91a99a); font-size: 11px; padding-top: 8px; }
-@media (max-width: 480px) { .monitor-settings__fields { grid-template-columns: minmax(0, 1fr); } }

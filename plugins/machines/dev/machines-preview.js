@@ -4,14 +4,31 @@
   const banner = document.createElement('section');
   banner.className = 'panel';
   banner.setAttribute('aria-label', '插件开发预览');
-  banner.innerHTML = '<strong>插件开发预览 · 全部为模拟数据</strong><p>不读取本机 SSH 配置，不连接机器、不执行命令。修改页面自动刷新；刷新后恢复初始数据。后台监控仅生成一次模拟快照。</p><div class="actions"><label>模拟结果 <select id="previewOutcome"><option value="success">成功</option><option value="failed">失败</option><option value="timeout">超时</option></select></label><label><input id="previewNetdataExisting" type="checkbox"> Netdata 模拟为「已有安装」</label><button id="previewReset" type="button">重置预览数据</button></div>';
+  banner.innerHTML = `
+    <div class="preview-banner__identity">
+      <strong>开发预览 · 全部为模拟数据</strong>
+      <span>不读取 SSH 配置，不连接机器或执行命令</span>
+    </div>
+    <div class="preview-banner__controls">
+      <label class="preview-banner__outcome">模拟结果
+        <select id="previewOutcome"><option value="success">成功</option><option value="failed">失败</option><option value="timeout">超时</option></select>
+      </label>
+      <details class="preview-banner__options">
+        <summary>预览选项</summary>
+        <div class="preview-banner__menu">
+          <p>修改页面后自动刷新；刷新后恢复初始数据。后台监控仅生成一次模拟快照。</p>
+          <label><input id="previewNetdataExisting" type="checkbox"> Netdata 模拟为「已有安装」</label>
+          <div class="actions"><button id="previewReset" type="button">重置预览数据</button></div>
+        </div>
+      </details>
+    </div>`;
   document.body.prepend(banner);
   document.querySelector('#previewReset').onclick = () => window.location.reload();
   const clone = value => structuredClone(value);
   const profiles = new Map();
   const state = {
     config: { enabled: true, monitoring: false, interval: 60, connectionIdleSeconds: 28800, netdata: [
-      { id: 'netdata-demo', name: '演示 Netdata 节点', url: 'http://127.0.0.1:19999', networkChart: 'system.net' },
+      { id: 'netdata-demo', name: '演示 Netdata 节点', url: 'http://127.0.0.1:19999', networkChart: 'system.net', hostId: 'demo-app' },
     ], installed: {
       version: 'dev', capabilities: ['ssh:collect', 'ssh:execute', 'ssh:configure', 'ssh:terminal'],
       templates: [{ name: '系统概况（模拟）', command: 'uname -a; uptime; df -h /' }],
@@ -23,7 +40,7 @@
   const pending = new Map();
   const archive = [];
   const historyDemo = document.createElement('button'); historyDemo.type = 'button'; historyDemo.textContent = '生成分页示例';
-  banner.querySelector('.actions').append(historyDemo);
+  banner.querySelector('.preview-banner__menu .actions').append(historyDemo);
   historyDemo.onclick = () => {
     for (let i = 0; i < 65; i++) archive.push({ id: crypto.randomUUID(), hostId: i % 2 ? 'demo-app' : 'demo-db', alias: i % 2 ? 'demo-app' : 'demo-db', kind: 'command', command: 'uptime', startedAt: Date.now() - i * 60000, finishedAt: Date.now() - i * 60000 + 100, status: i % 3 ? 'success' : 'failed', exitCode: i % 3 ? 0 : 1, stdout: '【分页示例，未执行命令】', stderr: '' });
   };
@@ -97,11 +114,12 @@
       return clone(sessions.get(host.id) || { connected: false, output: '会话未连接。' });
     }
     switch (action) {
-      case 'monitorSettings': state.config.retentionDays=payload.days;state.config.exporters=clone(payload.exporters);return clone(state);
+      case 'monitorSettings': state.config.retentionDays=payload.days;state.config.interval=payload.interval;state.config.monitoring=payload.enabled;return clone(state);
+      case 'exporterConfigSave': state.config.exporters=state.config.exporters||{};if(payload.url)state.config.exporters[payload.hostId]={url:payload.url,device:payload.device||''};else delete state.config.exporters[payload.hostId];return clone(state);
       case 'exporterTest':return {...metric(),rx:12,tx:3};
       case 'metricHistory':return {unit:payload.metric==='rx'||payload.metric==='tx'?'KB/s':'%',data:Array.from({length:60},(_,i)=>[Math.floor(Date.now()/1000)-(60-i)*60,i>20&&i<30?null:40+Math.sin(i/5)*15])};
       case 'netdataTest': return {rows:[],charts:[{id:'system.cpu',units:'%'},{id:'system.ram',units:'MiB'},{id:'system.net',units:'kilobits/s'},{id:'net.eth0',units:'kilobits/s'}]};
-      case 'netdataSave': state.config.netdata=(state.config.netdata||[]).filter(i=>i.id!==payload.id).concat(clone(payload));return clone(state);
+      case 'netdataSave': { const existing=state.config.netdata.find(i=>i.id===payload.id);if(!existing||existing.hostId!==payload.hostId){if(state.config.netdata.some(i=>i.hostId===payload.hostId))throw Error('当前机器已有 Netdata Agent，请编辑或先移除现有配置');}state.config.netdata=(state.config.netdata||[]).filter(i=>i.id!==payload.id).concat(clone(payload));return clone(state); }
       case 'netdataRemove': state.config.netdata=(state.config.netdata||[]).filter(i=>i.id!==payload.id);return clone(state);
       case 'netdataHistory': return {labels:['time','模拟指标'],data:Array.from({length:60},(_,i)=>[Math.floor(Date.now()/1000)-i*60,40+Math.sin(i/5)*15])};
       case 'trafficRead': return clone(state.traffic?.[payload.hostId] || { configured: false });

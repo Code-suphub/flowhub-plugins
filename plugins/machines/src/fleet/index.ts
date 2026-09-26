@@ -12,7 +12,6 @@ export {
   type FleetMetricResultStatus,
   type FleetMetricStatus,
   type FleetMetricValues,
-  type FleetMonitoringChange,
   type FleetPageProps,
   type FleetSnapshot,
 } from './types';

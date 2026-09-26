@@ -474,9 +474,37 @@ fn status_summary(snapshot: &Value, now: i64) -> Value {
 mod status_tests {
     use super::*;
     #[test]
+    fn one_netdata_agent_per_machine_preserves_existing_duplicates(){
+        let mut config=Config::default();
+        config.hosts.push(Host{id:"machine-1".into(),alias:"machine-1".into(),name:"Machine".into(),group:String::new(),country_code:String::new(),expires_at:None,read_only:false,bastion:None});
+        let first=crate::monitoring::netdata::Instance{id:"first".into(),name:"First".into(),url:"http://127.0.0.1:19999".into(),network_chart:"system.net".into(),host_id:Some("machine-1".into())};
+        upsert_netdata(&mut config,first.clone()).unwrap();
+        upsert_netdata(&mut config,crate::monitoring::netdata::Instance{name:"Updated".into(),..first.clone()}).unwrap();
+        assert_eq!(config.netdata[0].name,"Updated");
+        let second=crate::monitoring::netdata::Instance{id:"second".into(),..first.clone()};
+        assert!(upsert_netdata(&mut config,second.clone()).is_err());
+        config.netdata.push(second.clone()); // 旧版已经存在的重复配置仍可编辑，不自动删除。
+        upsert_netdata(&mut config,crate::monitoring::netdata::Instance{name:"Legacy".into(),..second}).unwrap();
+        assert_eq!(config.netdata.len(),2);
+        assert_eq!(config.netdata[1].name,"Legacy");
+    }
+    #[test]
+    fn exporter_source_changes_only_the_selected_machine(){
+        let mut config=Config::default();
+        for id in ["one","two"]{config.hosts.push(Host{id:id.into(),alias:id.into(),name:id.into(),group:String::new(),country_code:String::new(),expires_at:None,read_only:false,bastion:None});}
+        let first=crate::monitoring::exporter::Endpoint{url:"http://127.0.0.1:9100/metrics".into(),device:String::new()};
+        let second=crate::monitoring::exporter::Endpoint{url:"http://127.0.0.2:9100/metrics".into(),device:"eth0".into()};
+        set_exporter(&mut config,"one",Some(first)).unwrap();
+        set_exporter(&mut config,"two",Some(second.clone())).unwrap();
+        set_exporter(&mut config,"one",None).unwrap();
+        assert!(!config.exporters.contains_key("one"));
+        assert_eq!(config.exporters.get("two").unwrap().url,second.url);
+        assert!(set_exporter(&mut config,"missing",Some(second)).is_err());
+    }
+    #[test]
     fn netdata_configuration_survives_restart(){
         let root=std::env::temp_dir().join(format!("fh-netdata-{}",chrono::Utc::now().timestamp_nanos_opt().unwrap()));let runtime=Runtime::new(root.clone()).unwrap();
-        runtime.save(|c|{c.netdata.push(crate::monitoring::netdata::Instance{id:"node".into(),name:"Node".into(),url:"http://127.0.0.1:19999".into(),network_chart:"net.eth0".into()});Ok(())}).unwrap();
+        runtime.save(|c|{c.netdata.push(crate::monitoring::netdata::Instance{id:"node".into(),name:"Node".into(),url:"http://127.0.0.1:19999".into(),network_chart:"net.eth0".into(),host_id:None});Ok(())}).unwrap();
         let restored=Runtime::new(root.clone()).unwrap();assert_eq!(restored.config.lock().unwrap().netdata[0].network_chart,"net.eth0");drop(restored);drop(runtime);std::fs::remove_dir_all(root).unwrap();
     }
     #[test]
@@ -634,6 +662,29 @@ pub(crate) fn widget_settings(app:Context,p:Value,save:bool)->Result<Value,Strin
     let config=app.runtime.config.lock().unwrap();let h=config.hosts.iter().find(|h|h.id==id).ok_or("此监控目标不支持机器设置")?;
     Ok(widget_host_fields(h))
 }
+fn upsert_netdata(c:&mut Config,instance:crate::monitoring::netdata::Instance)->Result<(),String>{
+    let host_id=instance.host_id.as_deref().ok_or("请选择 Netdata 所属机器")?;
+    if !c.hosts.iter().any(|h|h.id==host_id){return Err("目标机器不存在".into());}
+    let old_index=c.netdata.iter().position(|i|i.id==instance.id);
+    if let Some(index)=old_index{
+        if c.netdata[index].host_id.as_deref().is_some_and(|id|id!=host_id && c.hosts.iter().any(|h|h.id==id)){return Err("不能从其他机器修改此节点".into());}
+    }
+    if old_index.is_none_or(|index|c.netdata[index].host_id.as_deref()!=Some(host_id))
+        && c.netdata.iter().any(|i|i.host_id.as_deref()==Some(host_id)){
+        return Err("当前机器已有 Netdata Agent，请编辑或先移除现有配置".into());
+    }
+    if let Some(index)=old_index{c.netdata[index]=instance;}else{
+        if c.netdata.len()>=64{return Err("最多接入 64 个 Netdata 实例".into());}
+        c.netdata.push(instance);
+    }
+    Ok(())
+}
+fn set_exporter(c:&mut Config,host_id:&str,endpoint:Option<crate::monitoring::exporter::Endpoint>)->Result<(),String>{
+    if !c.hosts.iter().any(|h|h.id==host_id){return Err("机器不存在".into());}
+    if let Some(value)=endpoint{c.exporters.insert(host_id.to_string(),value);}else{c.exporters.remove(host_id);}
+    Ok(())
+}
+
 pub(crate) async fn machines_api(
     app: Context,
     action: String,
@@ -646,7 +697,7 @@ pub(crate) async fn machines_api(
             let key={
                 let c=rt.config.lock().unwrap();
                 authorize(&c,"ssh:configure")?;
-                if provider=="localNet"{let id=payload["netdataId"].as_str().ok_or("请先选择 Netdata 节点")?;if !c.netdata.iter().any(|i|i.id==id){return Err("Netdata 节点不存在".into());}}
+                if provider=="localNet" && matches!(action.as_str(),"trafficSave"|"tencentSave"){let id=payload["netdataId"].as_str().ok_or("请先选择 Netdata 节点")?;let host=payload["hostId"].as_str().ok_or("请选择机器")?;if !c.netdata.iter().any(|i|i.id==id && i.host_id.as_deref()==Some(host)){return Err("请先将 Netdata 节点关联到当前机器".into());}}
                 let host=payload["hostId"].as_str().ok_or("请选择机器")?;if !c.hosts.iter().any(|h|h.id==host){return Err("机器不存在".into());}host.to_string()
             };
             let root=rt.path.parent().ok_or("数据目录不存在")?;
@@ -668,9 +719,17 @@ pub(crate) async fn machines_api(
         },
         "monitorSettings" => {
             let days=payload["days"].as_u64().filter(|v|(1..=365).contains(v)).ok_or("历史保留时长应为 1–365 天")?;
-            let exporters:HashMap<String,crate::monitoring::exporter::Endpoint>=serde_json::from_value(payload["exporters"].clone()).map_err(|_|"采集来源配置无效")?;for e in exporters.values(){e.validate()?;}
-            rt.save(|c|{authorize(c,"ssh:configure")?;if exporters.keys().any(|id|!c.hosts.iter().any(|h|&h.id==id)){return Err("来源对应的机器已移除".into());}c.exporters=exporters;c.retention_days=days;Ok(())})?;
+            let interval=payload["interval"].as_u64().filter(|v|(30..=3600).contains(v)).ok_or("采集间隔应为 30–3600 秒")?;
+            let enabled=payload["enabled"].as_bool().ok_or("缺少后台监控开关")?;
+            rt.save(|c|{authorize(c,"ssh:configure")?;if enabled{authorize(c,"ssh:collect")?;}c.retention_days=days;c.interval=interval;c.monitoring=enabled;Ok(())})?;
             rt.history_store.prune_metrics(days)?;Ok(rt.snapshot())
+        },
+        "exporterConfigSave" => {
+            let host_id=payload["hostId"].as_str().ok_or("缺少机器 ID")?;
+            let url=payload["url"].as_str().unwrap_or("").trim().to_string();
+            let device=payload["device"].as_str().unwrap_or("").trim().to_string();
+            let endpoint=if url.is_empty(){None}else{let value=crate::monitoring::exporter::Endpoint{url,device};value.validate()?;Some(value)};
+            rt.save(|c|{authorize(c,"ssh:configure")?;set_exporter(c,host_id,endpoint)})
         },
         "metricHistory" => {let interval=rt.config.lock().unwrap().interval.max(30);rt.history_store.metric_page(payload["hostId"].as_str().unwrap_or(""),payload["metric"].as_str().unwrap_or("cpu"),payload["seconds"].as_u64().unwrap_or(86400),interval)},
         "exporterTest" => {let e:crate::monitoring::exporter::Endpoint=serde_json::from_value(payload).map_err(|e|e.to_string())?;crate::monitoring::exporter::collect(&e).await},
@@ -678,9 +737,9 @@ pub(crate) async fn machines_api(
         "netdataHistory" => {let instance={let c=rt.config.lock().unwrap();c.netdata.iter().find(|i|Some(i.id.as_str())==payload["id"].as_str()).cloned().ok_or("Netdata 节点不存在")?};crate::monitoring::netdata::history(&instance,payload["chart"].as_str().unwrap_or("system.cpu"),payload["seconds"].as_u64().unwrap_or(86400)).await},
         "netdataSave" => {
             let instance:crate::monitoring::netdata::Instance=serde_json::from_value(payload).map_err(|e|e.to_string())?;instance.validate()?;
-            rt.save(|c|{authorize(c,"ssh:configure")?;if let Some(old)=c.netdata.iter_mut().find(|i|i.id==instance.id){*old=instance;}else{if c.netdata.len()>=64{return Err("最多接入 64 个 Netdata 实例".into());}c.netdata.push(instance);}Ok(())})
+            rt.save(|c|{authorize(c,"ssh:configure")?;upsert_netdata(c,instance)})
         },
-        "netdataRemove" => rt.save(|c|{authorize(c,"ssh:configure")?;c.netdata.retain(|i|Some(i.id.as_str())!=payload["id"].as_str());Ok(())}),
+        "netdataRemove" => rt.save(|c|{authorize(c,"ssh:configure")?;let host_id=payload["hostId"].as_str().ok_or("请选择机器")?;let id=payload["id"].as_str().ok_or("请选择 Netdata 节点")?;let item=c.netdata.iter().find(|i|i.id==id).ok_or("Netdata 节点不存在")?;if item.host_id.as_deref()!=Some(host_id){return Err("不能移除其他机器的节点".into());}c.netdata.retain(|i|i.id!=id);Ok(())}),
         "netdataInstallPlan" | "netdataInstall" => {
             // 默认与界面推荐项一致（所有网卡 · IP 直连）：127.0.0.1 只有本机可达，FlowHub 连不上。
             let script=crate::monitoring::netdata::install_script(payload["port"].as_u64().unwrap_or(19999),payload["bind"].as_str().unwrap_or("0.0.0.0"),payload["days"].as_u64().unwrap_or(7),payload["disk"].as_u64().unwrap_or(1024))?;

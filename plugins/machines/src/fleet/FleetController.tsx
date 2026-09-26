@@ -120,7 +120,6 @@ export function FleetController({ api, run, backupApi = null }: { api: MachinesA
     onAddHost: () => { if (enabled) void editor.current?.open().catch(error => message(String(error), true)); },
     onCollectSelected: ids => { void collect(ids); },
     onCollectHost: id => { void collect([id]); },
-    onMonitoringChange: next => { void operate(() => api!('monitor', { enabled: next.enabled, interval: next.intervalSeconds || 60 })); },
     onHostAction: (action, item) => {
       const host = current.current.config.hosts.find(host => host.id === item.id);
       if (!host) return;

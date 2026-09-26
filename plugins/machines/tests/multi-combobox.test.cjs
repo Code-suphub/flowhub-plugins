@@ -14,7 +14,7 @@ test('common multi combobox filters, toggles, caps selection and preserves it on
   const exports = {};
   vm.runInNewContext(code, { exports, require(name) {
     if (name === 'react') return {
-      useId: () => 'multi-test', useEffect() {}, useMemo: fn => fn(),
+      useId: () => 'multi-test', useEffect() {}, useLayoutEffect() {}, useMemo: fn => fn(),
       useRef: initial => { const i = cursor++; return slots[i] ?? (slots[i] = { current: initial }); },
       useState: initial => { const i = cursor++; if (!(i in slots)) slots[i] = initial; return [slots[i], next => { slots[i] = typeof next === 'function' ? next(slots[i]) : next; }]; },
     };

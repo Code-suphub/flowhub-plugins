@@ -62,18 +62,12 @@ export interface FleetConfig {
 
 export type FleetHostAction = 'edit' | 'collections' | 'command' | 'terminal' | 'copy' | 'delete';
 
-export interface FleetMonitoringChange {
-  enabled: boolean;
-  intervalSeconds: number;
-}
-
 export interface FleetActions {
   onAddHost: () => void;
   onSelectionChange: (hostIds: readonly FleetHostId[]) => void;
   onCollectSelected: (hostIds: readonly FleetHostId[]) => void;
   onCollectHost: (hostId: FleetHostId) => void;
   onHostAction: (action: FleetHostAction, host: FleetHost) => void;
-  onMonitoringChange: (next: FleetMonitoringChange) => void;
 }
 
 export interface FleetPageProps {

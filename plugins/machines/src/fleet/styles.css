@@ -124,7 +124,7 @@ dialog.fleet__remove-dialog { width: min(420px, calc(100vw - 24px)); }
 
 .fleet__toolbar {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   flex-wrap: nowrap;
   justify-content: flex-start;
   gap: 7px;
@@ -143,7 +143,7 @@ dialog.fleet__remove-dialog { width: min(420px, calc(100vw - 24px)); }
 .fleet__search input {
   width: 100%;
   min-height: 38px;
-  padding: 0 13px 0 36px;
+  padding: 0 13px;
   border: 1px solid var(--fleet-line);
   border-radius: 6px;
   outline: 0;
@@ -161,62 +161,29 @@ dialog.fleet__remove-dialog { width: min(420px, calc(100vw - 24px)); }
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--fh-muted,#69b87e) 10%, transparent);
 }
 
-.fleet__search-icon {
-  position: absolute;
-  top: 50%;
-  left: 13px;
-  color: var(--fleet-green-strong);
-  font-size: 19px;
-  line-height: 1;
-  transform: translateY(-53%);
-  pointer-events: none;
-}
-
 .fleet__filter {
-  display: grid;
-  gap: 4px;
-  flex: 0 0 96px;
-  width: 96px;
+  flex: 0 0 180px;
+  width: 180px;
+  min-width: 0;
 }
 
-.fleet__filter--interval {
-  flex-basis: 92px;
-  width: 92px;
-}
-
-.fleet__filter .fh-select {
+.fleet__filter .fh-combobox {
   width: 100%;
   min-width: 0;
 }
 
-.fleet__filter-label {
-  color: var(--fleet-faint);
-  font: 9px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+.fleet__filter .fh-combobox__control {
+  height: 38px;
+  min-height: 38px;
+  border-color: var(--fleet-line);
+  border-radius: 6px;
+  background: var(--fleet-bg);
 }
 
-.fleet__select-trigger {
-  min-height: 38px !important;
-  gap: 6px !important;
-  padding-inline: 10px !important;
-  border-color: var(--fleet-line) !important;
-  border-radius: 6px !important;
-  background: var(--fleet-bg) !important;
-  font-size: 12px !important;
-}
-
-.fleet__select-trigger:focus-visible {
-  outline: 2px solid var(--fleet-green) !important;
-  outline-offset: 2px;
-}
-
-.fleet__toolbar-rule {
-  flex: 0 0 1px;
-  width: 1px;
-  height: 28px;
-  margin: 0 2px 8px;
-  background: var(--fleet-line);
+.fleet__filter .fh-combobox__input,
+.fleet__filter .fh-combobox__toggle {
+  height: 36px;
+  min-height: 36px;
 }
 
 .fleet__collect {
@@ -224,46 +191,10 @@ dialog.fleet__remove-dialog { width: min(420px, calc(100vw - 24px)); }
   min-width: 90px;
 }
 
-.fleet__monitor {
-  flex: 0 0 auto;
-  min-height: 38px !important;
-  margin-bottom: 0;
-  color: var(--fleet-muted) !important;
-  font-size: 12px !important;
-}
-
-.fleet__monitor input:checked + span {
-  color: var(--fleet-green) !important;
-}
-
 .fleet__selected-count {
   min-width: 12px;
   color: var(--fleet-green);
   font: 10px ui-monospace, SFMono-Regular, Menlo, monospace;
-}
-
-.fleet__toolbar-help {
-  display: flex;
-  align-items: center;
-  align-self: end;
-  flex: 0 0 28px;
-  justify-content: center;
-  gap: 4px;
-  min-height: 38px;
-  color: var(--fleet-faint);
-  font-size: 10px;
-  white-space: nowrap;
-}
-
-.fleet__toolbar-help .fh-help__trigger {
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-}
-
-.fleet__help-panel {
-  right: 0;
-  width: min(310px, calc(100vw - 32px));
 }
 
 .fleet__table-wrap {
@@ -506,12 +437,6 @@ dialog.fleet__remove-dialog { width: min(420px, calc(100vw - 24px)); }
   border: 0;
 }
 
-@media (max-width: 920px) {
-  .fleet__toolbar-rule {
-    display: none;
-  }
-}
-
 @media (max-width: 760px) {
   .fleet {
     padding: 0;
@@ -539,10 +464,8 @@ dialog.fleet__remove-dialog { width: min(420px, calc(100vw - 24px)); }
   .fleet__summary { gap: 7px; }
   .fleet__summary > div { gap: 3px; }
   .fleet__search { flex: 1 1 100%; width: 100%; min-width: 0; }
-  .fleet__filter { flex: 1 1 96px; width: auto; }
-  .fleet__filter--interval { flex: 1 1 92px; width: auto; }
+  .fleet__filter { flex: 1 1 180px; width: auto; }
   .fleet__collect { flex: 1 1 90px; }
-  .fleet__toolbar-help { min-height: 28px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -566,10 +489,35 @@ dialog.fleet__remove-dialog { width: min(420px, calc(100vw - 24px)); }
   border-radius: 0;
   background: transparent;
   color: var(--muted);
-  font-size: 13px;
-  min-height: 40px;
+  font-size: 14px;
+  min-height: 44px;
   letter-spacing: normal;
   text-transform: none;
+}
+
+dialog.fh-dialog-shell .fh-tabs__trigger {
+  min-height: 44px;
+  padding: 0 2px !important;
+  border: 0 !important;
+  border-bottom: 2px solid transparent !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--fh-muted,#789082) !important;
+  font-size: 14px;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+dialog.fh-dialog-shell .fh-tabs__list { gap: 20px; }
+dialog.fh-dialog-shell .fh-tabs__trigger:hover { color: var(--fh-text,#dcebe1) !important; }
+dialog.fh-dialog-shell .fh-tabs__trigger[aria-selected="true"] {
+  border-bottom-color: var(--fh-accent,#b9efc9) !important;
+  color: var(--fh-accent,#b9efc9) !important;
+}
+dialog.fh-dialog-shell .fh-tabs__trigger:focus-visible {
+  outline: 2px solid var(--fh-accent,#b9efc9) !important;
+  outline-offset: -2px;
 }
 
 .machine-tabs [role="tab"]:hover { background: transparent; color: var(--ink); }

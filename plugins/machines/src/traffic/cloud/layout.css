@@ -1,0 +1,31 @@
+.ct-provider { position: relative; }
+
+.ct-provider > .fh-help {
+  position: absolute;
+  top: 50%;
+  left: 3.15rem;
+  right: auto;
+  transform: translateY(-50%);
+}
+
+@media (max-width: 620px) {
+  .ct-provider {
+    display: block;
+  }
+
+  .ct-provider > .fh-field {
+    width: 100%;
+  }
+}
+
+@media (max-width: 440px) {
+  .ct-provider > .fh-help { top: 0; transform: none; }
+}
+
+.ct-result dt,
+.ct-result header span,
+.ct-result p { font-size: 12px; }
+
+.ct-result h4 { font-size: 14px; }
+
+.ct-status { font-size: 13px; }

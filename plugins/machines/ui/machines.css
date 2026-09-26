@@ -15,7 +15,7 @@
   --panel-pad: 20px;
   --control-h: 38px;
   font-family: "Avenir Next", "PingFang SC", -apple-system, BlinkMacSystemFont, sans-serif;
-  font-size: 13px;
+  font-size: 16px;
 }
 
 * { box-sizing: border-box; }
@@ -25,6 +25,7 @@ body {
   margin: 0;
   background: linear-gradient(180deg, color-mix(in srgb, var(--fh-border,#304c39) 8%, transparent), transparent 230px), var(--bg);
   color: var(--ink);
+  font-size: 13px;
 }
 
 button, input, select, textarea { font: inherit; }
@@ -111,19 +112,36 @@ dialog p { overflow-wrap: anywhere; }
 body > .panel[aria-label="插件开发预览"] {
   display: flex;
   align-items: center;
-  gap: 10px;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 18px;
   min-height: 0;
   margin: 0 clamp(20px, 4vw, 56px) 10px;
-  padding: 7px 10px;
+  padding: 9px 12px;
   border-color: var(--fh-border,#314538);
-  border-radius: 5px;
+  border-radius: 8px;
   background: color-mix(in srgb, var(--fh-surface,#151f19) 72%, transparent);
-  font-size: 11px;
+  font-size: 12px;
 }
 
-body > .panel[aria-label="插件开发预览"] > * { margin: 0; }
-body > .panel[aria-label="插件开发预览"] .actions { gap: 5px; }
-body > .panel[aria-label="插件开发预览"] button { min-height: 28px; padding: 4px 8px; font-size: 11px; }
+body > .panel[aria-label="插件开发预览"] .preview-banner__identity,
+body > .panel[aria-label="插件开发预览"] .preview-banner__controls { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; }
+body > .panel[aria-label="插件开发预览"] .preview-banner__identity strong { color: var(--ink); font-weight: 650; }
+body > .panel[aria-label="插件开发预览"] .preview-banner__identity span { color: var(--muted); }
+body > .panel[aria-label="插件开发预览"] .preview-banner__controls { margin-left: auto; }
+body > .panel[aria-label="插件开发预览"] .preview-banner__outcome { display: flex; align-items: center; gap: 7px; white-space: nowrap; }
+body > .panel[aria-label="插件开发预览"] select { min-width: 88px; min-height: 30px; padding: 4px 7px; }
+body > .panel[aria-label="插件开发预览"] .preview-banner__options { position: relative; margin: 0; padding: 0; border: 0; }
+body > .panel[aria-label="插件开发预览"] .preview-banner__options summary { padding: 6px 9px; border: 1px solid var(--line); border-radius: 6px; color: var(--ink); list-style: none; white-space: nowrap; }
+body > .panel[aria-label="插件开发预览"] .preview-banner__options summary::-webkit-details-marker { display: none; }
+body > .panel[aria-label="插件开发预览"] .preview-banner__options summary::after { content: '⌄'; margin-left: 7px; color: var(--muted); }
+body > .panel[aria-label="插件开发预览"] .preview-banner__options[open] summary,
+body > .panel[aria-label="插件开发预览"] .preview-banner__options summary:hover { background: var(--fh-surface-soft,#27392d); border-color: var(--line-strong); }
+body > .panel[aria-label="插件开发预览"] .preview-banner__menu { position: absolute; top: calc(100% + 7px); right: 0; z-index: 50; width: min(340px, calc(100vw - 40px)); padding: 14px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--panel); box-shadow: 0 14px 34px #0005; }
+body > .panel[aria-label="插件开发预览"] .preview-banner__menu p { margin: 0 0 12px; font-size: 11px; line-height: 1.55; }
+body > .panel[aria-label="插件开发预览"] .preview-banner__menu label { display: flex; align-items: center; gap: 6px; }
+body > .panel[aria-label="插件开发预览"] .preview-banner__menu .actions { gap: 7px; margin-top: 13px; }
+body > .panel[aria-label="插件开发预览"] .preview-banner__menu button { min-height: 30px; padding: 5px 8px; font-size: 11px; }
 
 @media (max-width: 850px) {
   :root { --panel-pad: 16px; }

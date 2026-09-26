@@ -1,0 +1,14 @@
+.fh-time-series { position: relative; min-width: 0; }
+.fh-time-series svg { display: block; width: 100%; height: auto; overflow: visible; border-radius: 8px; background: var(--fh-canvas,#0b1711); touch-action: pan-y; }
+.fh-time-series svg:focus-visible { outline: 2px solid var(--fh-accent,#69b7e8); outline-offset: 2px; }
+.fh-time-series__grid line { stroke: color-mix(in srgb, var(--fh-text,#dce9e0) 12%, transparent); stroke-width: 1; }
+.fh-time-series__grid text, .fh-time-series svg > text { fill: var(--fh-muted,#8195a7); font-size: 10px; }
+.fh-time-series svg > path { fill: none; stroke-width: 2; vector-effect: non-scaling-stroke; }
+.fh-time-series__cursor line { stroke: var(--fh-accent,#69b7e8); stroke-width: 1; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; pointer-events: none; }
+.fh-time-series__cursor circle { stroke: var(--fh-canvas,#0b1711); stroke-width: 2; pointer-events: none; }
+.fh-time-series__tooltip { position: absolute; top: 12px; z-index: 1; min-width: min(160px, calc(100% - 16px)); max-width: calc(100% - 16px); width: max-content; transform: translateX(-50%); padding: 9px 11px; border: 1px solid var(--fh-border,#355442); border-radius: 8px; background: var(--fh-surface,#14221c); box-shadow: 0 8px 24px #0003; color: var(--fh-text,#dce9e0); font-size: 12px; pointer-events: none; }
+.fh-time-series__tooltip time { display: block; margin-bottom: 5px; color: var(--fh-muted,#91a99a); white-space: nowrap; }
+.fh-time-series__tooltip div { display: flex; align-items: center; gap: 6px; }
+.fh-time-series__tooltip i { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; }
+.fh-time-series__tooltip strong { margin-left: auto; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.fh-time-series__empty { display: grid; min-height: 150px; place-items: center; color: var(--fh-muted,#91a99a); font-size: 13px; }

@@ -179,7 +179,11 @@ const INTERACTIONS = `(async () => {
     check(document.querySelectorAll('#charts svg').length === 5, '成功指标仍应显示');
     calls.slice(0,6).forEach(call=>call.resolve({data:[[1,99]],unit:'%'})); await tick();
     check(!document.querySelector('#charts')?.textContent.includes('99.00'), '过期请求不得覆盖当前结果');
-    document.querySelectorAll('.chart-card')[1].click(); await tick();
+    const chart = document.querySelectorAll('.chart-card .fh-time-series svg')[0];
+    const bounds = chart.getBoundingClientRect();
+    chart.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: bounds.left + bounds.width * .5, clientY: bounds.top + bounds.height * .5 })); await tick();
+    check(!!document.querySelector('.chart-card .fh-time-series__tooltip time') && !!document.querySelector('.chart-card .fh-time-series__cursor line'), '桌面组件曲线应显示十字线与时间数值');
+    document.querySelectorAll('.chart-card')[1].querySelector('button')?.click(); await tick();
     const dialog = document.querySelector('dialog[open]');
     check(dialog && dialog.getBoundingClientRect().width > 0, '放大弹窗应显示');
     check(getComputedStyle(dialog).position === 'fixed', '公共弹窗必须有构建后的定位样式');

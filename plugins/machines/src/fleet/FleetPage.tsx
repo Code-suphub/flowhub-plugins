@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
-import { Button, Checkbox, DataTable, DialogShell, DropdownMenu, HelpPopover, Combobox, Select, cx } from '@flowhub/plugin-common/react';
+import { Button, Checkbox, DataTable, DialogShell, DropdownMenu, Combobox, cx } from '@flowhub/plugin-common/react';
 
 import {
   fleetMetricStatus,
@@ -9,13 +9,6 @@ import {
   type FleetMetricStatus,
   type FleetPageProps,
 } from './types';
-
-const INTERVAL_OPTIONS = [
-  { value: '30', label: '每 30 秒' },
-  { value: '60', label: '每 60 秒' },
-  { value: '300', label: '每 5 分钟' },
-  { value: '900', label: '每 15 分钟' },
-] as const;
 
 const STATUS_LABELS: Record<FleetMetricStatus, string> = {
   success: '正常',
@@ -302,11 +295,6 @@ export function FleetPage({
     setGroup('');
   };
 
-  const intervalValue = String(config.intervalSeconds);
-  const intervalOptions = INTERVAL_OPTIONS.some((option) => option.value === intervalValue)
-    ? [...INTERVAL_OPTIONS]
-    : [{ value: intervalValue, label: `每 ${config.intervalSeconds} 秒` }, ...INTERVAL_OPTIONS];
-
   const columns = useMemo(
     () => [
       {
@@ -441,10 +429,9 @@ export function FleetPage({
           </div>
         </header>
 
-        <div className="fleet__toolbar" aria-label="机器筛选与监控设置">
+        <div className="fleet__toolbar" aria-label="机器筛选与操作">
           <label className="fleet__search">
             <span className="fleet__sr-only">搜索机器</span>
-            <span className="fleet__search-icon" aria-hidden="true">⌕</span>
             <input
               id="filter"
               type="search"
@@ -454,7 +441,6 @@ export function FleetPage({
             />
           </label>
           <div className="fleet__filter">
-            <span className="fleet__filter-label">分组</span>
             <Combobox
               placeholder="搜索分组"
               id="group"
@@ -462,7 +448,6 @@ export function FleetPage({
               value={group}
               options={[{ value: '', label: '全部分组' }, ...groups.map((value) => ({ value, label: value }))]}
               onChange={setGroup}
-
             />
           </div>
           <Button
@@ -474,32 +459,6 @@ export function FleetPage({
           >
             采集所选 <span className="fleet__selected-count">{selectedHostIds.length || ''}</span>
           </Button>
-          <span className="fleet__toolbar-rule" aria-hidden="true" />
-          <Checkbox
-            id="monitor"
-            label="后台监控"
-            checked={config.monitoring}
-            disabled={!interactive}
-            onChange={(enabled) => actions.onMonitoringChange({ enabled, intervalSeconds: config.intervalSeconds })}
-            containerClassName="fleet__monitor"
-          />
-          <div className="fleet__filter fleet__filter--interval">
-            <span className="fleet__filter-label">采集间隔</span>
-            <Select
-              id="interval"
-              ariaLabel="采集间隔"
-              value={intervalValue}
-              options={intervalOptions}
-              disabled={!interactive}
-              onChange={(value) => actions.onMonitoringChange({ enabled: config.monitoring, intervalSeconds: Number(value) })}
-              triggerClassName="fleet__select-trigger"
-            />
-          </div>
-          <div className="fleet__toolbar-help">
-            <HelpPopover label="机器指标与后台监控说明" panelClassName="fleet__help-panel">
-              Linux / macOS 基础指标。后台监控仅在 FlowHub 运行且电脑保持唤醒时工作；采集失败后会逐步延长重试间隔。
-            </HelpPopover>
-          </div>
         </div>
 
         <div id="hostRows" className="fleet__table-wrap">

@@ -14,6 +14,7 @@ export interface FieldProps {
   children: ReactNode;
   hint?: ReactNode;
   error?: ReactNode;
+  required?: boolean;
   className?: string;
 }
 
@@ -23,6 +24,7 @@ export function Field({
   children,
   hint,
   error,
+  required = false,
   className,
 }: FieldProps) {
   const generatedId = useId();
@@ -45,9 +47,9 @@ export function Field({
     <div className={cx("fh-field grid min-w-0 gap-2", className)}>
       <label
         htmlFor={htmlFor}
-        className="fh-field__label text-sm font-medium normal-case tracking-normal text-[var(--fh-muted,#9db3a6)]"
+        className="fh-field__label pointer-events-none text-sm font-medium normal-case tracking-normal text-[var(--fh-muted,#9db3a6)]"
       >
-        {label}
+        {label}{required ? <><span aria-hidden="true" className="fh-field__required ml-1 text-[var(--fh-danger,#ff9fa8)]">*</span><span className="sr-only">必填</span></> : null}
       </label>
       {control}
       {error ? (
