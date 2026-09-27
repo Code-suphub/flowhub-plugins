@@ -17,6 +17,103 @@ function load(name, globals = {}) {
 
 const model = load('model');
 
+test('resource detail uses concise Chinese type labels', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../src/App.tsx'), 'utf8');
+  assert.match(source, /selection\.kind === 'project' \? '项目' : '本地镜像'/);
+  assert.doesNotMatch(source, /COMPOSE PROJECT|LOCAL IMAGE/);
+  const preview = fs.readFileSync(path.join(__dirname, '../src/api.ts'), 'utf8');
+  assert.doesNotMatch(preview, /\d+ days ago/);
+});
+
+test('resource counts live beside scope tabs instead of in summary cards', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../src/App.tsx'), 'utf8');
+  assert.doesNotMatch(source, /StatStrip|StatItem/);
+  assert.match(source, /docker-scope-nav__count/);
+  assert.match(source, /compose: new Set\(data\.containers\.map\(\(row\) => row\.project\)\.filter\(Boolean\)\)\.size/);
+  assert.match(source, /standalone: data\.containers\.filter\(\(row\) => !row\.project\)\.length/);
+  assert.match(source, /images: images\?\.length \?\? null/);
+  assert.match(source, /imagesContextRef\.current !== next\.context/);
+});
+
+test('resource details stay beside the list until the viewport is genuinely narrow', () => {
+  const styles = fs.readFileSync(path.join(__dirname, '../src/styles.css'), 'utf8');
+  assert.match(styles, /grid-template-columns:minmax\(220px, min\(var\(--docker-sidebar-width\), 48%\)\) 10px minmax\(0, 1fr\)/);
+  assert.match(styles, /height:clamp\(510px, calc\(100dvh - 360px\), 620px\)/);
+  assert.match(styles, /\.docker-detail \{[^}]*overflow:auto/);
+  assert.match(styles, /@media \(max-width: 620px\) \{\s*\.docker-workspace, \.docker-workspace\.is-sidebar-collapsed \{grid-template-columns:1fr; height:auto\}/);
+  assert.match(styles, /\.docker-resource-list \{max-height:180px; overflow:auto\}/);
+});
+
+test('settings typography is scoped and appearance card keeps its natural height', () => {
+  const styles = fs.readFileSync(path.join(__dirname, '../src/styles.css'), 'utf8');
+  assert.match(styles, /\.docker-settings-form \{[^}]*align-items:start/);
+  assert.match(styles, /\.docker-settings-form fieldset \{height:auto/);
+  assert.match(styles, /\.docker-settings \.fh-field__label \{font-size:13px/);
+  assert.match(styles, /\.docker-settings \.fh-select__trigger, \.docker-settings \.fh-select__menu \{font-size:13px/);
+  assert.match(styles, /\.docker-settings \.fh-checkbox \{font-size:13px/);
+});
+
+test('settings explanations use contextual help and checked boxes use theme-aware contrast', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../src/App.tsx'), 'utf8');
+  const styles = fs.readFileSync(path.join(__dirname, '../src/styles.css'), 'utf8');
+  assert.match(source, /actions=\{<HelpPopover label="刷新与范围说明">/);
+  assert.match(source, /<HelpPopover label="Docker 环境说明">/);
+  assert.doesNotMatch(source, /description="后台采集|<footer className="docker-footer"/);
+  assert.match(styles, /\.docker-settings \.fh-checkbox input\[type="checkbox"\]:checked \{[^}]*var\(--fh-on-accent/);
+  const luminance = (hex) => {
+    const parts = hex.match(/[a-f\d]{2}/gi).map((part) => parseInt(part, 16) / 255);
+    return parts.map((part) => part <= 0.04045 ? part / 12.92 : ((part + 0.055) / 1.055) ** 2.4).reduce((sum, part, index) => sum + part * [0.2126, 0.7152, 0.0722][index], 0);
+  };
+  for (const [accent, foreground] of [['91baff', '142238'], ['2563d9', 'ffffff']]) {
+    const values = [luminance(accent), luminance(foreground)].sort((a, b) => b - a);
+    assert.ok((values[0] + 0.05) / (values[1] + 0.05) >= 4.5);
+  }
+});
+
+test('list controls are clear and container actions stay within their relevant tabs', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../src/App.tsx'), 'utf8');
+  assert.doesNotMatch(source, /setUpdated|\{updated\}/);
+  assert.match(source, /aria-label="收起资源列表"/);
+  assert.match(source, /aria-label="拖动调整资源列表宽度"/);
+  assert.match(source, /aria-label=\{'拖动排序 '/);
+  assert.match(source, /onPointerDown=\{\(event\) => startDrag\(event, project\)\}/);
+  assert.match(source, /onPointerMove=\{moveDrag\} onPointerUp=\{endDrag\}/);
+  assert.doesNotMatch(source, /onDragStart|onDragOver|onDrop=/);
+  assert.match(source, /<svg viewBox="0 0 16 16" aria-hidden="true">/);
+  assert.match(source, /<Tabs.Panel value="overview">\{containerActions\}/);
+  assert.match(source, /<Tabs.Panel value="logs">.*复制日志命令/);
+  assert.match(source, /aria-expanded=\{!isCollapsed\}/);
+});
+
+test('project groups can be reordered without changing container membership', () => {
+  const groups = [['web-app', [{id: 'a'}]], ['', [{id: 'b'}]], ['worker', [{id: 'c'}]]];
+  const order = model.reorderGroups(groups, [], 'worker', 'web-app');
+  assert.deepEqual(JSON.parse(JSON.stringify(order)), ['worker', 'web-app', '']);
+  assert.deepEqual(JSON.parse(JSON.stringify(model.sortGroups(groups, order).map(([name]) => name))), JSON.parse(JSON.stringify(order)));
+  assert.equal(groups[0][1][0].id, 'a');
+});
+
+test('preview shows both referenced and unreferenced image states', async () => {
+  const api = load('api').createPreviewApi();
+  const {images} = await api.invoke('images');
+  const unused = await api.invoke('image_detail', {id: images[0].ID});
+  const used = await api.invoke('image_detail', {id: images[1].ID});
+  assert.equal(unused.containers.length, 0);
+  assert.equal(used.containers.length, 1);
+  assert.equal(used.containers[0].name, 'web-app-postgres-1');
+});
+
+test('container terminal has its own tab and preview cannot start a session', async () => {
+  const source = fs.readFileSync(path.join(__dirname, '../src/App.tsx'), 'utf8');
+  const terminal = fs.readFileSync(path.join(__dirname, '../src/ContainerTerminal.tsx'), 'utf8');
+  assert.match(source, /<Tabs.Trigger value="terminal">终端<\/Tabs.Trigger>/);
+  assert.match(source, /<Tabs.Panel value="terminal"><ContainerTerminal/);
+  assert.match(terminal, /disabled=\{!canConnect\}/);
+  assert.match(terminal, /terminal_close/);
+  const api = load('api').createPreviewApi();
+  await assert.rejects(api.invoke('terminal_open', {id: 'a'.repeat(64)}), /浏览器预览不执行操作/);
+});
+
 test('management model keeps issue filtering, grouping, and action boundaries', () => {
   const rows = [
     {id: 'a', name: 'api', image: 'demo/api', state: 'restarting', status: 'Restarting', project: 'demo', service: 'api'},

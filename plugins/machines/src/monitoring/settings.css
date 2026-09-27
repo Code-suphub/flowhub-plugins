@@ -1,5 +1,6 @@
-dialog.monitor-settings { width: min(720px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); }
-.monitor-settings__shell { max-height: calc(100dvh - 24px); grid-template-rows: auto minmax(0, 1fr); }
+dialog.monitor-settings { width: min(880px, calc(100vw - 24px)); height: min(640px, calc(100dvh - 24px)); max-height: calc(100dvh - 24px); }
+dialog.monitor-settings__zoom { width: min(900px, calc(100vw - 24px)); }
+.monitor-settings__shell { height: 100%; grid-template-rows: auto minmax(0, 1fr); }
 .monitor-settings__form { display: grid; gap: 16px; padding-top: 16px; }
 .monitor-settings__retention { display: grid; gap: 8px; }
 .monitor-settings__retention-label { display: flex; align-items: center; gap: 4px; }
@@ -8,9 +9,16 @@ dialog.monitor-settings { width: min(720px, calc(100vw - 24px)); max-height: cal
 .monitor-settings__form > .fh-field:has(#monitor-interval) { max-width: 220px; }
 .monitor-settings__intro { margin: 0; color: var(--fh-muted,#91a99a); font-size: 13px; }
 .monitor-settings__actions { display: flex; justify-content: end; }
-.monitor-settings__queries { display: flex; flex-wrap: wrap; gap: 10px; }
-.monitor-settings__queries > * { flex: 1 1 160px; min-width: 0; }
+.monitor-settings__queries { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.monitor-settings__queries > * { min-width: 0; }
 .monitor-settings__status { color: var(--fh-accent,#a9e0b8); overflow-wrap: anywhere; font-size: 13px; }
 .monitor-settings__status[data-error="true"] { color: var(--fh-danger,#ff9fa8); }
 .monitor-settings__warning { color: var(--fh-danger,#e7bb73); font-size: 13px; }
-.monitor-settings__chart { margin: 0; }
+.monitor-settings__charts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.monitor-settings__chart { min-width: 0; padding: 14px; border: 1px solid var(--fh-border,#355442); border-radius: 12px; background: var(--fh-surface,#14221c); }
+.monitor-settings__chart-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.monitor-settings__chart-head h3 { margin: 0; font-size: 14px; }
+.monitor-settings__chart-head span { margin-left: auto; color: var(--fh-muted,#91a99a); font-size: 12px; font-variant-numeric: tabular-nums; }
+.monitor-settings__chart-empty { display: grid; min-height: 150px; place-items: center; color: var(--fh-muted,#91a99a); font-size: 13px; text-align: center; }
+dialog.monitor-settings__zoom .monitor-settings__chart { border: 0; padding: 0; background: transparent; }
+@media (max-width: 700px) { .monitor-settings__charts, .monitor-settings__queries { grid-template-columns: 1fr; } }

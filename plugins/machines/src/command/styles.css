@@ -12,8 +12,7 @@
 .command-react h3,
 .command-react p { margin: 0; }
 
-.command-react__control-group > span:first-child,
-.command-react__bastion header > div > span {
+.command-react__control-group > span:first-child {
   display: block;
   color: var(--fleet-faint, var(--fh-muted,#5c7264));
   font: 700 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -143,7 +142,7 @@
 .command-react__error { color: var(--fh-danger,#ffc4c7); background: var(--fh-danger-soft,#351c20); }
 
 .command-react__bastion > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 14px; padding: 4px 2px 12px; border-bottom: 1px solid var(--fh-border,#293f33); }
-.command-react__bastion h3 { margin-top: 4px; color: var(--fh-text,#edf5ef); font-size: 18px; }
+.command-react__bastion h3 { color: var(--fh-text,#edf5ef); font-size: 18px; }
 .command-react__bastion header p { margin-top: 4px; color: var(--fh-muted,#80978a); }
 .command-react__actionbar,
 .command-react__query { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; }

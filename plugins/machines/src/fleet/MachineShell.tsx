@@ -28,7 +28,7 @@ export function MachineShell({ available, version, notice, fleet, api, run, sele
   const embedded = window.parent !== window && new URLSearchParams(location.search).has('embedded');
   return <div className={embedded ? 'machine-shell embedded' : 'machine-shell'}>
     <header className="masthead">
-      <div><span className="eyebrow">FLOWHUB / LOCAL OPERATIONS</span><h1>机器管理<span className="version" id="version">{version}</span></h1></div>
+      <div><h1>机器管理<span className="version" id="version">{version}</span></h1></div>
       <div className="actions"><ThemeSwitch /><div id="monitorSettingsReactRoot"><MonitorSettings api={api} onSaved={onMonitorSaved} /></div><div id="backupReactRoot"><BackupWorkspace api={backupApi} /></div></div>
     </header>
     <div id="notice" className={`notice${notice.error ? ' error' : ''}`} role="status" aria-live="polite">{notice.text}</div>

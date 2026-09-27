@@ -103,15 +103,12 @@ function formatTime(timestamp: number | undefined): string {
 
 function HostIdentity({ host }: { host: FleetHost }) {
   return (
-    <span className="fleet__identity">
+    <span className="fleet__identity" title={host.alias ? `连接标识：${host.alias}` : undefined}>
       <strong>
         {host.name}
         {host.readOnly ? <em>仅查询</em> : null}
       </strong>
-      <small>
-        {host.alias}
-        {host.group ? <span> / {host.group}</span> : null}
-      </small>
+      {host.group ? <small>{host.group}</small> : null}
     </span>
   );
 }
@@ -175,7 +172,6 @@ function FleetEmptyState({ hasHosts, hidden = false, onAddHost, onReset }: Fleet
       <span className="fleet__empty-mark" aria-hidden="true">
         ∿
       </span>
-      <p className="fleet__empty-kicker">NO HOSTS IN VIEW</p>
       <h3>{hasHosts ? '没有匹配的机器' : '从一台机器开始'}</h3>
       <p>
         {hasHosts
@@ -325,8 +321,9 @@ export function FleetPage({
       },
       {
         key: 'host',
-        header: '机器 / SSH 别名',
+        header: '机器',
         className: 'fleet__host-cell',
+        headerClassName: 'fleet__host-cell',
         render: (host: FleetHost) => <HostIdentity host={host} />,
       },
       {
@@ -412,10 +409,7 @@ export function FleetPage({
     <div className={cx('fleet', className)}>
       <section className="fleet__panel" aria-labelledby="fleet-list-title">
         <header className="fleet__section-head">
-          <div>
-            <span className="fleet__eyebrow">02 / MANAGED NODES</span>
-            <h2 id="fleet-list-title">已纳管机器</h2>
-          </div>
+          <h2 id="fleet-list-title">已纳管机器</h2>
           <div className="fleet__head-actions">
             <dl className="fleet__summary" aria-label="机器概况">
               <div><dt>总量</dt><dd>{total}</dd></div>

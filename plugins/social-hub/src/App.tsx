@@ -95,7 +95,7 @@ function AuthorizeDialog({api, open, onClose, onNotice}: {api: SocialHubApi; ope
   }
 
   return <DialogShell open={open} onOpenChange={nextOpen => {if (!nextOpen) close();}} onCancel={event => {if (busy) event.preventDefault();}}
-    title="抖音官方 OAuth" description="只生成链接，不自动打开、不保存凭证，也不会在此页面完成授权。" initialFocusRef={clientKeyRef} className="social-hub__dialog"
+    title="抖音官方 OAuth" description="只生成链接，不自动打开、不保存凭证，也不会在此页面完成授权。" initialFocusRef={clientKeyRef} className="social-hub__dialog" contentClassName="social-hub__dialog-shell"
     footer={<><Button disabled={busy} onClick={close}>取消</Button><Button variant="primary" type="submit" form="social-oauth-form" disabled={busy}>{busy ? "生成中…" : "生成官方链接"}</Button></>}>
     <form id="social-oauth-form" className="grid gap-4" onSubmit={submit}>
       <Field label={<span className="inline-flex items-center gap-2">Client Key<HelpPopover label="Client Key 说明">仅作为授权请求参数传给本机后端，不写入浏览器存储。</HelpPopover></span>} htmlFor="social-client-key">

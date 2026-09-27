@@ -69,7 +69,6 @@ summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 
 
 
-.eyebrow { color: var(--muted); font: 10px/1.5 Menlo, monospace; letter-spacing: .14em; }
 h1 { margin: 7px 0 0; font-size: 27px; font-weight: 600; letter-spacing: -.045em; }
 h2 { margin: 5px 0 0; font-size: 18px; font-weight: 600; letter-spacing: -.02em; }
 h3 { font-weight: 500; }

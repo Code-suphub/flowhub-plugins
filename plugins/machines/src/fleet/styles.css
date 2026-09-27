@@ -52,14 +52,6 @@ dialog.fleet__remove-dialog { width: min(420px, calc(100vw - 24px)); }
   font-weight: 650;
 }
 
-.fleet__eyebrow,
-.fleet__empty-kicker {
-  color: var(--fleet-faint);
-  font: 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-}
-
 .fleet__panel {
   margin-top: 0;
   padding: 18px;
@@ -77,7 +69,6 @@ dialog.fleet__remove-dialog { width: min(420px, calc(100vw - 24px)); }
 }
 
 .fleet__section-head h2 {
-  margin-top: 4px;
   font-size: 18px;
 }
 
@@ -210,6 +201,7 @@ dialog.fleet__remove-dialog { width: min(420px, calc(100vw - 24px)); }
 
 .fleet__table-wrap .fh-table {
   min-width: 840px;
+  table-layout: fixed;
   color: var(--fleet-muted);
   font-size: 12px;
 }
@@ -241,7 +233,9 @@ dialog.fleet__remove-dialog { width: min(420px, calc(100vw - 24px)); }
 }
 
 .fleet__host-cell {
-  min-width: 190px;
+  width: 280px;
+  min-width: 220px;
+  max-width: 280px;
 }
 
 .fleet__identity {
@@ -383,17 +377,12 @@ dialog.fleet__remove-dialog { width: min(420px, calc(100vw - 24px)); }
   transform: rotate(-8deg);
 }
 
-.fleet__empty-kicker {
-  margin-top: 18px !important;
-  color: var(--fleet-green-strong);
-}
-
 .fleet__empty h3 {
-  margin-top: 11px;
+  margin-top: 20px;
   font-size: 18px;
 }
 
-.fleet__empty p:not(.fleet__empty-kicker) {
+.fleet__empty p {
   max-width: 330px;
   margin: 9px 0 21px;
   color: var(--fleet-muted);
@@ -449,7 +438,7 @@ dialog.fleet__remove-dialog { width: min(420px, calc(100vw - 24px)); }
   .fleet__table-wrap .fh-table { min-width: 580px; }
   .fleet__table-wrap .fh-table th,
   .fleet__table-wrap .fh-table td { padding: 9px 8px; }
-  .fleet__host-cell { min-width: 140px; max-width: 180px; }
+  .fleet__host-cell { width: 180px; min-width: 140px; max-width: 180px; }
   .fleet__identity small { max-width: 170px; }
   .fleet__secondary-column { display: none; }
 }

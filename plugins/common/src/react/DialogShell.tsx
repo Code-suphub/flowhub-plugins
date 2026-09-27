@@ -118,11 +118,16 @@ export const DialogShell = forwardRef<HTMLDialogElement, DialogShellProps>(
     }, [initialFocusRef, initialFocusSelection, open]);
 
     function handleClose(event: SyntheticEvent<HTMLDialogElement>): void {
+      // React delegates close events through the component tree, including nested dialogs.
+      if (event.target !== event.currentTarget) return;
+      event.stopPropagation();
       onClose?.(event);
       if (open) onOpenChange(false);
     }
 
     function handleCancel(event: SyntheticEvent<HTMLDialogElement>): void {
+      if (event.target !== event.currentTarget) return;
+      event.stopPropagation();
       onCancel?.(event);
       if (!event.defaultPrevented) onOpenChange(false);
     }

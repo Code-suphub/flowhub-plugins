@@ -54,8 +54,8 @@ const samples: Container[] = [
   {id: 'c'.repeat(64), name: 'redis-dev', image: 'redis:7', state: 'exited', status: 'Exited (0)', ports: '', project: '', service: ''},
 ];
 const sampleImages: ImageSummary[] = [
-  {ID: 'sha256:' + 'd'.repeat(64), Repository: 'redis', Tag: '7', Size: '117MB', CreatedSince: '2 days ago'},
-  {ID: 'sha256:' + 'e'.repeat(64), Repository: 'postgres', Tag: '16', Size: '432MB', CreatedSince: '5 days ago'},
+  {ID: 'sha256:' + 'd'.repeat(64), Repository: 'redis', Tag: '7', Size: '117MB', CreatedSince: '2 天前'},
+  {ID: 'sha256:' + 'e'.repeat(64), Repository: 'postgres', Tag: '16', Size: '432MB', CreatedSince: '5 天前'},
 ];
 
 async function previewResult<T>(method: string, params: Record<string, unknown>): Promise<T> {
@@ -63,7 +63,10 @@ async function previewResult<T>(method: string, params: Record<string, unknown>)
   if (method === 'detail') return {state: samples.find((row) => row.id === params.id)?.state, health: null, exitCode: 0, restarts: 2, started: '2026-09-10T08:00:00Z', mounts: [], stats: {CPUPerc: '2.1%', MemUsage: '128 MiB / 2 GiB'}} as T;
   if (method === 'logs') return {text: '[info] Starting application\n[error] Database connection refused\n[info] Retrying connection…'} as T;
   if (method === 'images') return {context: '本机 · 模拟数据', images: sampleImages} as T;
-  if (method === 'image_detail') return {id: params.id, tags: [params.id === sampleImages[0].ID ? 'redis:7' : 'postgres:16'], digests: [], created: '2026-09-09T08:00:00Z', size: 117000000, os: 'linux', architecture: 'arm64', containers: []} as T;
+  if (method === 'image_detail') {
+    const postgres = params.id === sampleImages[1].ID;
+    return {id: params.id, tags: [postgres ? 'postgres:16' : 'redis:7'], digests: [], created: '2026-09-09T08:00:00Z', size: postgres ? 432000000 : 117000000, os: 'linux', architecture: 'arm64', containers: postgres ? [{id: samples[1].id, name: samples[1].name, state: samples[1].state}] : []} as T;
+  }
   throw new Error('浏览器预览不执行操作');
 }
 

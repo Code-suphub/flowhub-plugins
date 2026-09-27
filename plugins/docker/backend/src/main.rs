@@ -1,5 +1,6 @@
 use serde_json::{json, Value};
 mod management;
+mod terminal;
 use std::{
     path::PathBuf,
     process::Stdio,
@@ -279,6 +280,9 @@ async fn dispatch(method: &str, p: &Value) -> Result<Value, String> {
     manage(method, p).await
 }
 async fn manage(method: &str, p: &Value) -> Result<Value, String> {
+    if method.starts_with("terminal_") {
+        return terminal::dispatch(method, p).await;
+    }
     if ["images", "image_detail", "image_remove", "container_remove"].contains(&method) {
         return management::dispatch(method, p).await;
     }
@@ -353,6 +357,12 @@ async fn manage(method: &str, p: &Value) -> Result<Value, String> {
 #[tokio::main]
 async fn main() {
     tokio::spawn(collect_status());
+    tokio::spawn(async {
+        loop {
+            tokio::time::sleep(Duration::from_secs(30)).await;
+            terminal::sweep();
+        }
+    });
     let mut input = BufReader::new(tokio::io::stdin()).lines();
     let mut output = tokio::io::stdout();
     while let Ok(Some(line)) = input.next_line().await {
@@ -376,6 +386,7 @@ async fn main() {
         }
         let _ = output.flush().await;
     }
+    terminal::shutdown();
 }
 #[cfg(test)]
 mod tests {

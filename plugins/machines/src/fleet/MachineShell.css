@@ -1,5 +1,4 @@
 .embedded .masthead { padding: 16px 22px 12px; }
-.embedded .masthead .eyebrow { display: none; }
 .embedded .masthead h1 { margin: 0; font-size: 20px; }
 .embedded main { padding: 16px 22px 28px; }
 .embedded .notice { padding: 9px 22px; }
@@ -11,6 +10,7 @@
   border-bottom: 1px solid var(--line);
   background: color-mix(in srgb, var(--fh-canvas,#0d1410) 72%, transparent);
 }
+.masthead h1 { margin: 0; }
 .version { margin-left: 12px; padding: 3px 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--accent); font: 10px Menlo, monospace; vertical-align: middle; }
 main { width: min(100%, 1440px); margin: 0 auto; padding: 18px clamp(20px, 4vw, 56px) 40px; }
 .notice { margin: 0; padding: 10px clamp(20px, 4vw, 56px); border-bottom: 1px solid var(--line); background: var(--fh-surface,#1b2b21); color: var(--accent); white-space: pre-wrap; overflow-wrap: anywhere; }

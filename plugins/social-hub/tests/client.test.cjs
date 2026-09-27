@@ -93,6 +93,7 @@ test('source entry uses one React root, separate forms, and removes the legacy U
   const app = fs.readFileSync(path.join(root, 'src/App.tsx'), 'utf8');
   assert.match(app, /@flowhub\/plugin-common\/react/);
   assert.match(app, /id="social-oauth-form"/);
+  assert.match(app, /contentClassName="social-hub__dialog-shell"/);
   assert.match(app, /className="social-hub__composer"/);
   assert.match(app, /\[drafts, setDrafts\]/);
   assert.doesNotMatch(app, /FLOWHUB \/ SOCIAL INBOX|>INBOX</);
@@ -104,6 +105,8 @@ test('production style guard rejects missing links and missing layout rules', as
   const html = fs.readFileSync(path.join(__dirname, '../ui/index.html'), 'utf8');
   const css = fs.readFileSync(path.join(__dirname, '../src/styles.css'), 'utf8');
   assert.doesNotThrow(() => checkStyle(html, css));
+  assert.match(css, /\.social-hub__dialog\s*\{[^}]*height:min\(/);
+  assert.match(css, /\.social-hub__dialog-shell\s*\{[^}]*grid-template-rows:auto minmax\(0,1fr\) auto/);
   assert.throws(() => checkStyle(html.replace(/<link[^>]+>/g, ''), css), /production stylesheet/);
   assert.throws(() => checkStyle(html, ''), /workspace layout/);
 });

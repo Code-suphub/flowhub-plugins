@@ -67,8 +67,10 @@
   .social-hub__oauth-result strong {color:var(--fh-text)}
   .social-hub__oauth-result span {color:var(--fh-muted)}
   .social-hub__oauth-result a {color:var(--fh-accent);font-weight:600;text-decoration:underline;text-underline-offset:3px}
-  .social-hub__dialog {width:min(480px,calc(100vw - 28px))}
 }
+
+.social-hub__dialog {width:min(480px,calc(100vw - 28px));height:min(500px,calc(100dvh - 28px));max-height:calc(100dvh - 28px)}
+.social-hub__dialog-shell {height:100%;grid-template-rows:auto minmax(0,1fr) auto}
 
 @media (max-width:760px) {
   .social-hub__header,.social-hub__thread-header {flex-direction:column}

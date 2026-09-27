@@ -46,6 +46,8 @@ const MEASURE_FLEET = `(() => {
   const controls = visible('#filter, #group, #interval, #addHost');
   const search = root.querySelector('#filter').getBoundingClientRect();
   const group = root.querySelector('.fleet__filter .fh-combobox__control').getBoundingClientRect();
+  const hostHeader = root.querySelector('.fleet__table-wrap .fh-table th.fleet__host-cell');
+  const identities = [...root.querySelectorAll('.fleet__identity')];
   return {
     width: innerWidth,
     pageOverflow: document.documentElement.scrollWidth - innerWidth,
@@ -61,6 +63,10 @@ const MEASURE_FLEET = `(() => {
     filterHeight: root.querySelector('.fleet__filter').getBoundingClientRect().height,
     inlineFilters: Math.abs(search.top - group.top) < 2,
     extraSearchIcon: Boolean(root.querySelector('.fleet__search-icon')),
+    hostHeader: hostHeader?.textContent.trim(),
+    hostWidth: hostHeader?.getBoundingClientRect().width,
+    hostGroups: identities.map(identity => identity.querySelector('small')?.textContent.trim()),
+    aliasHidden: identities.every(identity => !identity.textContent.includes(identity.title.replace('连接标识：', ''))),
     summary: visible('.fleet__summary').length
   };
 })()`;
@@ -70,7 +76,7 @@ const VIEWS = [
     label: 'React 机器列表',
     show: "document.querySelector('.machine-tabs [data-tabs-value=\"fleet\"]').click();",
     measure: MEASURE_FLEET,
-    columns: [['宽度', row => row.width], ['页溢出', row => row.pageOverflow], ['机器', row => row.machines], ['布局', row => row.layout], ['旧节点', row => row.legacyNodes]],
+    columns: [['宽度', row => row.width], ['机器列', row => Math.round(row.hostWidth)], ['页溢出', row => row.pageOverflow], ['机器', row => row.machines], ['布局', row => row.layout], ['旧节点', row => row.legacyNodes]],
     check: row => {
       const problems = [];
       if (row.pageOverflow > 0) problems.push('页面横向溢出');
@@ -79,6 +85,9 @@ const VIEWS = [
       if (row.legacyNodes) problems.push('旧列表或导入节点残留');
       if (row.controlsOverflow) problems.push('操作控件超出视口');
       if (row.extraSearchIcon) problems.push('搜索框仍有图标');
+      if (row.hostHeader !== '机器' || row.hostGroups.join('|') !== '开发环境|测试环境' || !row.aliasHidden) problems.push('机器列标题、副行或别名展示异常');
+      if (row.width >= 850 && (row.hostWidth < 215 || row.hostWidth > 310)) problems.push('机器列桌面宽度异常');
+      if (row.width <= 600 && row.hostWidth > 190) problems.push('机器列窄屏宽度异常');
       if (row.groupWidth < 160 || Math.abs(row.searchHeight - row.groupHeight) > 1 || row.filterHeight > row.groupHeight + 1) problems.push('分组筛选尺寸或单行布局异常');
       if (row.width > 520 && !row.inlineFilters) problems.push('搜索和分组筛选没有在同一行');
       if (row.summary !== 1) problems.push('紧凑统计缺失');
@@ -559,6 +568,19 @@ async function main() {
           trigger.focus(); trigger.click(); await frame();
           const dialogs = [...document.querySelectorAll('dialog[open]')];
           if (dialogs.length !== 1) throw Error('Expected one settings dialog');
+          const dialogSize = () => {
+            const { width, height } = dialogs[0].getBoundingClientRect();
+            return { width, height };
+          };
+          const initialDialogSize = dialogSize();
+          const verifyDialogSize = (tab) => {
+            const current = dialogSize();
+            if (Math.abs(current.width - initialDialogSize.width) > 1 || Math.abs(current.height - initialDialogSize.height) > 1) {
+              throw Error('Dialog size changed on ' + tab + ': ' + JSON.stringify({ initialDialogSize, current }));
+            }
+            const { top, bottom } = dialogs[0].getBoundingClientRect();
+            if (top < -1 || bottom > innerHeight + 1) throw Error('Dialog escaped the viewport on ' + tab);
+          };
           if ([...dialogs[0].querySelectorAll('[role="tab"]')].some(tab => parseFloat(getComputedStyle(tab).fontSize) < 14 || tab.getBoundingClientRect().height < 44)) throw Error('Dialog tabs are too small');
           if (selector.includes('monitorSettingsReactRoot')) {
             if (!dialogs[0].querySelector('#monitor-interval') || !dialogs[0].querySelector('#monitor-retention') || dialogs[0].querySelector('.monitor-settings__source')) throw Error('Global monitoring settings still contain per-machine collector fields');
@@ -575,14 +597,38 @@ async function main() {
             if (shown !== helpPanel && !helpPanel.contains(shown)) throw Error('Retention help panel is clipped or covered');
             [...dialogs[0].querySelectorAll('[role="tab"]')].find(tab => tab.textContent.trim() === '历史曲线').click();
             await frame();
-            [...dialogs[0].querySelectorAll('button')].find(button => button.textContent.trim() === '查看曲线').click();
-            for (let attempt=0; attempt<50 && !dialogs[0].querySelector('.fh-time-series svg'); attempt++) await frame();
+            verifyDialogSize('历史曲线');
+            const queries = dialogs[0].querySelector('.monitor-settings__queries');
+            if (queries?.children.length !== 2 || queries.querySelector('[aria-label="指标"]') || [...dialogs[0].querySelectorAll('button')].some(button => button.textContent.trim() === '查看曲线')) throw Error('History must only require machine and time range');
+            for (let attempt=0; attempt<50 && dialogs[0].querySelectorAll('.monitor-settings__charts .fh-time-series svg').length !== 6; attempt++) await frame();
+            if (dialogs[0].querySelectorAll('.monitor-settings__charts .fh-time-series svg').length !== 6) throw Error('All six widget history charts must load automatically');
             const svg = dialogs[0].querySelector('.fh-time-series svg');
             if (!svg) throw Error('Local monitoring chart missing');
             const bounds = svg.getBoundingClientRect();
             svg.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: bounds.left + bounds.width * .5, clientY: bounds.top + bounds.height * .5 }));
             await frame();
             if (!dialogs[0].querySelector('.fh-time-series__tooltip time, .fh-time-series__cursor line')) throw Error('Local monitoring chart hover is missing');
+            dialogs[0].querySelector('.monitor-settings__chart-head button').click(); await frame();
+            const zoom = document.querySelector('dialog.monitor-settings__zoom[open]');
+            if (!zoom?.querySelector('.fh-time-series svg')) throw Error('History chart zoom is missing');
+            zoom.querySelector('button[aria-label="关闭"]').click(); await frame();
+            if (document.querySelector('dialog.monitor-settings__zoom[open]')) throw Error('History chart zoom did not close');
+            if (!document.querySelector('dialog.monitor-settings[open]')) throw Error('Closing history zoom also closed monitoring settings');
+            dialogs[0].querySelector('.monitor-settings__chart-head button').click(); await frame();
+            document.querySelector('dialog.monitor-settings__zoom[open]')?.dispatchEvent(new Event('cancel', { bubbles: true, cancelable: true })); await frame();
+            if (document.querySelector('dialog.monitor-settings__zoom[open]') || !document.querySelector('dialog.monitor-settings[open]')) throw Error('Cancelling history zoom also closed monitoring settings');
+            dialogs[0].querySelector('.monitor-settings__chart-head button').click(); await frame();
+            document.querySelector('dialog.monitor-settings__zoom[open]')?.dispatchEvent(new MouseEvent('click', { bubbles: true })); await frame();
+            if (document.querySelector('dialog.monitor-settings__zoom[open]') || !document.querySelector('dialog.monitor-settings[open]')) throw Error('Dismissing history zoom also closed monitoring settings');
+            [...dialogs[0].querySelectorAll('[role="tab"]')].find(tab => tab.textContent.trim() === '全局采集').click();
+            await frame();
+            verifyDialogSize('全局采集');
+          } else {
+            for (const tabName of ['恢复备份', '创建备份']) {
+              [...dialogs[0].querySelectorAll('[role="tab"]')].find(tab => tab.textContent.trim() === tabName).click();
+              await frame();
+              verifyDialogSize(tabName);
+            }
           }
           const close = [...dialogs[0].querySelectorAll('button')].find(button => button.getAttribute('aria-label') === '关闭' || button.textContent.trim() === '关闭');
           if (!close) throw Error('Dialog close missing');
@@ -673,6 +719,30 @@ async function main() {
       })()` });
       if (navigation.exceptionDetails) throw new Error(navigation.exceptionDetails.exception?.description || 'React Tab 验证失败');
     }
+
+    // A short viewport must keep each tabbed dialog within the screen without resizing it.
+    await client.send('Emulation.setDeviceMetricsOverride', { width: 380, height: 500, deviceScaleFactor: 1, mobile: false });
+    const shortViewport = await client.send('Runtime.evaluate', { awaitPromise: true, returnByValue: true, expression: `(async () => {
+      const frame = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      document.querySelector('.machine-tabs [data-tabs-value="fleet"]').click(); await frame();
+      for (const [triggerSelector, dialogSelector, tabName] of [
+        ['#monitorSettingsReactRoot button', 'dialog.monitor-settings', '历史曲线'],
+        ['#openBackup', 'dialog.backup-workspace', '恢复备份']
+      ]) {
+        document.querySelector(triggerSelector).click(); await frame();
+        const dialog = document.querySelector(dialogSelector + '[open]');
+        if (!dialog) throw Error('Short viewport dialog did not open: ' + dialogSelector);
+        const before = dialog.getBoundingClientRect();
+        [...dialog.querySelectorAll('[role="tab"]')].find(tab => tab.textContent.trim() === tabName).click(); await frame();
+        const after = dialog.getBoundingClientRect();
+        if (Math.abs(before.width - after.width) > 1 || Math.abs(before.height - after.height) > 1 || after.top < -1 || after.bottom > innerHeight + 1) {
+          throw Error('Short viewport dialog resized or overflowed on ' + tabName + ': ' + JSON.stringify({ before: before.toJSON(), after: after.toJSON() }));
+        }
+        dialog.querySelector('button[aria-label="关闭"]').click(); await frame();
+      }
+      return true;
+    })()` });
+    if (shortViewport.exceptionDetails) throw new Error(shortViewport.exceptionDetails.exception?.description || '矮视口弹窗验证失败');
 
 
     const report = [];

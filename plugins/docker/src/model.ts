@@ -33,6 +33,20 @@ export function groupContainers(rows: Container[]): Array<[string, Container[]]>
   return [...groups.entries()];
 }
 
+export function sortGroups(groups: Array<[string, Container[]]>, order: string[]): Array<[string, Container[]]> {
+  const positions = new Map(order.map((name, index) => [name, index]));
+  return [...groups].sort((a, b) => (positions.get(a[0]) ?? Number.MAX_SAFE_INTEGER) - (positions.get(b[0]) ?? Number.MAX_SAFE_INTEGER));
+}
+
+export function reorderGroups(groups: Array<[string, Container[]]>, order: string[], source: string, target: string): string[] {
+  const names = sortGroups(groups, order).map(([name]) => name);
+  const from = names.indexOf(source);
+  const to = names.indexOf(target);
+  if (from < 0 || to < 0 || from === to) return names;
+  names.splice(to, 0, names.splice(from, 1)[0]);
+  return names;
+}
+
 export function actionAvailability(container: Container | null) {
   return {
     start: Boolean(container && ['exited', 'created'].includes(container.state)),

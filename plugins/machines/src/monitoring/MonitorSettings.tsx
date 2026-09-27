@@ -2,17 +2,20 @@ import { useEffect, useRef, useState } from 'react';
 import { Button, Checkbox, DialogShell, Field, HelpPopover, Input, Combobox, Select, Tabs } from '@flowhub/plugin-common/react';
 import type { MachinesApi } from '../api/machines';
 import { TimeSeriesChart } from './TimeSeriesChart';
+import { HISTORY_METRICS, HISTORY_METRIC_KEYS, HISTORY_RANGES, type HistoryMetric } from './history-metrics';
 import './settings.css';
 
 interface Host { id: string; name: string }
 interface Config { hosts: Host[]; retentionDays?: number; interval?: number; monitoring?: boolean }
-interface History { unit: string; data: [number, number | null][] }
-const metrics = [{ value: 'cpu', label: 'CPU 使用率' }, { value: 'memory', label: '内存使用率' }, { value: 'disk', label: '根磁盘使用率' }, { value: 'load', label: '负载' }, { value: 'rx', label: '下载速率' }, { value: 'tx', label: '上传速率' }];
-const ranges = [{ value: '3600', label: '最近 1 小时' }, { value: '86400', label: '最近 1 天' }, { value: '604800', label: '最近 7 天' }, { value: '2592000', label: '最近 30 天' }, { value: '7776000', label: '最近 90 天' }];
+interface History { unit?: string; data?: [number, number | null][]; error?: string }
 const intervals = [{ value: '30', label: '每 30 秒' }, { value: '60', label: '每 60 秒' }, { value: '300', label: '每 5 分钟' }, { value: '900', label: '每 15 分钟' }];
 
-function HistoryChart({ history }: { history: History }) {
-  return <figure className="monitor-settings__chart"><TimeSeriesChart rows={history.data} series={['采样值']} unit={history.unit} label="本地监控历史曲线" /></figure>;
+function HistoryChart({ metric, history, onZoom }: { metric: HistoryMetric; history?: History; onZoom?: () => void }) {
+  const valid = history?.data?.filter(row => Number.isFinite(row[1])) ?? [];
+  return <section className="monitor-settings__chart">
+    <div className="monitor-settings__chart-head"><h3>{HISTORY_METRICS[metric]}</h3><span>{valid.length ? `最近采样 ${(valid.at(-1)![1] as number).toFixed(2)} ${history?.unit ?? ''}` : '暂无数据'}</span>{onZoom ? <Button size="sm" variant="ghost" onClick={onZoom}>放大</Button> : null}</div>
+    {valid.length ? <TimeSeriesChart rows={history!.data!} series={[HISTORY_METRICS[metric]]} unit={history?.unit} colors={['#f7a454']} label={`${HISTORY_METRICS[metric]}历史曲线`} /> : <div className="monitor-settings__chart-empty" role={history?.error ? 'alert' : 'status'}>{history?.error || (!history ? '正在读取历史…' : '这个时间范围没有已保存的采样。')}</div>}
+  </section>;
 }
 
 function SettingsSession({ api, onSaved }: { api: MachinesApi; onSaved: () => void }) {
@@ -22,13 +25,32 @@ function SettingsSession({ api, onSaved }: { api: MachinesApi; onSaved: () => vo
   const [interval, setInterval] = useState('60');
   const [monitoring, setMonitoring] = useState(false);
   const [hostId, setHostId] = useState('');
-  const [metric, setMetric] = useState('cpu');
   const [range, setRange] = useState('86400');
-  const [history, setHistory] = useState<History | null>(null);
+  const [history, setHistory] = useState<Partial<Record<HistoryMetric, History>>>({});
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [zoom, setZoom] = useState<HistoryMetric | null>(null);
   const [status, setStatus] = useState<{ error: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const alive = useRef(true), pending = useRef(false);
+  const historyRequest = useRef(0);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
+  useEffect(() => {
+    if (tab !== 'history') return;
+    const token = ++historyRequest.current;
+    setHistory({});
+    setZoom(null);
+    if (!hostId) { setHistoryLoading(false); return; }
+    setHistoryLoading(true);
+    void Promise.all(HISTORY_METRIC_KEYS.map(async (metric): Promise<readonly [HistoryMetric, History]> => {
+      try { return [metric, await api('metricHistory', { hostId, metric, seconds: Number(range) }) as History]; }
+      catch (reason) { return [metric, { error: `历史读取失败：${String(reason instanceof Error ? reason.message : reason)}` }]; }
+    })).then(entries => {
+      if (alive.current && token === historyRequest.current) setHistory(Object.fromEntries(entries));
+    }).finally(() => {
+      if (alive.current && token === historyRequest.current) setHistoryLoading(false);
+    });
+    return () => { historyRequest.current++; };
+  }, [api, hostId, range, tab]);
 
   async function run(work: () => Promise<void>) {
     if (pending.current) return;
@@ -61,7 +83,7 @@ function SettingsSession({ api, onSaved }: { api: MachinesApi; onSaved: () => vo
           onSaved();
           if (!alive.current) return;
           setConfig({ ...config, retentionDays: retention, interval: Number(interval), monitoring });
-          setHistory(null);
+          setHistory({});
           setStatus({ error: false, text: '监控设置已保存。' });
         });
       }}>
@@ -75,17 +97,16 @@ function SettingsSession({ api, onSaved }: { api: MachinesApi; onSaved: () => vo
     </Tabs.Panel>
     <Tabs.Panel value="history"><div className="monitor-settings__form">
       <div className="monitor-settings__queries">
-        <Combobox placeholder="搜索机器" ariaLabel="机器" value={hostId} options={config.hosts.map(host => ({ value: host.id, label: host.name }))} disabled={busy} onChange={value => { setHostId(value); setHistory(null); }} />
-        <Select ariaLabel="指标" value={metric} options={metrics} disabled={busy} onChange={value => { setMetric(value); setHistory(null); }} />
-        <Select ariaLabel="时间范围" value={range} options={ranges} disabled={busy} onChange={value => { setRange(value); setHistory(null); }} />
-      </div><div className="monitor-settings__actions"><Button disabled={busy || !hostId} onClick={() => void run(async () => {
-        setHistory(null);
-        const result = await api('metricHistory', { hostId, metric, seconds: Number(range) }) as History;
-        if (alive.current) setHistory(result);
-      })}>{busy ? '读取中…' : '查看曲线'}</Button></div>
-      {history ? <HistoryChart history={history} /> : <p>选择机器和时间范围后查询。</p>}
+        <Combobox placeholder="搜索机器" ariaLabel="机器" value={hostId} options={config.hosts.map(host => ({ value: host.id, label: host.name }))} disabled={busy} onChange={setHostId} />
+        <Select ariaLabel="时间范围" value={range} options={HISTORY_RANGES} disabled={busy} onChange={setRange} />
+      </div>
+      {hostId ? <div className="monitor-settings__charts" aria-busy={historyLoading}>{HISTORY_METRIC_KEYS.map(metric => <HistoryChart key={metric} metric={metric} history={history[metric]} onZoom={() => setZoom(metric)} />)}</div> : <p>请选择机器以查看历史曲线。</p>}
+      <p className="monitor-settings__intro">显示已保存的监控采样。未采集、FlowHub 未运行的时段保留空档。</p>
     </div></Tabs.Panel>
     {status ? <p className="monitor-settings__status" data-error={status.error} role={status.error ? 'alert' : 'status'}>{status.text}</p> : null}
+    <DialogShell open={zoom !== null} onOpenChange={open => !open && setZoom(null)} title={zoom ? HISTORY_METRICS[zoom] : ''} className="monitor-settings__zoom">
+      {zoom ? <HistoryChart metric={zoom} history={history[zoom]} /> : null}
+    </DialogShell>
   </Tabs>;
 }
 

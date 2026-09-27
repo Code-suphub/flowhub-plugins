@@ -4,6 +4,17 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
+test('machine pages omit decorative English section labels', () => {
+  for (const file of ['fleet/FleetPage.tsx', 'fleet/MachineShell.tsx', 'command/CommandWorkspace.tsx']) {
+    const source = fs.readFileSync(path.join(__dirname, '../src', file), 'utf8');
+    assert(!/02 \/ MANAGED NODES|NO HOSTS IN VIEW|FLOWHUB \/ LOCAL OPERATIONS|BASTION \/ SHARED SESSION/.test(source), file);
+  }
+  const command = fs.readFileSync(path.join(__dirname, '../src/command/CommandWorkspace.tsx'), 'utf8');
+  assert.match(command, /执行输出/);
+  assert.match(command, /共享终端/);
+  assert(!/SSH CONSOLE|SHARED TERMINAL/.test(command));
+});
+
 test('fleet and command share controlled selection without event bridges', () => {
   for (const file of ['fleet/FleetController.tsx', 'fleet/MachineWorkspace.tsx', 'fleet/main.tsx', 'command/CommandWorkspace.tsx']) {
     const source = fs.readFileSync(path.join(__dirname, '../src', file), 'utf8');
@@ -192,6 +203,7 @@ test('monitor save notifies its parent after success even when the dialog closes
       if (name === '@flowhub/plugin-common/react') return { Tabs: { List() {}, Trigger() {}, Panel() {} } };
       if (name === './settings.css') return {};
       if (name === './TimeSeriesChart') return { TimeSeriesChart() {} };
+      if (name === './history-metrics') return { HISTORY_METRICS: {}, HISTORY_METRIC_KEYS: [], HISTORY_RANGES: [] };
       throw Error(name);
     } });
     exports.SettingsSession({ api: () => new Promise((resolve, reject) => { complete = () => fails ? reject(new Error('save failed')) : resolve({}); }), onSaved: () => saved++ });
