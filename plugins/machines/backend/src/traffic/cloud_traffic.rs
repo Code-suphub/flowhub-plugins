@@ -14,7 +14,7 @@ fn load(root:&Path,host:&str)->Result<Value,String>{
  }
  cloud_load(root,host)
 }
-pub fn read(root:&Path,host:&str)->Value{match load(root,host){Ok(v)=>{let mut result=json!({"configured":true,"provider":provider(&v),"revision":v["revision"]});for k in ["veid","region","instanceId","packageId","site","serverId","netdataId","limitGB","cycleStart"]{result[k]=v[k].clone();}result},Err(_)=>json!({"configured":false})}}
+pub fn read(root:&Path,host:&str)->Value{match load(root,host){Ok(v)=>{let mut result=json!({"configured":true,"provider":provider(&v),"revision":v["revision"]});for k in ["veid","region","instanceId","packageId","site","serverId","netdataId","limitGB","cycleStart","direction"]{result[k]=v[k].clone();}result},Err(_)=>json!({"configured":false})}}
 pub fn save(root:&Path,host:&str,p:&Value)->Result<Value,String>{
  let active=load(root,host).unwrap_or(Value::Null);
  let selected=p["provider"].as_str().unwrap_or("tencent");
@@ -29,11 +29,11 @@ pub fn save(root:&Path,host:&str,p:&Value)->Result<Value,String>{
  "vultr"=>vec!["apiKey"],
  "zgocloud"=>vec!["apiToken","serverId","limitGB"],
  "zgocloudCookie"=>vec!["cookie","xsrfToken","serverId","limitGB"],
- "localNet"=>vec!["netdataId","limitGB","cycleStart"],
- "localSsh"=>vec!["limitGB","cycleStart"],
+ "localNet"=>vec!["netdataId","limitGB","cycleStart","direction"],
+ "localSsh"=>vec!["limitGB","cycleStart","direction"],
  _=>return Err("不支持的云服务商".into())};
  let mut v=json!({"provider":selected,"revision":chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default().to_string()});
- for k in keys{let input=p[k].as_str().unwrap_or("").trim();let secret=["secretId","secretKey","token","apiKey","apiToken","cookie","xsrfToken"].contains(&k);
+ for k in keys{let input=p[k].as_str().unwrap_or("").trim();let input=if k=="direction"&&input.is_empty(){"both"}else{input};let secret=["secretId","secretKey","token","apiKey","apiToken","cookie","xsrfToken"].contains(&k);
   let same_instance=selected!="bandwagon" || k!="apiKey" || p["veid"]==old["veid"];
   v[k]=if input.is_empty()&&secret&&provider(&old)==selected&&same_instance{old[k].clone()}else{json!(input)};
  }
@@ -55,6 +55,7 @@ pub fn save(root:&Path,host:&str,p:&Value)->Result<Value,String>{
   if id.is_empty()||!id.bytes().all(|b|b.is_ascii_digit()){return Err("serverId 应为数字".into());}
  }else if selected=="localNet"||selected=="localSsh" {
   if selected=="localNet"&&v["netdataId"].as_str().unwrap_or("").is_empty(){return Err("请填写 Netdata 节点 ID".into());}
+  if !matches!(v["direction"].as_str(),Some("both"|"tx")){return Err("统计方向必须为双向或仅出站".into());}
   let limit=v["limitGB"].as_str().unwrap_or("");
   if !limit.is_empty()&&!limit.parse::<f64>().is_ok_and(|number|number.is_finite()&&number>0.0){return Err("套餐流量应为大于 0 的 GB 数值".into());}
   let cycle=v["cycleStart"].as_str().unwrap_or("");
@@ -85,7 +86,7 @@ async fn local_traffic_dispatch(root:&Path,v:&Value)->Result<Value,String>{
  let limit_gb=v["limitGB"].as_f64()
   .or_else(||v["limitGB"].as_str().and_then(|s|s.trim().parse::<f64>().ok()))
   .filter(|n|n.is_finite()&&*n>0.0).unwrap_or(0.0);
- crate::traffic::local_traffic::query(&instance,limit_gb,v["cycleStart"].as_str()).await
+ crate::traffic::local_traffic::query(&instance,limit_gb,v["cycleStart"].as_str(),v["direction"].as_str()).await
 }
 fn mac(key:&[u8],text:&str)->Vec<u8>{hmac::sign(&hmac::Key::new(hmac::HMAC_SHA256,key),text.as_bytes()).as_ref().to_vec()}
 fn hash(s:&str)->String{format!("{:x}",Sha256::digest(s.as_bytes()))}
@@ -96,7 +97,7 @@ pub async fn query(root:&Path,host:&str,interval:u64)->Result<Value,String>{
  if provider(&v)=="localNet"{return local_traffic_dispatch(root,&v).await;}
  if provider(&v)=="localSsh"{
   let limit_gb=v["limitGB"].as_str().and_then(|s|s.parse::<f64>().ok()).filter(|n|n.is_finite()&&*n>0.0).unwrap_or(0.0);
-  return crate::traffic::local_traffic::query_ssh(root,host,limit_gb,v["cycleStart"].as_str(),interval);
+  return crate::traffic::local_traffic::query_ssh(root,host,limit_gb,v["cycleStart"].as_str(),v["direction"].as_str(),interval);
  }
  if provider(&v)!="tencent"{return crate::traffic::cloud_providers::query(&v).await;}
  let now=chrono::Utc::now();let timestamp=now.timestamp();let date=now.format("%Y-%m-%d").to_string();
@@ -125,7 +126,7 @@ pub fn summary(data:&Value)->Value{
   let packs=||data["rows"].as_array().into_iter().flatten().flat_map(|row|row["TrafficPackageSet"].as_array().into_iter().flatten());
   let partial=packs().any(|p|p["PartialHistory"]==true);
   let boot_baseline=packs().any(|p|p["BootBaseline"]==true);
-  if total<=0.||partial||boot_baseline{return json!({"mode":"usage","used":used,"partial":partial,"bootBaseline":boot_baseline,"at":data["at"]});}
+  if total<=0.||partial||boot_baseline{return json!({"mode":"usage","used":used,"total":total,"partial":partial,"bootBaseline":boot_baseline,"at":data["at"]});}
   let remaining=data["rows"].as_array().into_iter().flatten().flat_map(|row|row["TrafficPackageSet"].as_array().into_iter().flatten()).filter_map(|p|p["TrafficPackageRemaining"].as_f64()).filter(|n|n.is_finite()&&*n>=0.).sum::<f64>();
   return json!({"remaining":remaining,"total":total,"at":data["at"]});
  }
@@ -142,7 +143,9 @@ pub fn summary(data:&Value)->Value{
 
 #[cfg(test)]mod summary_tests{use super::*;
 #[test]fn excludes_expired_and_future_packages_but_keeps_exhausted(){let data=json!({"at":"test","rows":[{"TrafficPackageSet":[{"TrafficPackageRemaining":0,"TrafficPackageTotal":300},{"TrafficPackageRemaining":100,"TrafficPackageTotal":100,"EndTime":"2000-01-01T00:00:00Z"},{"TrafficPackageRemaining":100,"TrafficPackageTotal":100,"StartTime":"2999-01-01T00:00:00Z"}]}]});let s=summary(&data);assert_eq!(s["remaining"],0.0);assert_eq!(s["total"],300.0);assert!(summary(&json!({"rows":[]}))["error"].is_string());}
-#[test]fn local_net_without_limit_still_reports_usage(){let s=summary(&json!({"provider":"localNet","at":"test","rows":[{"TrafficPackageSet":[{"TrafficUsed":123456789,"TrafficPackageTotal":0}]}]}));assert_eq!(s["mode"],"usage");assert_eq!(s["used"],123456789.0);}}
+#[test]fn local_net_without_limit_still_reports_usage(){let s=summary(&json!({"provider":"localNet","at":"test","rows":[{"TrafficPackageSet":[{"TrafficUsed":123456789,"TrafficPackageTotal":0}]}]}));assert_eq!(s["mode"],"usage");assert_eq!(s["used"],123456789.0);assert_eq!(s["total"],0.0);}
+#[test]fn local_partial_usage_keeps_configured_limit_without_fabricating_remaining(){let s=summary(&json!({"provider":"localSsh","at":"test","rows":[{"TrafficPackageSet":[{"TrafficUsed":42.0,"TrafficPackageTotal":500.0,"TrafficPackageRemaining":458.0,"PartialHistory":true}]}]}));assert_eq!(s["mode"],"usage");assert_eq!(s["used"],42.0);assert_eq!(s["total"],500.0);assert!(s.get("remaining").is_none());}
+#[test]fn local_boot_baseline_keeps_configured_limit_without_fabricating_remaining(){let s=summary(&json!({"provider":"localSsh","at":"test","rows":[{"TrafficPackageSet":[{"TrafficUsed":42.0,"TrafficPackageTotal":500.0,"TrafficPackageRemaining":458.0,"BootBaseline":true}]}]}));assert_eq!(s["mode"],"usage");assert_eq!(s["total"],500.0);assert!(s.get("remaining").is_none());}}
 #[cfg(test)]mod provider_tests{use super::*;
 #[test]fn bandwagon_credentials_are_private_and_cannot_follow_changed_instance(){let dir=std::env::temp_dir().join(format!("cloud-{}",chrono::Utc::now().timestamp_nanos_opt().unwrap()));std::fs::create_dir_all(&dir).unwrap();save(&dir,"h",&json!({"provider":"bandwagon","veid":"123","apiKey":"fixture-private"})).unwrap();let first=read(&dir,"h");assert_eq!(first["provider"],"bandwagon");assert!(!first.to_string().contains("fixture-private"));save(&dir,"h",&json!({"provider":"bandwagon","veid":"123","apiKey":""})).unwrap();assert_ne!(read(&dir,"h")["revision"],first["revision"]);assert_eq!(load(&dir,"h").unwrap()["apiKey"],"fixture-private");assert!(save(&dir,"h",&json!({"provider":"bandwagon","veid":"456"})).is_err());assert_eq!(read(&dir,"h")["veid"],"123");assert!(save(&dir,"h",&json!({"provider":"other"})).is_err());std::fs::remove_dir_all(dir).unwrap();}
 }
@@ -168,10 +171,14 @@ pub fn summary(data:&Value)->Value{
   let dir=std::env::temp_dir().join(format!("local-cycle-{}",chrono::Utc::now().timestamp_nanos_opt().unwrap()));std::fs::create_dir_all(&dir).unwrap();
   let saved=save(&dir,"machine",&json!({"provider":"localSsh","cycleStart":"2025-01-31","limitGB":"500"})).unwrap();
   assert_eq!(saved["cycleStart"],"2025-01-31");assert_eq!(saved["limitGB"],"500");
+  assert_eq!(saved["direction"],"both");
   let saved=save(&dir,"machine",&json!({"provider":"localSsh","cycleStart":"2025-09-16T19:54:19","limitGB":"500"})).unwrap();
   assert_eq!(saved["cycleStart"],"2025-09-16T19:54:19");
+  let saved=save(&dir,"machine",&json!({"provider":"localSsh","cycleStart":"2025-09-16T19:54:19","limitGB":"500","direction":"tx"})).unwrap();
+  assert_eq!(saved["direction"],"tx");
   assert!(save(&dir,"machine",&json!({"provider":"localSsh","cycleStart":"2025-02-30"})).is_err());
   assert!(save(&dir,"machine",&json!({"provider":"localSsh","limitGB":"invalid"})).is_err());
+  assert!(save(&dir,"machine",&json!({"provider":"localSsh","direction":"rx"})).is_err());
   assert_eq!(read(&dir,"machine")["cycleStart"],"2025-09-16T19:54:19");
   std::fs::remove_dir_all(dir).unwrap();
  }

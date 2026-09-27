@@ -1,5 +1,10 @@
 .ct-provider { position: relative; }
 
+.ct-provider > .fh-field {
+  flex: 0 1 34rem;
+  min-width: 0;
+}
+
 .ct-provider > .fh-help {
   position: absolute;
   top: 50%;

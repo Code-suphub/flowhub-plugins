@@ -342,13 +342,13 @@ dialog.host-editor {
 .host-editor .fh-field > .fh-field__label { white-space: nowrap; }
 .host-editor .fh-field > :is(.fh-field__error, .fh-field__hint) { grid-column: 2; }
 
-.host-editor .ct-grid > .fh-field:not(.ct-inline-field) {
-  grid-template-columns: minmax(0, 1fr);
-  align-items: stretch;
+.host-editor .ct-grid > .ct-wide-field {
+  grid-column: 1 / -1;
+  max-width: 44rem;
+  --host-editor-label-width: 16rem;
 }
 
-.host-editor .ct-grid > .fh-field:not(.ct-inline-field) > .fh-field__label { white-space: normal; }
-.host-editor .ct-grid > .fh-field:not(.ct-inline-field) > :is(.fh-field__error, .fh-field__hint) { grid-column: 1; }
+.host-editor .ct-grid--local > .fh-field { --host-editor-label-width: 10rem; }
 
 .host-editor .nd-config-grid > .fh-field { --host-editor-label-width: 6.5rem; }
 .host-editor .nd-network-field { --host-editor-label-width: 6.5rem; }

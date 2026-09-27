@@ -13,10 +13,11 @@ function Gauge({ label, value }: { label: string; value: number | null }) {
 }
 
 function Network({ row, metrics }: { row: WidgetRow; metrics: string[] }) {
-  if (!metrics.some((key) => ['traffic', 'tx', 'rx'].includes(key))) return null;
+  const hasRates = metrics.includes('tx') || metrics.includes('rx');
   const rate = (key: 'tx' | 'rx') => { const value = number(row.values?.[key]); return value == null ? '—' : value >= 1000 ? `${(value / 1000).toFixed(1)} MB/s` : `${value.toFixed(1)} KB/s`; };
-  const quota = metrics.includes('traffic') ? traffic(row.traffic) : null;
-  return <div className="network-row">{quota ? <div className="traffic-metric" title={[quota.title, quota.hint].filter(Boolean).join(" · ")} aria-label={[quota.label, quota.hint].filter(Boolean).join(" · ")}><b>{quota.label}</b></div> : <span />}{metrics.some((key) => ['tx', 'rx'].includes(key)) && <div className="network-rates">{metrics.includes('tx') && <span aria-label={`上传速率 ${rate('tx')}`}>↑ {rate('tx')}</span>}{metrics.includes('rx') && <span aria-label={`下载速率 ${rate('rx')}`}>↓ {rate('rx')}</span>}</div>}</div>;
+  const trafficInfo = metrics.includes('traffic') ? traffic(row.traffic) : null;
+  if (!trafficInfo && !hasRates) return null;
+  return <div className="network-row">{trafficInfo ? <div className="traffic-metric" title={[trafficInfo.title, trafficInfo.hint].filter(Boolean).join(" · ")} aria-label={[trafficInfo.kind === 'usage' ? '流量采集结果' : '', trafficInfo.label, trafficInfo.title, trafficInfo.hint].filter(Boolean).join(" · ")}><b>{trafficInfo.label}</b></div> : <span />}{hasRates && <div className="network-rates">{metrics.includes('tx') && <span aria-label={`上传速率 ${rate('tx')}`}>↑ {rate('tx')}</span>}{metrics.includes('rx') && <span aria-label={`下载速率 ${rate('rx')}`}>↓ {rate('rx')}</span>}</div>}</div>;
 }
 
 function Card({ context }: { context: WidgetContext }) {

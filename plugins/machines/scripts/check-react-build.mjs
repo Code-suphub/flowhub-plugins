@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 
 const ui = path.resolve('build/ui');
 const required = [
@@ -43,7 +44,9 @@ for (const name of ['card', 'detail']) {
   const page = fs.readFileSync(path.join(ui, `widget-${name}.html`), 'utf8');
   if (page.includes('data-flowhub-common')) throw new Error(`Widget ${name} 包含未处理的资源占位符`);
   for (const extension of ['js', 'css']) {
-    if (!page.includes(`widget/${name}.${extension}`)) throw new Error(`Widget ${name} 未引用构建产物`);
+    const asset = `widget/${name}.${extension}`;
+    const hash = createHash('sha256').update(fs.readFileSync(path.join(ui, asset))).digest('hex').slice(0, 12);
+    if (!page.includes(`${asset}?v=${hash}`)) throw new Error(`Widget ${name} 未引用当前构建产物 ${asset}`);
   }
 }
 if (fleetBundle.includes('FlowHubMachineTabs')) throw new Error('构建不应保留旧页签全局桥接');

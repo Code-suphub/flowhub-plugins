@@ -312,16 +312,45 @@ const VIEWS = [
       const providerLabel = document.querySelector('label[for="ct-provider"]').getBoundingClientRect();
       const providerInput = document.querySelector('#ct-provider').getBoundingClientRect();
       if (innerWidth > 440 ? Math.abs(providerLabel.top + providerLabel.height / 2 - providerInput.top - providerInput.height / 2) > 3 || providerLabel.right >= providerInput.left : providerInput.top < providerLabel.bottom) throw Error('服务商标签与下拉框的响应式排列异常');
+      const providerControl = document.querySelector('.ct-provider .fh-combobox__control').getBoundingClientRect();
+      if (innerWidth > 620 && providerControl.width > 450) throw Error('服务商下拉框过宽');
       const providerHelp = document.querySelector('.ct-provider .fh-help__trigger');
       const providerHelpRect = providerHelp?.getBoundingClientRect();
       if (!providerHelpRect || providerHelpRect.left < providerLabel.left + 35 || providerHelpRect.left > providerLabel.left + 90 || Math.abs(providerHelpRect.top + providerHelpRect.height / 2 - providerLabel.top - providerLabel.height / 2) > 6) throw Error('服务商说明未贴近服务商标签');
       providerHelp.click();
       await wait('[role="region"][aria-label="服务商说明"]');
       providerHelp.click();
-      const secretLabel = document.querySelector('label[for="ct-secretId"]').getBoundingClientRect();
-      const secretInput = document.querySelector('#ct-secretId').getBoundingClientRect();
-      if (secretInput.top < secretLabel.bottom) throw Error('长凭证标签不应挤在输入框同一行');
       if (!['ct-region','ct-instanceId'].every(id => document.querySelector('label[for="' + id + '"] .fh-field__required') && document.querySelector('#' + id).required) || document.querySelector('label[for="ct-secretId"] .fh-field__required')) throw Error('云流量必填标记与服务商规则不一致');
+      document.querySelector('.ct-provider .fh-combobox__toggle').click();
+      await wait('#ct-provider-listbox');
+      const providerNames = [...document.querySelectorAll('#ct-provider-listbox [role="option"]')].map(item => item.textContent.trim());
+      document.querySelector('.ct-provider .fh-combobox__toggle').click();
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      for (const name of providerNames) {
+        document.querySelector('.ct-provider .fh-combobox__toggle').click();
+        await wait('#ct-provider-listbox');
+        const option = [...document.querySelectorAll('#ct-provider-listbox [role="option"]')].find(item => item.textContent.trim() === name);
+        if (!option) throw Error('缺少流量来源：' + name);
+        option.click();
+        await wait('.ct-grid > .fh-field');
+        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        const grid = document.querySelector('.ct-grid').getBoundingClientRect();
+        for (const field of document.querySelectorAll('.ct-grid > .fh-field')) {
+          const label = field.querySelector('label');
+          const control = document.getElementById(label.htmlFor);
+          if (!control || label.scrollWidth > label.clientWidth + 2) throw Error(name + ' 的字段标签被截断：' + label.textContent.trim());
+          const labelRect = label.getBoundingClientRect();
+          const controlRect = control.getBoundingClientRect();
+          if (controlRect.right > grid.right + 2 || (innerWidth > 440
+            ? Math.abs(labelRect.top + labelRect.height / 2 - controlRect.top - controlRect.height / 2) > 3 || labelRect.right >= controlRect.left
+            : controlRect.top < labelRect.bottom)) throw Error(name + ' 的字段排列异常：' + label.textContent.trim());
+        }
+        if (name.includes('Netdata 估算')) {
+          const limit = document.querySelector('#ct-limitGB').getBoundingClientRect();
+          const cycle = document.querySelector('#ct-cycleStart').getBoundingClientRect();
+          if (innerWidth > 620 && Math.abs(limit.top - cycle.top) > 2) throw Error('Netdata 套餐流量与月周期起点未在同一行');
+        }
+      }
       ` : ''}
     })()`,
     measure: `(() => {

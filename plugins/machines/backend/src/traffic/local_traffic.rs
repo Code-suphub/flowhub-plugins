@@ -10,6 +10,14 @@ const SECONDS_PER_DAY: f64 = 86_400.0;
 const SHANGHAI_OFFSET_SECONDS: i32 = 8 * 60 * 60;
 const MAX_MONTH_SECONDS: u64 = 31 * 86_400;
 
+fn selected_bytes(rx: f64, tx: f64, direction: Option<&str>) -> f64 {
+    if direction == Some("tx") { tx } else { rx + tx }
+}
+
+fn direction_name(direction: Option<&str>) -> &'static str {
+    if direction == Some("tx") { "tx" } else { "both" }
+}
+
 fn dimension_index(history: &Value, wanted: &[&str]) -> Option<usize> {
     history["labels"].as_array()?.iter().enumerate().find_map(|(i, label)| {
         let name = label.as_str()?.to_ascii_lowercase().replace(['_', '-'], "");
@@ -140,7 +148,7 @@ fn boot_aligned_counters(samples: &[CounterSample], start_ms: i64) -> Option<(f6
     Some((last.rx, last.tx))
 }
 
-pub fn query_ssh(root: &Path, host: &str, limit_gb: f64, cycle_start: Option<&str>, interval: u64) -> Result<Value, String> {
+pub fn query_ssh(root: &Path, host: &str, limit_gb: f64, cycle_start: Option<&str>, direction: Option<&str>, interval: u64) -> Result<Value, String> {
     let now = Utc::now();
     let (start, _, period_days, start_local, end_local) = current_month_window(now, cycle_start)?;
     let path = root.join("commands.sqlite3");
@@ -165,7 +173,7 @@ pub fn query_ssh(root: &Path, host: &str, limit_gb: f64, cycle_start: Option<&st
         (rx, tx) = counters;
         partial = false;
     }
-    let used = rx + tx;
+    let used = selected_bytes(rx, tx, direction);
     let limit_bytes = limit_gb * GIB;
     let daily_days = if partial { ((now.timestamp_millis() - samples[0].at_ms) as f64 / 86_400_000.0).max(1.0 / 86_400.0) } else { period_days };
     let daily_avg = used / daily_days;
@@ -181,7 +189,7 @@ pub fn query_ssh(root: &Path, host: &str, limit_gb: f64, cycle_start: Option<&st
                 "PartialHistory":partial,
                 "BootBaseline":boot_baseline,
                 "CycleType":if cycle_start.is_some_and(|value|!value.is_empty()) { "purchaseDay" } else { "calendarMonth" },
-                "RxBytes":rx, "TxBytes":tx, "DailyAverage":daily_avg,
+                "RxBytes":rx, "TxBytes":tx, "TrafficDirection":direction_name(direction), "DailyAverage":daily_avg,
                 "DaysRemaining":if partial || limit_gb<=0.0 || daily_avg<=0.0 { None } else { Some(remaining/daily_avg) },
                 "PeriodDays":period_days, "LimitGB":limit_gb,
                 "PercentUsed":if partial || limit_gb<=0.0 { None } else { Some((used/limit_bytes*100.0).clamp(0.0,100.0)) }
@@ -190,7 +198,7 @@ pub fn query_ssh(root: &Path, host: &str, limit_gb: f64, cycle_start: Option<&st
     }))
 }
 
-pub async fn query(instance: &crate::monitoring::netdata::Instance, limit_gb: f64, cycle_start: Option<&str>) -> Result<Value, String> {
+pub async fn query(instance: &crate::monitoring::netdata::Instance, limit_gb: f64, cycle_start: Option<&str>, direction: Option<&str>) -> Result<Value, String> {
     instance.validate()?;
 
     let chart = if instance.network_chart.is_empty() {
@@ -206,7 +214,7 @@ pub async fn query(instance: &crate::monitoring::netdata::Instance, limit_gb: f6
     // Netdata down-samples to 180 points. Treat gaps and truncated retention
     // as partial data instead of presenting a false package balance.
     let (partial, first_sample) = history_is_partial(&history, month_start, now.timestamp())?;
-    let total = period_rx + period_tx;
+    let total = selected_bytes(period_rx, period_tx, direction);
     let covered_days = if partial { ((now.timestamp() - first_sample) as f64 / SECONDS_PER_DAY).max(1.0 / SECONDS_PER_DAY) } else { period_days };
     let daily_avg = if total > 0.0 {
         total / covered_days
@@ -247,6 +255,7 @@ pub async fn query(instance: &crate::monitoring::netdata::Instance, limit_gb: f6
                 "CycleType": if cycle_start.is_some_and(|value| !value.is_empty()) { "purchaseDay" } else { "calendarMonth" },
                 "RxBytes": period_rx,
                 "TxBytes": period_tx,
+                "TrafficDirection": direction_name(direction),
                 "DailyAverage": daily_avg,
                 "DaysRemaining": if partial { None } else { Some(days_remaining) },
                 "PeriodDays": period_days,
@@ -274,6 +283,13 @@ mod tests {
         let (rx, tx) = history_bytes(&data, 1000.0, 1010.0).unwrap();
         assert_eq!(rx, 10_000.0);
         assert_eq!(tx, 20_000.0);
+    }
+
+    #[test]
+    fn local_direction_defaults_to_both_and_can_count_outbound_only() {
+        assert_eq!(selected_bytes(70.0, 90.0, None), 160.0);
+        assert_eq!(selected_bytes(70.0, 90.0, Some("both")), 160.0);
+        assert_eq!(selected_bytes(70.0, 90.0, Some("tx")), 90.0);
     }
 
     #[test]
@@ -417,9 +433,15 @@ mod tests {
             db.execute("INSERT INTO metric_samples VALUES (?1,'machine',?2,'success','ssh',?3)", params![id, at, json!({"netRxBytes":rx,"netTxBytes":tx,"uptime":1000+(at-now+120_000)/1000}).to_string()]).unwrap();
         }
         drop(db);
-        let result = query_ssh(&root, "machine", 500.0, Some("2025-01-31"), 60).unwrap();
+        let result = query_ssh(&root, "machine", 500.0, Some("2025-01-31"), None, 60).unwrap();
         let pack = &result["rows"][0]["TrafficPackageSet"][0];
         assert_eq!(pack["TrafficUsed"], 900.0);
+        let outbound = query_ssh(&root, "machine", 500.0, Some("2025-01-31"), Some("tx"), 60).unwrap();
+        let outbound_pack = &outbound["rows"][0]["TrafficPackageSet"][0];
+        assert_eq!(outbound_pack["TrafficUsed"], 500.0);
+        assert_eq!(outbound_pack["RxBytes"], 400.0);
+        assert_eq!(outbound_pack["TxBytes"], 500.0);
+        assert_eq!(outbound_pack["TrafficDirection"], "tx");
         assert_eq!(pack["PartialHistory"], true);
         assert!(pack["TrafficPackageRemaining"].is_null());
         std::fs::remove_dir_all(root).unwrap();

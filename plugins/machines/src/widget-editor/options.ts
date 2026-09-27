@@ -10,7 +10,7 @@ export interface DisplayOption {
 }
 
 export const DISPLAY_OPTIONS: readonly DisplayOption[] = [
-  { value: 'traffic', label: '剩余流量（云服务商）' },
+  { value: 'traffic', label: '流量（采集量／套餐余量）' },
   { value: 'cpu', label: 'CPU' },
   { value: 'memory', label: '内存' },
   { value: 'disk', label: '磁盘' },
@@ -31,7 +31,7 @@ export const DEFAULT_METRICS: readonly MachineMetricKey[] = [
 export const EDITOR_LABELS = {
   machine: '目标机器',
   metrics: '显示指标',
-  trafficHint: '剩余流量需先在机器管理 → 云流量中保存该机器的配置。每 5 分钟更新。',
+  trafficHint: '根据来源显示网卡采集量或云服务商套餐余量；统计口径可在机器管理 → 监控与流量中查看。',
   loading: '正在读取组件配置…',
   noMachines: '没有可用机器，请先在机器管理中添加机器。',
   loaded: (count: number) => `已载入 ${count} 台机器`,
