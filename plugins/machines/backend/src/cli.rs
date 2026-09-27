@@ -12,11 +12,31 @@ pub async fn request(ctx: Context, value: Value) -> Result<Value, String> {
         return Ok(Value::Array(hosts.iter().map(|h| json!({"id":h["id"],"alias":h["alias"],"name":h["name"],"group":h["group"],"readOnly":h["readOnly"],"connectionType":if h["bastion"].is_object(){"bastion"}else{"ssh"}})).collect()));
     }
     if action == "status" { return Ok(ctx.runtime.status_snapshot()); }
-    if !["collect", "query", "exec"].contains(&action) { return Err("支持 list、status、collect、query、exec".into()); }
+    if !["collect", "query", "exec", "traffic-source-ssh", "traffic-cycle-start"].contains(&action) { return Err("支持 list、status、collect、query、exec、traffic-source-ssh、traffic-cycle-start".into()); }
     let target = value["target"].as_str().ok_or("缺少机器 ID 或别名")?;
     let matched: Vec<_> = hosts.iter().filter(|h| h["id"].as_str()==Some(target) || h["alias"].as_str()==Some(target)).collect();
     if matched.len()!=1 { return Err("机器不存在或别名不唯一，请使用机器 ID".into()); }
     let host = matched[0];
+    if action == "traffic-source-ssh" {
+        let host_id=host["id"].as_str().ok_or("机器 ID 无效")?;
+        let current=crate::machines::machines_api(ctx.clone(),"trafficRead".into(),json!({"hostId":host_id})).await?;
+        return crate::machines::machines_api(ctx,"trafficSave".into(),json!({
+            "hostId":host_id,"provider":"localSsh",
+            "limitGB":current["limitGB"].as_str().unwrap_or(""),
+            "cycleStart":current["cycleStart"].as_str().unwrap_or("")
+        })).await;
+    }
+    if action == "traffic-cycle-start" {
+        let host_id=host["id"].as_str().ok_or("机器 ID 无效")?;
+        let current=crate::machines::machines_api(ctx.clone(),"trafficRead".into(),json!({"hostId":host_id})).await?;
+        if current["provider"]!="localSsh" { return Err("仅支持修改已启用 SSH 网卡计数器的机器".into()); }
+        let cycle=value["command"].as_str().ok_or("缺少北京时间月周期起点")?;
+        crate::traffic::local_traffic::validate_cycle_start(cycle)?;
+        return crate::machines::machines_api(ctx,"trafficSave".into(),json!({
+            "hostId":host_id,"provider":"localSsh",
+            "limitGB":current["limitGB"].as_str().unwrap_or(""),"cycleStart":cycle
+        })).await;
+    }
     let command = value["command"].as_str().unwrap_or("");
     if action == "query" && !crate::machines::query_allowed(command) { return Err("查询仅支持 uptime、hostname、uname -a、df -h /、free -m".into()); }
     let mut bytes=[0u8;16];
@@ -62,7 +82,7 @@ pub async fn serve(ctx: Context, root: &Path) -> Result<(), String> {
 
 pub async fn run(args: &[String]) -> Result<(), String> {
     if args.is_empty() || args[0]=="--help" {
-        println!("flowhub-machines --cli list|status\nflowhub-machines --cli collect <机器ID或别名>\nflowhub-machines --cli query <机器> 'uptime'\nflowhub-machines --cli exec <机器> '命令'\n连接正在运行的 FlowHub 机器插件，返回 JSON；FLOWHUB_PLUGIN_DATA 可指定数据目录。");
+        println!("flowhub-machines --cli list|status\nflowhub-machines --cli collect <机器ID或别名>\nflowhub-machines --cli query <机器> 'uptime'\nflowhub-machines --cli exec <机器> '命令'\nflowhub-machines --cli traffic-source-ssh <机器ID或别名>\nflowhub-machines --cli traffic-cycle-start <机器ID或别名> <YYYY-MM-DDTHH:mm:ss>\n连接正在运行的 FlowHub 机器插件，返回 JSON；FLOWHUB_PLUGIN_DATA 可指定数据目录。周期起点按北京时间解释。");
         return Ok(());
     }
     let root=std::env::var_os("FLOWHUB_PLUGIN_DATA").map(std::path::PathBuf::from).or_else(||dirs::home_dir().map(|h|h.join("Library/Application Support/FlowHub/machines"))).ok_or("找不到插件目录")?;

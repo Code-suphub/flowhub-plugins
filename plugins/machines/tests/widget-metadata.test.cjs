@@ -8,9 +8,12 @@ test('traffic distinguishes exhausted quota from missing and stale data',()=>{co
 
 test('cloud usage and shared quota cannot be confused with instance balance',()=>{
  const at='2026-09-13T00:00:00Z',now=Date.parse(at);
- assert.match(traffic({mode:'usage',used:2e9,divisor:1e9,at},now).label,/已用 2 GB/);
+ assert.match(traffic({mode:'usage',used:2e9,divisor:1e9,at},now).label,/本期估算已用 2 GB/);
  assert.doesNotMatch(traffic({mode:'usage',used:2e9,divisor:1e9,at},now).label,/2\//);
  assert.match(traffic({scope:'account',remaining:9e9,total:10e9,divisor:1e9,at},now).label,/共享 9\/10 GB/);
  assert.match(traffic({scope:'region:us-east',remaining:0,total:1e9,divisor:1e9,at},now).label,/共享 0\/1 GB/);
  assert.match(traffic({mode:'usage',used:2e9,at},now+900001).hint,/已过期/);
+ assert.match(traffic({mode:'usage',used:1048576,partial:true,at},now).label,/本期已采集 1 MiB/);
+ assert.match(traffic({mode:'usage',used:1048576,partial:true,at},now).title,/历史不完整/);
+ assert.match(traffic({mode:'usage',used:250*1073741824,bootBaseline:true,at},now).label,/本期估算已用 250 GiB/);
 });

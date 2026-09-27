@@ -33,6 +33,7 @@ test('common multi combobox filters, toggles, caps selection and preserves it on
   const input = () => find(node => node.props?.role === 'combobox');
   const option = id => find(node => node.props?.role === 'option' && node.props.id.endsWith(`-${id}`));
   render(); input().props.onFocus(); render();
+  assert.equal(find(node => node.props?.className?.includes('fh-combobox__menu')).props.style.overscrollBehavior, 'contain');
   option(0).props.onClick(); render();
   assert.deepEqual(value, ['0']);
   assert.equal(input().props['aria-expanded'], true);

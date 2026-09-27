@@ -5,11 +5,22 @@ use ring::hmac;
 use std::path::Path;
 // Retain the original vault account so existing Tencent credentials migrate in place.
 fn account(host:&str)->String{format!("tencent-traffic:{host}")}
-fn load(root:&Path,host:&str)->Result<Value,String>{serde_json::from_slice(&crate::data::vault::read(root,&account(host))?).map_err(|_|"云流量配置损坏".into())}
-pub fn read(root:&Path,host:&str)->Value{match load(root,host){Ok(v)=>{let mut result=json!({"configured":true,"provider":provider(&v),"revision":v["revision"]});for k in ["veid","region","instanceId","packageId","site","serverId","netdataId","limitGB"]{result[k]=v[k].clone();}result},Err(_)=>json!({"configured":false})}}
+fn ssh_account(host:&str)->String{format!("ssh-traffic:{host}")}
+fn cloud_load(root:&Path,host:&str)->Result<Value,String>{serde_json::from_slice(&crate::data::vault::read(root,&account(host))?).map_err(|_|"云流量配置损坏".into())}
+fn load(root:&Path,host:&str)->Result<Value,String>{
+ if let Ok(bytes)=crate::data::vault::read(root,&ssh_account(host)){
+  let local:Value=serde_json::from_slice(&bytes).map_err(|_|"SSH 流量配置损坏")?;
+  if local["provider"]=="localSsh"{return Ok(local);}
+ }
+ cloud_load(root,host)
+}
+pub fn read(root:&Path,host:&str)->Value{match load(root,host){Ok(v)=>{let mut result=json!({"configured":true,"provider":provider(&v),"revision":v["revision"]});for k in ["veid","region","instanceId","packageId","site","serverId","netdataId","limitGB","cycleStart"]{result[k]=v[k].clone();}result},Err(_)=>json!({"configured":false})}}
 pub fn save(root:&Path,host:&str,p:&Value)->Result<Value,String>{
- let old=load(root,host).unwrap_or(Value::Null);
+ let active=load(root,host).unwrap_or(Value::Null);
  let selected=p["provider"].as_str().unwrap_or("tencent");
+ // SSH estimates use a separate encrypted slot so changing the active source
+ // never overwrites the provider's saved credentials.
+ let old=if active["provider"]=="localSsh"&&selected!="localSsh"{cloud_load(root,host).unwrap_or(Value::Null)}else{active.clone()};
  let keys:Vec<&str>=match selected {
  "tencent"|"aliyun"|"aws"=>vec!["secretId","secretKey","region","instanceId","token"],
  "bandwagon"=>vec!["veid","apiKey"],
@@ -18,7 +29,8 @@ pub fn save(root:&Path,host:&str,p:&Value)->Result<Value,String>{
  "vultr"=>vec!["apiKey"],
  "zgocloud"=>vec!["apiToken","serverId","limitGB"],
  "zgocloudCookie"=>vec!["cookie","xsrfToken","serverId","limitGB"],
- "localNet"=>vec!["netdataId","limitGB"],
+ "localNet"=>vec!["netdataId","limitGB","cycleStart"],
+ "localSsh"=>vec!["limitGB","cycleStart"],
  _=>return Err("不支持的云服务商".into())};
  let mut v=json!({"provider":selected,"revision":chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default().to_string()});
  for k in keys{let input=p[k].as_str().unwrap_or("").trim();let secret=["secretId","secretKey","token","apiKey","apiToken","cookie","xsrfToken"].contains(&k);
@@ -41,11 +53,19 @@ pub fn save(root:&Path,host:&str,p:&Value)->Result<Value,String>{
   if v["xsrfToken"].as_str().unwrap_or("").is_empty(){return Err("请填写 XSRF Token".into());}
   let id=v["serverId"].as_str().unwrap_or("");
   if id.is_empty()||!id.bytes().all(|b|b.is_ascii_digit()){return Err("serverId 应为数字".into());}
- }else if selected=="localNet" {
-  if v["netdataId"].as_str().unwrap_or("").is_empty(){return Err("请填写 Netdata 节点 ID".into());}
+ }else if selected=="localNet"||selected=="localSsh" {
+  if selected=="localNet"&&v["netdataId"].as_str().unwrap_or("").is_empty(){return Err("请填写 Netdata 节点 ID".into());}
+  let limit=v["limitGB"].as_str().unwrap_or("");
+  if !limit.is_empty()&&!limit.parse::<f64>().is_ok_and(|number|number.is_finite()&&number>0.0){return Err("套餐流量应为大于 0 的 GB 数值".into());}
+  let cycle=v["cycleStart"].as_str().unwrap_or("");
+  crate::traffic::local_traffic::validate_cycle_start(cycle)?;
  }else{if p["clearToken"]==true{v["token"]=json!("");}crate::traffic::cloud_providers::validate(&v)?;}
  if v.to_string().len()>16384{return Err("云流量配置过长".into());}
- crate::data::vault::save(root,&account(host),&serde_json::to_vec(&v).map_err(|e|e.to_string())?)?;
+ let target=if selected=="localSsh"{ssh_account(host)}else{account(host)};
+ crate::data::vault::save(root,&target,&serde_json::to_vec(&v).map_err(|e|e.to_string())?)?;
+ if selected!="localSsh"&&active["provider"]=="localSsh"{
+  crate::data::vault::save(root,&ssh_account(host),b"{}")?;
+ }
  Ok(read(root,host))
 }
 fn provider(v:&Value)->&str{v["provider"].as_str().unwrap_or("tencent")}
@@ -65,15 +85,19 @@ async fn local_traffic_dispatch(root:&Path,v:&Value)->Result<Value,String>{
  let limit_gb=v["limitGB"].as_f64()
   .or_else(||v["limitGB"].as_str().and_then(|s|s.trim().parse::<f64>().ok()))
   .filter(|n|n.is_finite()&&*n>0.0).unwrap_or(0.0);
- crate::traffic::local_traffic::query(&instance,limit_gb).await
+ crate::traffic::local_traffic::query(&instance,limit_gb,v["cycleStart"].as_str()).await
 }
 fn mac(key:&[u8],text:&str)->Vec<u8>{hmac::sign(&hmac::Key::new(hmac::HMAC_SHA256,key),text.as_bytes()).as_ref().to_vec()}
 fn hash(s:&str)->String{format!("{:x}",Sha256::digest(s.as_bytes()))}
-pub async fn query(root:&Path,host:&str)->Result<Value,String>{
+pub async fn query(root:&Path,host:&str,interval:u64)->Result<Value,String>{
  let v=load(root,host).map_err(|_|"请先保存云流量配置")?;
  if provider(&v)=="bandwagon"{return crate::traffic::bandwagon::query(&v).await;}
  if provider(&v)=="zgocloud"||provider(&v)=="zgocloudCookie"{return crate::traffic::zgocloud::query(&v).await;}
  if provider(&v)=="localNet"{return local_traffic_dispatch(root,&v).await;}
+ if provider(&v)=="localSsh"{
+  let limit_gb=v["limitGB"].as_str().and_then(|s|s.parse::<f64>().ok()).filter(|n|n.is_finite()&&*n>0.0).unwrap_or(0.0);
+  return crate::traffic::local_traffic::query_ssh(root,host,limit_gb,v["cycleStart"].as_str(),interval);
+ }
  if provider(&v)!="tencent"{return crate::traffic::cloud_providers::query(&v).await;}
  let now=chrono::Utc::now();let timestamp=now.timestamp();let date=now.format("%Y-%m-%d").to_string();
  let body=json!({"InstanceIds":[v["instanceId"]],"Limit":100}).to_string();
@@ -95,10 +119,13 @@ pub async fn query(root:&Path,host:&str)->Result<Value,String>{
 #[cfg(test)]mod tests{use super::*;#[test]fn credentials_survive_reopen_without_returning_secrets(){let dir=std::env::temp_dir().join(format!("tc-{}",chrono::Utc::now().timestamp_nanos_opt().unwrap()));std::fs::create_dir_all(&dir).unwrap();let p=json!({"secretId":"fixture-id","secretKey":"fixture-secret","region":"ap-shanghai","instanceId":"lhins-test"});save(&dir,"host1",&p).unwrap();assert!(!read(&dir,"host1").to_string().contains("fixture"));save(&dir,"host1",&json!({"region":"ap-singapore","instanceId":"lhins-next"})).unwrap();assert_eq!(load(&dir,"host1").unwrap()["secretKey"],"fixture-secret");assert!(!read(&dir,"host2")["configured"].as_bool().unwrap());std::fs::remove_dir_all(dir).unwrap();}}
 
 pub fn summary(data:&Value)->Value{
- if data["provider"]=="localNet"{
+ if data["provider"]=="localNet"||data["provider"]=="localSsh"{
   let used=data["rows"].as_array().into_iter().flatten().flat_map(|row|row["TrafficPackageSet"].as_array().into_iter().flatten()).filter_map(|p|p["TrafficUsed"].as_f64()).filter(|n|n.is_finite()&&*n>=0.).sum::<f64>();
   let total=data["rows"].as_array().into_iter().flatten().flat_map(|row|row["TrafficPackageSet"].as_array().into_iter().flatten()).filter_map(|p|p["TrafficPackageTotal"].as_f64()).filter(|n|n.is_finite()&&*n>0.).sum::<f64>();
-  if total<=0.{return json!({"mode":"usage","used":used,"at":data["at"]});}
+  let packs=||data["rows"].as_array().into_iter().flatten().flat_map(|row|row["TrafficPackageSet"].as_array().into_iter().flatten());
+  let partial=packs().any(|p|p["PartialHistory"]==true);
+  let boot_baseline=packs().any(|p|p["BootBaseline"]==true);
+  if total<=0.||partial||boot_baseline{return json!({"mode":"usage","used":used,"partial":partial,"bootBaseline":boot_baseline,"at":data["at"]});}
   let remaining=data["rows"].as_array().into_iter().flatten().flat_map(|row|row["TrafficPackageSet"].as_array().into_iter().flatten()).filter_map(|p|p["TrafficPackageRemaining"].as_f64()).filter(|n|n.is_finite()&&*n>=0.).sum::<f64>();
   return json!({"remaining":remaining,"total":total,"at":data["at"]});
  }
@@ -132,6 +159,34 @@ pub fn summary(data:&Value)->Value{
    let stored=load(&dir,provider).unwrap();let key=if ["linode","vultr"].contains(&provider){"apiKey"}else{"secretKey"};assert!(stored[key].as_str().unwrap().starts_with("private"));
    let next=if provider=="vultr"{"linode"}else{"vultr"};assert!(save(&dir,provider,&json!({"provider":next})).is_err());assert_eq!(read(&dir,provider)["provider"],provider);
   }
+  std::fs::remove_dir_all(dir).unwrap();
+ }
+}
+
+#[cfg(test)]mod local_period_storage_tests{use super::*;
+ #[test]fn ssh_cycle_date_is_public_and_invalid_date_is_rejected(){
+  let dir=std::env::temp_dir().join(format!("local-cycle-{}",chrono::Utc::now().timestamp_nanos_opt().unwrap()));std::fs::create_dir_all(&dir).unwrap();
+  let saved=save(&dir,"machine",&json!({"provider":"localSsh","cycleStart":"2025-01-31","limitGB":"500"})).unwrap();
+  assert_eq!(saved["cycleStart"],"2025-01-31");assert_eq!(saved["limitGB"],"500");
+  let saved=save(&dir,"machine",&json!({"provider":"localSsh","cycleStart":"2025-09-16T19:54:19","limitGB":"500"})).unwrap();
+  assert_eq!(saved["cycleStart"],"2025-09-16T19:54:19");
+  assert!(save(&dir,"machine",&json!({"provider":"localSsh","cycleStart":"2025-02-30"})).is_err());
+  assert!(save(&dir,"machine",&json!({"provider":"localSsh","limitGB":"invalid"})).is_err());
+  assert_eq!(read(&dir,"machine")["cycleStart"],"2025-09-16T19:54:19");
+  std::fs::remove_dir_all(dir).unwrap();
+ }
+ #[test]fn ssh_source_does_not_replace_encrypted_cloud_credentials(){
+  let dir=std::env::temp_dir().join(format!("ssh-cloud-{}",chrono::Utc::now().timestamp_nanos_opt().unwrap()));std::fs::create_dir_all(&dir).unwrap();
+  save(&dir,"machine",&json!({"provider":"zgocloudCookie","cookie":"fixture-cookie","xsrfToken":"fixture-token","serverId":"123","limitGB":"500"})).unwrap();
+  let before=crate::data::vault::read(&dir,&account("machine")).unwrap();
+  save(&dir,"machine",&json!({"provider":"localSsh","limitGB":"500"})).unwrap();
+  assert_eq!(read(&dir,"machine")["provider"],"localSsh");
+  assert_eq!(crate::data::vault::read(&dir,&account("machine")).unwrap(),before);
+  assert!(!read(&dir,"machine").to_string().contains("fixture"));
+  save(&dir,"machine",&json!({"provider":"zgocloudCookie","serverId":"123","limitGB":"500"})).unwrap();
+  assert_eq!(load(&dir,"machine").unwrap()["cookie"],"fixture-cookie");
+  assert_eq!(load(&dir,"machine").unwrap()["xsrfToken"],"fixture-token");
+  assert_eq!(read(&dir,"machine")["provider"],"zgocloudCookie");
   std::fs::remove_dir_all(dir).unwrap();
  }
 }

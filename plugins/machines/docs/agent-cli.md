@@ -10,13 +10,15 @@
 ./bin/flowhub-machines --cli collect <机器ID或别名>
 ./bin/flowhub-machines --cli query <机器ID或别名> 'uptime'
 ./bin/flowhub-machines --cli exec <机器ID或别名> 'ls -lah'
+./bin/flowhub-machines --cli traffic-source-ssh <机器ID或别名>
+./bin/flowhub-machines --cli traffic-cycle-start <机器ID或别名> <YYYY-MM-DDTHH:mm:ss>
 ```
 
 Agent 可直接使用可执行文件的绝对路径。默认数据目录为 `~/Library/Application Support/FlowHub/machines`，可用 `FLOWHUB_PLUGIN_DATA` 覆盖。CLI 输出单行 JSON，包含 `result` 或 `error`；任务失败时返回非零退出码。列表不包含密码、私钥路径或 relay 脚本路径。
 
 查询命令仅允许 `uptime`、`hostname`、`uname -a`、`df -h /`、`free -m`。`exec` 在普通 SSH 的非受限机器上支持自由命令；查询限制在后端统一检查，不能通过 `exec` 绕过。堡垒机结构化调用仅支持上述固定查询和采集，须先在页面完成会话连接。忙碌或有系统终端附着时拒绝注入查询。
 
-`cli.sock` 权限为 0600，仅面向本机当前账号；拥有该账号的程序可调用非受限机器的命令。此版本 CLI 不提供修改配置或降低权限的操作。现有 MCP 若需集成，可包装此 CLI，并保留退出码和 JSON 错误。
+`cli.sock` 权限为 0600，仅面向本机当前账号；拥有该账号的程序可调用非受限机器的命令。`traffic-source-ssh` 只切换指定机器的流量来源，沿用原有套餐额度和周期起点，不修改云端凭证。`traffic-cycle-start` 仅修改已启用 SSH 网卡计数器机器的北京时间月周期起点，精确到秒。现有 MCP 若需集成，可包装此 CLI，并保留退出码和 JSON 错误。
 
 ## 复制与查询权限
 

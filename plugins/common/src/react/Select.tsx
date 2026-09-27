@@ -83,6 +83,7 @@ export function Select({
   const shellRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLUListElement>(null);
+  const scrollActiveRef = useRef(false);
   const [open, setOpen] = useState(false);
   const [placement, setPlacement] = useState<"above" | "below">("below");
   const [menuMaxHeight, setMenuMaxHeight] = useState(256);
@@ -143,7 +144,8 @@ export function Select({
   }, [open, options.length]);
 
   useLayoutEffect(() => {
-    if (!open || !menuRef.current || !activeOptionId) return;
+    if (!open || !scrollActiveRef.current || !menuRef.current || !activeOptionId) return;
+    scrollActiveRef.current = false;
     const menu = menuRef.current;
     const option = document.getElementById(activeOptionId);
     if (!option) return;
@@ -177,6 +179,7 @@ export function Select({
 
   function openMenu(preferredIndex?: number): void {
     if (disabled || enabledOptionCount === 0) return;
+    scrollActiveRef.current = true;
     const nextIndex =
       preferredIndex ??
       (selectedIndex >= 0 && !options[selectedIndex]?.disabled
@@ -210,14 +213,17 @@ export function Select({
   function handleMenuKeyDown(event: ReactKeyboardEvent<HTMLUListElement>): void {
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
+      scrollActiveRef.current = true;
       setActiveIndex((current) =>
         nextEnabledIndex(options, current, event.key === "ArrowDown" ? 1 : -1),
       );
     } else if (event.key === "Home") {
       event.preventDefault();
+      scrollActiveRef.current = true;
       setActiveIndex(firstEnabledIndex(options));
     } else if (event.key === "End") {
       event.preventDefault();
+      scrollActiveRef.current = true;
       setActiveIndex(lastEnabledIndex(options));
     } else if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
@@ -278,7 +284,7 @@ export function Select({
           tabIndex={-1}
           aria-label={resolvedAriaLabel ?? "可选项"}
           aria-activedescendant={activeOptionId}
-          style={{ maxHeight: menuMaxHeight }}
+          style={{ maxHeight: menuMaxHeight, overscrollBehavior: "contain" }}
           className={cx(
             "fh-select__menu absolute z-50 w-full overflow-y-auto rounded-[10px] border border-[var(--fh-border,#355442)] bg-[var(--fh-canvas,#0b1711)] p-1.5 text-sm text-[var(--fh-text,#dce9e0)] shadow-[0_18px_50px_rgba(0,0,0,0.42)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--fh-accent,#b9f2ca)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--fh-canvas,#09130e)]",
             placement === "above" ? "bottom-full mb-1.5" : "top-full mt-1.5",

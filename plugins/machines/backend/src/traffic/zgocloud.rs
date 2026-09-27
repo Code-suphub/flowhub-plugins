@@ -155,10 +155,9 @@ async fn query_cookie(config: &Value) -> Result<Value, String> {
 
     // zgoCloud /resource/traffic.json 的响应有两层 data 嵌套：
     //   { success: true, data: { hasMonthlyData, data: { monthlyRaw:[...] } } }
-    let entry = data["data"]["data"]["monthlyRaw"]
-        .as_array()
-        .and_then(|arr| arr.first())
-        .ok_or("响应缺少 monthlyRaw 数据")?;
+    let monthly = &data["data"]["data"]["monthlyRaw"];
+    let entry = pick_current_with_keys(monthly, Utc::now(), "month_start", "month_end")
+        .ok_or("未找到当前流量周期，请检查面板的流量重置日期")?;
 
     let used = positive(entry, "total")?;
     // Config stores limitGB as a string from the form; accept either string or number.
@@ -217,11 +216,15 @@ fn assemble(
 }
 
 fn pick_current<'a>(monthly: &'a Value, now: DateTime<Utc>) -> Option<&'a Value> {
+    pick_current_with_keys(monthly, now, "start", "end")
+}
+
+fn pick_current_with_keys<'a>(monthly: &'a Value, now: DateTime<Utc>, start_key: &str, end_key: &str) -> Option<&'a Value> {
     let arr = monthly.as_array()?;
     arr.iter().find(|entry| {
-        let start = entry.get("start").and_then(|v| v.as_str()).and_then(parse_period);
-        let end = entry.get("end").and_then(|v| v.as_str()).and_then(parse_period);
-        matches!((start, end), (Some(s), Some(e)) if s <= now && now < e)
+        let start = entry.get(start_key).and_then(|v| v.as_str()).and_then(parse_period);
+        let end = entry.get(end_key).and_then(|v| v.as_str()).and_then(parse_period);
+        matches!((start, end), (Some(s), Some(e)) if s <= now && now <= e)
     })
 }
 
@@ -289,6 +292,16 @@ mod tests {
             "total": 0u64, "limit": 1
         }]);
         assert!(pick_current(&data, now).is_none());
+    }
+
+    #[test]
+    fn cookie_period_uses_current_entry_not_first_history_row() {
+        let now = Utc.with_ymd_and_hms(2025, 1, 20, 12, 0, 0).unwrap();
+        let previous = json!({"month_start":"2024-12-06 00:00:00","month_end":"2025-01-05 23:59:59","total":99});
+        let monthly = json!([previous, cookie_entry()]);
+        let current = pick_current_with_keys(&monthly, now, "month_start", "month_end").unwrap();
+        assert_eq!(current["server_id"], 19383);
+        assert!(pick_current_with_keys(&monthly, Utc.with_ymd_and_hms(2025, 3, 1, 0, 0, 0).unwrap(), "month_start", "month_end").is_none());
     }
 
     #[test]

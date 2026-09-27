@@ -45,7 +45,7 @@ if [ "$os" = Darwin ]; then
   sleep 1
   set -- $(net); r2=${1:-0}; s2=${2:-0}; n2=$(date +%s)
   rates=$(awk -v r1="$r1" -v r2="$r2" -v s1="$s1" -v s2="$s2" -v n1="$n1" -v n2="$n2" 'BEGIN {dt=n2-n1;if(dt>0 && r2>=r1 && s2>=s1) printf "%.2f,\"tx\":%.2f",(r2-r1)/dt/1000,(s2-s1)/dt/1000;else printf "null,\"tx\":null"}')
-  printf '{"cpu":%s,"memory":%s,"disk":%s,"load":%s,"uptime":%s,"rx":%s}\n' "$cpu_pct" "$mem" "$disk" "$load" "$up" "$rates"
+  printf '{"cpu":%s,"memory":%s,"disk":%s,"load":%s,"uptime":%s,"rx":%s,"netRxBytes":%s,"netTxBytes":%s}\n' "$cpu_pct" "$mem" "$disk" "$load" "$up" "$rates" "$r2" "$s2"
   exit 0
 fi
 test "$os" = Linux || { echo '基础指标采集支持 Linux 和 macOS；其他系统请配置 Node Exporter' >&2; exit 2; }
@@ -61,7 +61,7 @@ set -- $(net); r1=$1; s1=$2; n1=$(awk '{print $1}' /proc/uptime)
 sleep 1
 set -- $(net); n2=$(awk '{print $1}' /proc/uptime)
 rates=$(awk -v r1="$r1" -v r2="$1" -v s1="$s1" -v s2="$2" -v n1="$n1" -v n2="$n2" 'BEGIN {dt=n2-n1;if(dt>0 && r2>=r1 && s2>=s1) printf "%.2f,\"tx\":%.2f",(r2-r1)/dt/1000,(s2-s1)/dt/1000;else printf "null,\"tx\":null"}')
-printf '{"cpu":%s,"memory":%s,"disk":%s,"load":%s,"uptime":%s,"rx":%s}\n' "$cpu_pct" "$mem" "$disk" "$load" "$up" "$rates"
+printf '{"cpu":%s,"memory":%s,"disk":%s,"load":%s,"uptime":%s,"rx":%s,"netRxBytes":%s,"netTxBytes":%s}\n' "$cpu_pct" "$mem" "$disk" "$load" "$up" "$rates" "$1" "$2"
 "#;
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -710,9 +710,9 @@ pub(crate) async fn machines_api(
                 }
             },"trafficSave"|"tencentSave"=>{let result=crate::traffic::cloud_traffic::save(root,&key,&payload)?;rt.traffic_cache.lock().unwrap().remove(&key);
                 // 本地 Netdata 不依赖云厂商接口，保存后立即查询一次，避免桌面卡片要等 5 分钟轮询。
-                if payload["provider"]=="localNet"{let queried=crate::traffic::cloud_traffic::query(root,&key).await;let value=match queried{Ok(data)=>crate::traffic::cloud_traffic::summary(&data),Err(e)=>json!({"error":e,"at":chrono::Utc::now().to_rfc3339()})};rt.traffic_cache.lock().unwrap().insert(key.clone(),value);}
+                if payload["provider"]=="localNet"||payload["provider"]=="localSsh"{let interval=rt.config.lock().unwrap().interval;let queried=crate::traffic::cloud_traffic::query(root,&key,interval).await;let value=match queried{Ok(data)=>crate::traffic::cloud_traffic::summary(&data),Err(e)=>json!({"error":e,"at":chrono::Utc::now().to_rfc3339()})};rt.traffic_cache.lock().unwrap().insert(key.clone(),value);}
                 Ok(result)},_=>{
-                let before=crate::traffic::cloud_traffic::read(root,&key);let result=crate::traffic::cloud_traffic::query(root,&key).await;
+                let before=crate::traffic::cloud_traffic::read(root,&key);let interval=rt.config.lock().unwrap().interval;let result=crate::traffic::cloud_traffic::query(root,&key,interval).await;
                 if before==crate::traffic::cloud_traffic::read(root,&key){let value=match &result{Ok(data)=>crate::traffic::cloud_traffic::summary(data),Err(e)=>json!({"error":e})};rt.traffic_cache.lock().unwrap().insert(key.clone(),value);}
                 result
             }}
@@ -1807,9 +1807,11 @@ mod tests {
         assert!(COLLECT.contains("netstat -ib"));
         assert!(COLLECT.contains("/System/Volumes/Data"));
         assert!(COLLECT.contains("基础指标采集支持 Linux 和 macOS"));
-        for key in ["cpu", "memory", "disk", "load", "uptime", "rx"] {
+        for key in ["cpu", "memory", "disk", "load", "uptime", "rx", "netRxBytes", "netTxBytes"] {
             assert!(COLLECT.contains(&format!("\"{}\":%s", key)));
         }
+        let syntax = std::process::Command::new("/bin/sh").arg("-n").arg("-c").arg(COLLECT).output().unwrap();
+        assert!(syntax.status.success(), "{}", String::from_utf8_lossy(&syntax.stderr));
     }
     #[test]
     fn connection_idle_migrates_short_values_and_preserves_long_retention() {
@@ -2165,8 +2167,9 @@ pub(crate) fn start_cloud_traffic(app:&Context){
       // localNet has no cloud package API. Query it directly here so the background
       // sampler cannot fall through to the default Tencent provider while warming
       // the cache before the cloud-traffic dialog has been opened.
-      if saved["provider"]=="localNet" {
-        let value=match crate::traffic::cloud_traffic::query(root,&host).await{Ok(data)=>crate::traffic::cloud_traffic::summary(&data),Err(e)=>json!({"error":e})};
+      if saved["provider"]=="localNet"||saved["provider"]=="localSsh" {
+        let interval=app.runtime.config.lock().unwrap().interval;
+        let value=match crate::traffic::cloud_traffic::query(root,&host,interval).await{Ok(data)=>crate::traffic::cloud_traffic::summary(&data),Err(e)=>json!({"error":e})};
         app.runtime.traffic_cache.lock().unwrap().insert(host,value);
       } else {let _=machines_api(app.clone(),"trafficQuery".into(),json!({"hostId":host})).await;}
     }}

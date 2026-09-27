@@ -17,7 +17,14 @@ function traffic(value, now = Date.now()) {
   const divisor = Number.isFinite(value?.divisor) && value.divisor > 0 ? value.divisor : 1073741824;
   const format = (n) => (n / divisor).toLocaleString('zh-CN', { maximumFractionDigits: 0 });
   if (value && !value.error && !stale && value.mode === 'usage' && Number.isFinite(value.used) && value.used >= 0) {
-    return { kind: 'usage', label: `已用 ${format(value.used)} GB`, title: '本月监控用量，不代表账单或套餐余额' };
+    const used = value.used / divisor;
+    const amount = used >= 1 ? `${used.toLocaleString('zh-CN', { maximumFractionDigits: 2 })} ${divisor === 1e9 ? 'GB' : 'GiB'}`
+      : `${(used * 1024).toLocaleString('zh-CN', { maximumFractionDigits: 2 })} ${divisor === 1e9 ? 'MB' : 'MiB'}`;
+    return value.bootBaseline
+      ? { kind: 'usage', label: `本期估算已用 ${amount}`, title: '月周期起点与开机时间吻合，使用网卡计数器估算；不等同服务商计费或准确套餐余额' }
+      : value.partial
+        ? { kind: 'usage', label: `本期已采集 ${amount}`, title: '仅本期首次采样以来的网卡用量；周期历史不完整，不能推算套餐余额' }
+        : { kind: 'usage', label: `本期估算已用 ${amount}`, title: '本周期监控用量，不代表账单或套餐余额' };
   }
   if (!value || value.error || stale || !Number.isFinite(value.remaining) || !Number.isFinite(value.total) || value.total <= 0) {
     return { kind: 'empty', label: '剩余流量 —', hint: !value ? '请先配置并查询云流量' : value.error ? '查询失败 / 暂无有效套餐' : stale ? '流量数据已过期' : '暂无数据' };

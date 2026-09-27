@@ -81,6 +81,7 @@ function ComboboxControl({
   const shellRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const scrollActiveRef = useRef(false);
   const [open, setOpen] = useState(false);
   const [menuPlacement, setMenuPlacement] = useState<"above" | "below">("below");
   const [menuMaxHeight, setMenuMaxHeight] = useState(256);
@@ -118,7 +119,8 @@ function ComboboxControl({
   }, [open]);
 
   useEffect(() => {
-    setActiveIndex(filteredOptions.findIndex((option) => !option.disabled));
+    setActiveIndex((current) => current >= 0 && current < filteredOptions.length && !filteredOptions[current].disabled
+      ? current : filteredOptions.findIndex((option) => !option.disabled));
   }, [filteredOptions]);
 
   useLayoutEffect(() => {
@@ -138,7 +140,8 @@ function ComboboxControl({
   }, [open]);
 
   useEffect(() => {
-    if (!activeOptionId || !menuRef.current) return;
+    if (!scrollActiveRef.current || !activeOptionId || !menuRef.current) return;
+    scrollActiveRef.current = false;
     const option = document.getElementById(activeOptionId);
     if (!option) return;
     const menu = menuRef.current;
@@ -146,10 +149,13 @@ function ComboboxControl({
     const viewport = menu.getBoundingClientRect();
     if (item.top < viewport.top) menu.scrollTop -= viewport.top - item.top;
     else if (item.bottom > viewport.bottom) menu.scrollTop += item.bottom - viewport.bottom;
-  }, [activeOptionId, menuMaxHeight, menuPlacement]);
+  }, [activeOptionId, menuMaxHeight, menuPlacement, query]);
 
   function openMenu(): void {
     if (disabled || !options.length) return;
+    scrollActiveRef.current = true;
+    const selectedIndex = filteredOptions.findIndex((option) => option.value === value && !option.disabled);
+    setActiveIndex(selectedIndex >= 0 ? selectedIndex : filteredOptions.findIndex((option) => !option.disabled));
     setOpen(true);
   }
 
@@ -171,6 +177,7 @@ function ComboboxControl({
 
   function moveActive(direction: 1 | -1): void {
     if (!filteredOptions.length) return;
+    scrollActiveRef.current = true;
     setActiveIndex((current) => {
       const origin = current >= 0 ? current : (direction === 1 ? -1 : 0);
       for (let offset = 1; offset <= filteredOptions.length; offset += 1) {
@@ -183,6 +190,8 @@ function ComboboxControl({
 
   function handleInput(event: ChangeEvent<HTMLInputElement>): void {
     setQuery(event.target.value);
+    scrollActiveRef.current = true;
+    setActiveIndex(0);
     setOpen(true);
   }
 
@@ -259,7 +268,7 @@ function ComboboxControl({
       </div>
 
       {open && !disabled ? (
-        <div ref={menuRef} style={{ maxHeight: menuMaxHeight }} className={cx("fh-combobox__menu absolute z-50 w-full overflow-y-auto rounded-[10px] border border-[var(--fh-border,#355442)] bg-[var(--fh-canvas,#0b1711)] p-1.5 text-sm text-[var(--fh-text,#dce9e0)] shadow-[0_18px_50px_rgba(0,0,0,0.42)]", menuPlacement === "above" ? "bottom-full mb-1.5" : "top-full mt-1.5", menuClassName)}>
+        <div ref={menuRef} style={{ maxHeight: menuMaxHeight, overscrollBehavior: 'contain' }} className={cx("fh-combobox__menu absolute z-50 w-full overflow-y-auto rounded-[10px] border border-[var(--fh-border,#355442)] bg-[var(--fh-canvas,#0b1711)] p-1.5 text-sm text-[var(--fh-text,#dce9e0)] shadow-[0_18px_50px_rgba(0,0,0,0.42)]", menuPlacement === "above" ? "bottom-full mb-1.5" : "top-full mt-1.5", menuClassName)}>
         {multipleValue ? <div className="flex items-center justify-between gap-2 px-2 py-1">
           <Button size="sm" variant="ghost" disabled={disabled || !filteredOptions.some(option => !isDisabled(option) && !isSelected(option))} onMouseDown={event => event.preventDefault()} onClick={() => onMultipleChange?.([...new Set([...multipleValue, ...filteredOptions.filter(option => !option.disabled).map(option => option.value)])].slice(0, maxSelected))}>选择筛选结果</Button>
           <Button size="sm" variant="ghost" disabled={disabled || !multipleValue.length} onMouseDown={event => event.preventDefault()} onClick={() => onMultipleChange?.([])}>清空</Button>
