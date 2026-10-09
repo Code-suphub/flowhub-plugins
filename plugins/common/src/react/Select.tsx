@@ -9,6 +9,7 @@ import {
 } from "react";
 
 import { cx } from "./cx";
+import { observePopupOwner } from '../../../../../common-components/packages/frontend/dom/popup';
 
 export interface SelectOption {
   value: string;
@@ -94,6 +95,11 @@ export function Select({
   const selectedOption = selectedIndex >= 0 ? options[selectedIndex] : undefined;
   const resolvedAriaLabel = ariaLabelAttribute ?? ariaLabel;
   const resolvedAriaDescribedBy = ariaDescribedByAttribute ?? ariaDescribedBy;
+  useEffect(() => {
+    if (!open) return;
+    if (disabled) { setOpen(false); return; }
+    return shellRef.current ? observePopupOwner(shellRef.current, () => setOpen(false)) : undefined;
+  }, [open, disabled]);
   const activeOptionId =
     activeIndex >= 0 ? `${selectId}-option-${activeIndex}` : undefined;
 

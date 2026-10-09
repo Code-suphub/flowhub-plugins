@@ -23,6 +23,7 @@ test('common Select contains wheel scrolling and only follows deliberate keyboar
       },
     },
     require(name) {
+      if (name.endsWith('/dom/popup')) return { observePopupOwner: () => () => {} };
       if (name === 'react') return {
         useId: () => 'select-test',
         useEffect() {},

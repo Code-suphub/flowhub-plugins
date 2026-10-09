@@ -13,6 +13,7 @@ test('common multi combobox filters, toggles, caps selection and preserves it on
   const jsx = (type, props) => typeof type === 'function' ? type(props) : { type, props };
   const exports = {};
   vm.runInNewContext(code, { exports, require(name) {
+    if (name.endsWith('/dom/popup')) return { observePopupOwner: () => () => {} };
     if (name === 'react') return {
       useId: () => 'multi-test', useEffect() {}, useLayoutEffect() {}, useMemo: fn => fn(),
       useRef: initial => { const i = cursor++; return slots[i] ?? (slots[i] = { current: initial }); },

@@ -1,6 +1,7 @@
 import type {
   DisplayOptionKey,
   MachineMetricKey,
+  MachineRow,
   StoredMachineWidgetConfig,
 } from './types';
 
@@ -31,15 +32,19 @@ export const DEFAULT_METRICS: readonly MachineMetricKey[] = [
 export const EDITOR_LABELS = {
   machine: '目标机器',
   metrics: '显示指标',
-  trafficHint: '根据来源显示网卡采集量或云服务商套餐余量；统计口径可在机器管理 → 监控与流量中查看。',
   loading: '正在读取组件配置…',
   noMachines: '没有可用机器，请先在机器管理中添加机器。',
-  loaded: (count: number) => `已载入 ${count} 台机器`,
-  changed: '配置已修改，保存时将再次验证。',
-  valid: '配置有效，可以保存。',
   selectMachine: '请选择目标机器',
   selectMetric: '至少选择一个显示指标',
 } as const;
+
+export function machineOptionsFromRows(rows: readonly MachineRow[]) {
+  return rows.map((row) => {
+    const source = row.source || (row.kind === 'netdata' || row.id.startsWith('netdata-') ? 'Netdata' : '机器采集');
+    const status = ({ error: '采集失败', stale: '数据已过期', unknown: '尚未采集' } as Record<string, string>)[row.status ?? ''];
+    return { value: row.id, label: `${row.name} · ${source}${status ? `（${status}）` : ''}` };
+  });
+}
 
 export function selectedOptionsFromConfig(
   config: StoredMachineWidgetConfig | undefined,

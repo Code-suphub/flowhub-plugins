@@ -2,14 +2,11 @@
 @source "../../../common/src/react";
 
 :root {
-  color-scheme:dark;
-  --widget-accent:var(--fh-danger,#f7a454);
-  --widget-border:var(--fh-border,#514951);
-  --widget-panel:rgb(54 48 55 / 82%);
-  --widget-text:var(--fh-text,#f5f1ed);
-  --widget-muted:var(--fh-muted,#b9afb8);
-  --widget-success:var(--fh-positive,#9fd4b4);
-  --widget-error:var(--fh-danger,#ef968b);
+  --widget-border:var(--fh-border,#dce4ef);
+  --widget-panel:var(--fh-surface-soft,#edf2f9);
+  --widget-text:var(--fh-text,#243348);
+  --widget-muted:var(--fh-muted,#64758b);
+  --widget-error:var(--fh-danger,#bd3549);
 }
 
 * {
@@ -19,8 +16,8 @@
 body {
   margin: 0;
   background:transparent;
-  color:var(--widget-muted);
-  font: 12px/1.5 "PingFang SC", "Microsoft YaHei", sans-serif;
+  color:var(--widget-text);
+  font: 13px/1.5 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
 }
 
 button,
@@ -31,7 +28,82 @@ input {
 
 .widget-editor {
   display: grid;
-  gap: 14px;
+  gap: 12px;
+}
+
+.widget-editor .fh-field {
+  gap: 6px;
+}
+
+.widget-editor .fh-field__label,
+.widget-editor__metrics legend {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
+  color:var(--widget-text);
+}
+
+.widget-editor .fh-combobox__control {
+  min-height: 34px;
+  border-radius: 8px;
+}
+
+.widget-editor .fh-combobox__control:focus-within,
+.widget-editor .fh-combobox[data-open] .fh-combobox__control {
+  border-color: var(--fh-accent,#2563d9);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--fh-accent,#2563d9) 25%, transparent);
+}
+
+.widget-editor .fh-combobox__input {
+  min-height: 32px;
+  padding-inline: 8px;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.widget-editor .fh-combobox__toggle {
+  width: 30px;
+  min-height: 32px;
+}
+
+.widget-editor .fh-combobox__menu {
+  padding: 4px;
+  font-size: 13px;
+  line-height: 20px;
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--widget-text) 14%, transparent);
+}
+
+.widget-editor .fh-combobox__option {
+  min-height: 32px;
+  padding: 6px 8px;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 20px;
+}
+
+.widget-editor .fh-combobox__option[aria-selected='true'] {
+  font-weight: 500;
+}
+
+.widget-editor .fh-checkbox {
+  min-height: 30px;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.widget-editor .fh-checkbox input {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+}
+
+.widget-editor .fh-checkbox input:checked {
+  border-color: var(--fh-accent,#2563d9);
+  background-color: var(--fh-accent,#2563d9);
+  background-image: linear-gradient(135deg, transparent 44%, var(--fh-on-accent,#fff) 44%, var(--fh-on-accent,#fff) 56%, transparent 56%), linear-gradient(45deg, transparent 48%, var(--fh-on-accent,#fff) 48%, var(--fh-on-accent,#fff) 58%, transparent 58%);
+  background-size: 6px 10px, 4px 6px;
+  background-position: 6px 1px, 3px 5px;
 }
 
 .widget-editor__metrics {
@@ -43,23 +115,21 @@ input {
 
 .widget-editor__metrics legend {
   margin-bottom: 8px;
-  color:var(--widget-muted);
 }
 
 .widget-editor__metric-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px 12px;
+  gap: 4px 12px;
+  align-items: start;
 }
 
-.widget-editor__hint,
+.widget-editor__metric-grid .fh-checkbox:first-child {
+  grid-column: 1 / -1;
+}
+
 .widget-editor__status {
   margin: 0;
-}
-
-.widget-editor__hint {
-  padding-top: 2px;
-  color:color-mix(in srgb, var(--widget-muted) 78%, transparent);
 }
 
 .widget-editor__status {
@@ -72,6 +142,8 @@ input {
   border-radius:8px;
   background:var(--widget-panel);
   color:var(--widget-muted);
+  font-size: 12px;
+  line-height: 18px;
 }
 
 .widget-editor__status-dot {
@@ -82,10 +154,6 @@ input {
   border-radius:50%;
   background:currentColor;
   box-shadow:0 0 0 3px color-mix(in srgb, currentColor 16%, transparent);
-}
-
-.widget-editor__status[data-tone='success'] {
-  color:var(--widget-success);
 }
 
 .widget-editor__status[data-tone='error'] {

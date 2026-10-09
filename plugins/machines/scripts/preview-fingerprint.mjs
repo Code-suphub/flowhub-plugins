@@ -30,6 +30,7 @@ const PROPERTIES = [
   'textAlign', 'whiteSpace', 'overflow', 'overflowY', 'gap', 'justifyContent', 'alignItems', 'cursor'
 ];
 const SELECTORS = ['.fh-select', '.fh-select__trigger', '.fh-select__menu', '.fh-select__option', '.fh-select__option[aria-selected="true"]'];
+const COMBOBOX_SELECTORS = ['.fh-combobox', '.fh-combobox__control', '.fh-combobox__input', '.fh-combobox__menu', '.fh-combobox__option', '.fh-combobox__option[aria-selected="true"]'];
 // 这里必须加载真实构建产物，不允许空页面/旧脚本 404 被当成有效基线。
 const PAGES = ['widget-card.html', 'widget-detail.html', 'widget-editor.html'];
 const WIDTHS = [1400, 600, 380];
@@ -98,7 +99,7 @@ async function chrome() {
       for (let attempt = 0; attempt < 100 && !events.includes('Page.loadEventFired'); attempt += 1) await new Promise(resolve => setTimeout(resolve, 50));
       // React and the preview JSON initialize asynchronously; do not measure a blank frame.
       for (let attempt = 0; attempt < 100; attempt++) {
-        const ready = await send('Runtime.evaluate', {expression: '!!document.querySelector("#widget-root > *, #root .fh-select")', returnByValue:true});
+        const ready = await send('Runtime.evaluate', {expression: '!!document.querySelector("#widget-root > *, #root .fh-select, #root .fh-combobox")', returnByValue:true});
         if (ready.result?.value) {
           await send('Runtime.evaluate', {expression:'document.fonts.ready',awaitPromise:true});
           return;
@@ -127,16 +128,17 @@ const EXPRESSION = `(async () => {
     return Object.fromEntries(properties.map(property => [property, style[property]]));
   };
   const out = {};
-  const all = [...document.querySelectorAll('.fh-select')];
+  const all = [...document.querySelectorAll('.fh-select, .fh-combobox')];
   // 只量当前可见的下拉：隐藏面板/未打开的 dialog 里 rect 为 0，量不到真实样式。
   const shells = all.filter(shell => shell.getBoundingClientRect().width > 0);
   out.__selects = all.length;
   out.__visibleSelects = shells.length;
   const scope = shells[0] || null;
   const frame = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-  const trigger = scope?.querySelector('.fh-select__trigger');
+  const trigger = scope?.querySelector('.fh-select__trigger, .fh-combobox__toggle');
   if (trigger) { trigger.click(); await frame(); }
-  for (const selector of ${JSON.stringify(SELECTORS)}) {
+  const selectors = scope?.classList.contains('fh-combobox') ? ${JSON.stringify(COMBOBOX_SELECTORS)} : ${JSON.stringify(SELECTORS)};
+  for (const selector of selectors) {
     const element = scope?.matches(selector) ? scope : scope?.querySelector(selector);
     out[selector] = capture(element, null);
   }
@@ -156,6 +158,45 @@ const INTERACTIONS = `(async () => {
   const tick = () => new Promise(resolve => setTimeout(resolve, 30));
   const check = (condition, message) => { if (!condition) throw Error(message); };
   const init = context => window.postMessage({type:'flowhub:widget-init',token:null,context}, '*');
+  if (location.pathname.includes('editor')) {
+    init({config:{row:'ssh-one',metrics:['cpu']},snapshot:{rows:[
+      {id:'ssh-one',name:'同名机器',source:'SSH',status:'unknown'},
+      {id:'netdata-one',name:'同名机器',source:'Netdata',status:'error'},
+      {id:'ssh-two',name:'mac-mini',source:'SSH',status:'healthy'}
+    ]}}); await tick();
+    const input = document.querySelector('#machine-row');
+    const query = async value => {
+      input.focus();
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,value);
+      input.dispatchEvent(new Event('input',{bubbles:true})); await tick();
+    };
+    const key = async value => { input.dispatchEvent(new KeyboardEvent('keydown',{key:value,bubbles:true,cancelable:true})); await tick(); };
+    await query('采集失败');
+    check(document.querySelectorAll('[role="option"]').length === 1, '应按采集状态过滤机器');
+    check(document.querySelector('[role="option"]').textContent.includes('Netdata'), '同名机器应按来源区分');
+    check(window.FlowHubWidget.validate().row === 'ssh-one', '输入检索不应修改已选机器');
+    await key('Enter');
+    check(window.FlowHubWidget.validate().row === 'netdata-one', '回车应保存正确的机器 ID');
+    await query('MAC-MINI');
+    check(document.querySelectorAll('[role="option"]').length === 1, '机器名称搜索应忽略大小写');
+    await key('Escape');
+    check(window.FlowHubWidget.validate().row === 'netdata-one', '取消检索应保留原选择');
+    await query('不存在的机器');
+    check(document.querySelector('.fh-combobox__menu').textContent.includes('没有匹配的机器'), '无匹配机器应显示提示');
+    await key('Enter');
+    check(window.FlowHubWidget.validate().row === 'netdata-one', '不能将检索文字保存成机器 ID');
+    await key('Escape');
+    await query('SSH');
+    window.dispatchEvent(new Event('blur')); await tick();
+    check(!document.querySelector('.fh-combobox__menu'), '窗口失焦后搜索选项不能残留');
+    check(window.FlowHubWidget.validate().row === 'netdata-one', '失焦关闭不能改变已选机器');
+    await query('SSH');
+    const owner = input.closest('.fh-combobox');
+    owner.style.display = 'none'; await tick();
+    check(!document.querySelector('.fh-combobox__menu'), '所属控件隐藏时搜索选项应关闭');
+    owner.style.display = ''; await tick();
+    check(!document.querySelector('.fh-combobox__menu'), '所属控件重新显示时不能自动复活旧选项');
+  }
   if (location.pathname.includes('card')) {
     const card = document.querySelector('.card');
     const snapshot = {rows:[{id:'a',name:'A',status:'healthy',values:{cpu:25}}]};

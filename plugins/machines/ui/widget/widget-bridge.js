@@ -15,6 +15,14 @@
     if(d?.type==='flowhub:widget-result'){const p=pending.get(d.id);if(p){clearTimeout(p.timer);pending.delete(d.id);d.error?p.reject(Error(d.error)):p.resolve(d.result);}}
     if(d?.type==='flowhub:widget-save'){try{const config=FlowHubWidget.validate?.();if(!config)throw Error('组件配置尚未准备好');send({type:'flowhub:widget-config',id:d.id,config});}catch(e){send({type:'flowhub:widget-config',id:d.id,error:String(e.message||e)});}}
   });
+  if(deferReady&&window.ResizeObserver){
+    let lastHeight=0;
+    const observer=new ResizeObserver(()=>{
+      const height=Math.ceil(document.body.getBoundingClientRect().height);
+      if(height>0&&height!==lastHeight){lastHeight=height;send({type:'flowhub:widget-size',height});}
+    });
+    observer.observe(document.body);
+  }
   if(parent!==window){if(!deferReady)announceReady();}
   else fetch('widget-preview.json').then(r=>r.json()).then(data=>{init={config:{},snapshot:data.snapshot,preview:true};handler?.(init);});
 })();

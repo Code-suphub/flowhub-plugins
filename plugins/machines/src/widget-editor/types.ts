@@ -13,6 +13,9 @@ export type DisplayOptionKey = MachineMetricKey | 'country' | 'expiry';
 export interface MachineRow {
   id: string;
   name: string;
+  kind?: string;
+  source?: string;
+  status?: string;
   [key: string]: unknown;
 }
 
@@ -58,7 +61,7 @@ export interface EditorState {
   initialized: boolean;
 }
 
-export type EditorStatusTone = 'muted' | 'success' | 'error';
+export type EditorStatusTone = 'muted' | 'error';
 
 export interface EditorStatus {
   message: string;

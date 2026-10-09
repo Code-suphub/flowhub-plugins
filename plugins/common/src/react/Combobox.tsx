@@ -12,6 +12,7 @@ import {
 import type { SelectOption } from "./Select";
 import { cx } from "./cx";
 import { Button } from "./Button";
+import { observePopupOwner } from '../../../../../common-components/packages/frontend/dom/popup';
 
 export interface ComboboxOption extends SelectOption {
   search?: string;
@@ -93,6 +94,12 @@ function ComboboxControl({
   const summary = multipleValue?.map((item) => options.find((option) => option.value === item)?.label ?? item).join('、');
   const resolvedAriaLabel = ariaLabelAttribute ?? ariaLabel;
   const resolvedAriaDescribedBy = ariaDescribedByAttribute ?? ariaDescribedBy;
+  useEffect(() => {
+    const dismiss = () => { setOpen(false); setQuery(''); };
+    if (!open) return;
+    if (disabled) { dismiss(); return; }
+    return shellRef.current ? observePopupOwner(shellRef.current, dismiss) : undefined;
+  }, [open, disabled]);
 
   const filteredOptions = useMemo(() => {
     const keyword = normalize(query);

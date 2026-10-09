@@ -2,6 +2,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } f
 import { createPortal } from 'react-dom';
 import { Button } from './Button';
 import { cx } from './cx';
+import { observePopupOwner } from '../../../../../common-components/packages/frontend/dom/popup';
 
 export interface DropdownMenuItem {
   id: string;
@@ -47,6 +48,7 @@ export function DropdownMenu({ label, ariaLabel, items, className }: DropdownMen
   }, [open]);
   useEffect(() => {
     if (!open) return;
+    const stopWatching = trigger.current ? observePopupOwner(trigger.current, () => close()) : undefined;
     const outside = (event: PointerEvent) => {
       if (!menu.current?.contains(event.target as Node) && !trigger.current?.contains(event.target as Node)) close();
     };
@@ -55,6 +57,7 @@ export function DropdownMenu({ label, ariaLabel, items, className }: DropdownMen
     window.addEventListener('resize', positionMenu);
     window.addEventListener('scroll', scroll, true);
     return () => {
+      stopWatching?.();
       document.removeEventListener('pointerdown', outside);
       window.removeEventListener('resize', positionMenu);
       window.removeEventListener('scroll', scroll, true);

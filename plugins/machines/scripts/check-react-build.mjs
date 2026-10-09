@@ -20,6 +20,9 @@ for (const relative of required) {
 }
 
 const html = fs.readFileSync(path.join(ui, 'widget-editor.html'), 'utf8');
+if (/<script\b[^>]*\btype\s*=\s*["']module["']/i.test(html)) {
+  throw new Error('桌面组件编辑器必须使用普通脚本，当前宿主未开放模块跨域加载');
+}
 for (const reference of ['react/widget-editor.js', 'react/widget-editor.css']) {
   if (!html.includes(reference)) throw new Error(`widget editor 未引用 ${reference}`);
 }

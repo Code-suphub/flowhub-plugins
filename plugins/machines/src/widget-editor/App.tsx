@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { Checkbox, Field, Select } from '@flowhub/plugin-common/react';
+import { Checkbox, Combobox, Field } from '@flowhub/plugin-common/react';
 
 import {
   DISPLAY_OPTIONS,
   EDITOR_LABELS,
+  machineOptionsFromRows,
   selectedOptionsFromConfig,
 } from './options';
 import type {
@@ -77,6 +78,7 @@ interface StatusMessageProps {
 }
 
 function StatusMessage({ status }: StatusMessageProps) {
+  if (!status.message) return null;
   return (
     <p
       className="widget-editor__status"
@@ -112,16 +114,16 @@ export function App() {
       });
       setStatus({
         message: rows.length > 0
-          ? EDITOR_LABELS.loaded(rows.length)
+          ? ''
           : EDITOR_LABELS.noMachines,
-        tone: rows.length > 0 ? 'success' : 'error',
+        tone: rows.length > 0 ? 'muted' : 'error',
       });
     });
 
     window.FlowHubWidget.editor(() => {
       try {
         const config = validateEditorState(editorStateRef.current);
-        setStatus({ message: EDITOR_LABELS.valid, tone: 'success' });
+        setStatus({ message: '', tone: 'muted' });
         return config;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -132,7 +134,7 @@ export function App() {
   }, []);
 
   const markChanged = () => {
-    setStatus({ message: EDITOR_LABELS.changed, tone: 'muted' });
+    setStatus({ message: '', tone: 'muted' });
   };
 
   const selectRow = (row: string) => {
@@ -152,26 +154,25 @@ export function App() {
     markChanged();
   };
 
-  const machineOptions = editorState.rows.map((row) => ({
-    value: row.id,
-    label: row.name,
-  }));
+  const machineOptions = machineOptionsFromRows(editorState.rows);
 
   return (
     <main className="widget-editor" aria-busy={!editorState.initialized}>
       <Field label={EDITOR_LABELS.machine} htmlFor="machine-row">
-        <Select
+        <Combobox
           id="machine-row"
           value={editorState.row}
           options={machineOptions}
           onChange={selectRow}
+          placeholder="输入机器名称、来源或状态"
+          emptyMessage="没有匹配的机器"
+          ariaLabel={EDITOR_LABELS.machine}
           disabled={!editorState.initialized || machineOptions.length === 0}
         />
       </Field>
 
       <MetricSelector selected={editorState.selected} onChange={toggleOption} />
 
-      <p className="widget-editor__hint">{EDITOR_LABELS.trafficHint}</p>
       <StatusMessage status={status} />
     </main>
   );

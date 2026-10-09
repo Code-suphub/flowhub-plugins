@@ -28,7 +28,10 @@ export default defineConfig({
     minify: 'esbuild',
     lib: {
       entry: resolve(root, 'src/widget-editor/main.tsx'),
-      formats: ['es'],
+      // Sandboxed desktop pages have an opaque origin; the host asset
+      // protocol does not grant CORS for ES modules. Match card/detail.
+      formats: ['iife'],
+      name: 'FlowHubWidgetEditor',
       fileName: () => 'widget-editor.js',
       cssFileName: 'widget-editor'
     }
