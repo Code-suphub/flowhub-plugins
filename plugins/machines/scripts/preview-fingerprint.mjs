@@ -121,6 +121,10 @@ async function chrome() {
 }
 
 const EXPRESSION = `(async () => {
+  // Measure declared end states rather than a scheduler-dependent animation frame.
+  const stable = document.createElement('style');
+  stable.textContent = '*, *::before, *::after { transition: none !important; animation: none !important; }';
+  document.head.append(stable);
   const properties = ${JSON.stringify(PROPERTIES)};
   const capture = (element, pseudo) => {
     if (!element) return null;
@@ -151,6 +155,7 @@ const EXPRESSION = `(async () => {
   if (location.pathname.includes('detail') && document.querySelectorAll('#charts svg').length !== 6) throw Error('详情曲线未加载');
   if (!location.pathname.includes('card') && !trigger) throw Error('Widget 缺少 React 下拉');
   if (document.documentElement.scrollWidth > innerWidth + 1) throw Error('Widget 页面横向溢出');
+  stable.remove();
   return out;
 })()`;
 
@@ -270,28 +275,72 @@ async function main() {
         if (interaction.exceptionDetails) throw Error(`${page} @${width}: ${interaction.exceptionDetails.exception?.description || interaction.exceptionDetails.text}`);
       }
     }
-    for (const theme of ['light','dark']) for (const [width,height] of [[220,130],[184,184],[320,184]]) {
+    for (const theme of ['light','dark']) for (const [width,height] of [[160,140],[220,130],[184,184],[320,184]]) {
       await client.send('Emulation.setDeviceMetricsOverride', {width,height,deviceScaleFactor:1,mobile:false});
       await client.load(`http://127.0.0.1:${port}/widget-card.html`);
       const compact = await client.send('Runtime.evaluate', {awaitPromise:true,returnByValue:true,expression:`(async () => {
         window.FlowHubTheme.set('${theme}');
         window.postMessage({type:'flowhub:widget-init',token:null,context:{
           title:'tencent-sh',config:{row:'a',metrics:['cpu','memory','disk','traffic','tx','rx','load','uptime']},
-          snapshot:{rows:[{id:'a',status:'healthy',expiresAt:Date.now()+354*86400000,
-            values:{cpu:3,memory:33,disk:34,tx:9.8,rx:1.8,load:0.1,uptime:86400*25}}]}
+          snapshot:{rows:[{id:'a',status:'healthy',expiresAt:Date.now()+354*86400000+8*3600000,
+            traffic:{remaining:247.66e9,total:300e9,divisor:1e9,at:new Date().toISOString()},
+            values:{cpu:3,memory:33,disk:34,tx:106,rx:107.3,load:0.1,uptime:86400*25}}]}
         }}, '*');
         await new Promise(resolve=>setTimeout(resolve,80));
         const body=document.querySelector('.card-body');
         const footer=document.querySelector('.widget-foot');
         const gauge=document.querySelector('.fh-gauge svg');
-        if(!footer?.textContent.includes('运行') || !footer.querySelector('.expiry'))throw Error('底部内容缺失');
+        if(!document.querySelector('.network-row .bottom-metrics')?.textContent.includes('运行') || !footer.querySelector('.expiry'))throw Error('底部内容缺失');
+        const rates=document.querySelector('.network-rates'),countdown=footer.querySelector('.expiry');
+        if(getComputedStyle(rates).fontFamily!==getComputedStyle(countdown).fontFamily || getComputedStyle(rates).fontSize!==getComputedStyle(countdown).fontSize)throw Error('网速和其他元数据字体不统一');
+        if(innerWidth>=220 && Math.abs(rates.getBoundingClientRect().top-countdown.getBoundingClientRect().top)>1)throw Error('正常宽度下网速和倒计时仍换行');
+        const traffic=document.querySelector('.traffic-metric b');
+        if(traffic.textContent!=='247.66/300 GB'||traffic.getBoundingClientRect().height>15)throw Error('流量数值和单位被拆行');
+        if(document.querySelector('.network-rates').getBoundingClientRect().top<document.querySelector('.network-row').getBoundingClientRect().bottom)throw Error('网速未放到用量下一行');
+        for(const node of document.querySelectorAll('.network-row,.traffic-metric,.bottom-metrics,.network-rates,.network-rates span')){
+          const rect=node.getBoundingClientRect();if(rect.left<0||rect.right>innerWidth)throw Error('指标横向溢出');
+        }
         if(body.scrollHeight>body.clientHeight+1 || footer.getBoundingClientRect().bottom>innerHeight-3)throw Error('小卡片内容被裁切');
         if(gauge.getBoundingClientRect().height<32)throw Error('仪表图被过度压缩: '+JSON.stringify([...document.querySelectorAll('.card-head,.card-body,.gauges,.network-row,.widget-foot')].map(e=>[e.className,e.getBoundingClientRect().height])));
         return true;
       })()`});
       if(compact.exceptionDetails)throw Error(`${theme} ${width}×${height}: ${compact.exceptionDetails.exception?.description}`);
+      for (const [tx,rx,uptime] of [[85.4,17.4,20.3],[12.7,17.5,395.1]]) {
+        const merged=await client.send('Runtime.evaluate',{awaitPromise:true,returnByValue:true,expression:`(async()=>{
+          window.postMessage({type:'flowhub:widget-init',token:null,context:{title:'compact',config:{row:'a',showExpiry:false,metrics:['cpu','memory','disk','tx','rx','load','uptime']},snapshot:{rows:[{id:'a',status:'healthy',values:{cpu:10,memory:76,disk:92,tx:${tx},rx:${rx},load:1.5,uptime:${uptime}*86400}}]}}},'*');
+          await new Promise(resolve=>setTimeout(resolve,80));
+          const meta=document.querySelector('.network-row--compact'),rates=meta?.querySelector('.network-rates'),summary=meta?.querySelector('.bottom-metrics');
+          if(!rates||!summary||document.querySelector('.widget-foot'))throw Error('精简指标没有合并');
+          if(innerWidth>=220&&Math.abs(rates.getBoundingClientRect().top-summary.getBoundingClientRect().top)>1)throw Error('可容纳的精简指标仍占两行');
+          for(const node of meta.querySelectorAll('span')){const rect=node.getBoundingClientRect();if(rect.left<0||rect.right>innerWidth)throw Error('精简指标横向溢出');}
+          const body=document.querySelector('.card-body');if(body.scrollHeight>body.clientHeight+1)throw Error('精简卡片内容被裁切');
+          return true;
+        })()`});
+        if(merged.exceptionDetails)throw Error(`${theme} ${width}×${height} merged: ${merged.exceptionDetails.exception?.description}`);
+      }
     }
-    console.log('PASS: 深浅主题的小卡片 220×130、184×184、320×184 完整展示');
+    await client.send('Emulation.setDeviceMetricsOverride',{width:320,height:184,deviceScaleFactor:1,mobile:false});
+    const counts=await client.send('Runtime.evaluate',{awaitPromise:true,returnByValue:true,expression:`(async()=>{
+      for(const enabled of [[0,1],[0,2],[0,3],[1,2],[1,3],[2,3],[0,1,2],[0,1,3],[0,2,3],[1,2,3]]){
+        const metrics=['cpu','memory','disk',...(enabled.includes(0)?['traffic']:[]),...(enabled.includes(1)?['tx','rx']:[]),...(enabled.includes(2)?['load','uptime']:[])];
+        window.postMessage({type:'flowhub:widget-init',token:null,context:{title:'counts',config:{row:'a',metrics,showExpiry:enabled.includes(3)},snapshot:{rows:[{id:'a',status:'healthy',expiresAt:Date.now()+336*86400000,traffic:{remaining:247.66e9,total:300e9,divisor:1e9,at:new Date().toISOString()},values:{cpu:10,memory:76,disk:92,tx:85.4,rx:17.4,load:1.5,uptime:20.3*86400}}]}}},'*');
+        await new Promise(resolve=>setTimeout(resolve,80));
+        const compact=document.querySelector('.network-row--compact');
+        if(enabled.length===2){
+          if(!compact||compact.children.length!==2)throw Error('两个展示块未合并: '+enabled);
+          const children=[...compact.children];if(Math.abs(children[0].getBoundingClientRect().top-children[1].getBoundingClientRect().top)>1)throw Error('两个展示块不在同一行: '+enabled);
+        }else{
+          if(compact)throw Error('超过两个展示块仍被合并: '+enabled);
+          if(enabled.includes(0)&&!document.querySelector('.network-row .traffic-metric'))throw Error('用量位置变化');
+          if(enabled.includes(2)&&!document.querySelector('.network-row .bottom-metrics'))throw Error('负载运行位置变化');
+          if(enabled.includes(1)&&!document.querySelector('.widget-foot .network-rates'))throw Error('网速位置变化');
+          if(enabled.includes(3)&&!document.querySelector('.widget-foot .expiry'))throw Error('倒计时位置变化');
+        }
+      }
+      return true;
+    })()`});
+    if(counts.exceptionDetails)throw Error(counts.exceptionDetails.exception?.description);
+    console.log('PASS: 四档宽度深浅主题完整展示；六种双指标组合合并一行，三指标保留既定位置');
   } finally {
     await client.close();
     instance.close();

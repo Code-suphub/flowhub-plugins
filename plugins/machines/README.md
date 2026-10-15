@@ -102,3 +102,44 @@ stdin/stdout 每行一条 JSON：
 - [Linode 账户用量](https://techdocs.akamai.com/linode-api/reference/get-transfer)
 - [Vultr 账户流量](https://docs.vultr.com/reference/vultr-cli/account/bandwidth)、[官方返回模型](https://github.com/vultr/govultr/blob/master/account.go)
 - [AWS Lightsail 指标](https://docs.aws.amazon.com/lightsail/2016-11-28/api-reference/API_GetInstanceMetricData.html)、[流量池口径](https://docs.aws.amazon.com/lightsail/latest/userguide/amazon-lightsail-faq-data-transfer-allowance.html)
+
+## 与 toolkit 共用连接和会话
+
+机器工作台“远程命令 → 连接与会话”可选择共享 JSON 文件，默认 `~/.ssh/mcp-servers.json`。内置 SSH/relay 组件与 toolkit 复用同一实现、配置和 tmux 会话；FlowHub 无需额外安装 toolkit、Python 或 tmux。名称、分组、权限及历史保留在 FlowHub，监控采集在子 shell 中执行，relay 继续使用用户配置的登录脚本。
+
+切换前暂停监控并等待任务结束。缺失的旧连接会补入文件，共享文件已有的连接参数优先；旧加密密码如需补入会导出为共享文件的 password 字段，文件权限设置为 0600。旧凭据库保留供回退，普通插件备份不包含这个外部共享文件，需单独备份。旧独立 tmux 会话保持原状，使用新列表前重新连接。
+
+```sh
+./bin/flowhub-machines --cli monitor off
+./bin/flowhub-machines --cli shared-config /absolute/path/mcp-servers.json
+./bin/flowhub-machines --cli sessions
+```
+
+toolkit 的 `ssh console`、`ssh session attach` 与页面共享同一个会话；附着时拒绝结构化命令，tmux 脱离（Ctrl+B、D）保留连接，stop 终止连接。持续 session exec 与页面手动命令保留工作目录；单次 toolkit exec 和监控采集在子 shell 中执行。超时不会自动重试或注入 Ctrl+C，会话标记 busy 后需检查并重新连接。详情见 toolkit 仓库的 `skills/toolkit-cli/references/ssh.md`。
+
+## 独立 SSH 组件与网络策略
+
+机器插件已内置 `flowhub_ssh` 运行组件（包含 Python、PyYAML 和 tmux），
+不再通过用户的 `~/.local/bin/toolkit` 或 `TOOLKIT_BIN` 启动 SSH。
+系统 OpenSSH 仍用于实际连接；堡垒机继续使用用户配置的 relay 脚本及认证。
+只安装 FlowHub 即可使用共享持久会话，toolkit 为可选的另一入口。
+两者继续共用 `~/.ssh/mcp-servers.json`、`toolkit-ssh` tmux server、会话 ID、
+命令锁及手动断开标记；升级不会另建一套会话。
+
+底层源码在 toolkit 仓库的 `flowhub_ssh/`，插件通过 `vendor/ssh-core.lock.json`
+锁定可复现源码包的 SHA256。源码包为生成物，不在此维护第二份源码。
+更新方式：在 toolkit 执行 `python scripts/export-ssh-core.py <本插件/vendor/源码包路径>`，
+更新 lock 的 SHA256，然后执行 `npm run build`。构建机需要 Python 3、uv 和 Xcode 命令行工具；tmux/libevent 按锁定源码及 macOS 11 部署目标构建，避免引入 Homebrew 动态库依赖。
+最终插件将冻结运行组件嵌入 Rust 可执行文件，用户不需要单独安装这些工具。
+`tests/shared-runtime.test.cjs` 在没有 toolkit/Python/tmux 的 PATH 下验证初始化和调用。
+
+入口：**机器编辑 → 连接配置 → 网络策略**。
+可读取系统网络接口、Clash TUN 状态及当前匹配连接，选择跟随系统、Clash 直连、
+Clash 指定代理组，并为同一地址增加 Netdata 等端口。
+当前对接 macOS Mihomo Party，未运行 Clash 时普通 SSH 不受影响。
+Tailscale 等未进入 Clash TUN 的目标只能跟随系统，不能声称规则能覆盖其路由。
+规则影响所有访问该目标地址/端口的程序，写入当前订阅且保留全局代理选择和原有规则。
+切换订阅前需先在原订阅恢复跟随系统。
+
+修改前暂停监控、等待任务结束，并断开目标共享会话。写入有版本检查、私有备份和失败回滚。
+CLI 使用 `toolkit ssh network <alias>` 查看，带 `--mode` 和 `--revision` 保存。

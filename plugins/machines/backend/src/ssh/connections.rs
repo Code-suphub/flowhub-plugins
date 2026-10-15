@@ -8,9 +8,11 @@ use std::path::{Path,PathBuf};
 pub(crate) struct Connection { pub profile:Profile, #[serde(default)] pub password_auth:bool }
 fn path(root:&Path,alias:&str)->PathBuf { root.join("connections").join(format!("{:x}.json",Sha256::digest(alias.as_bytes()))) }
 pub fn load(root:&Path,alias:&str)->Result<Option<Connection>,String>{
+    if super::shared::path(root).is_some(){return super::shared::load(root,alias);}
     match std::fs::read(path(root,alias)){Ok(bytes)=>serde_json::from_slice(&bytes).map(Some).map_err(|e|e.to_string()),Err(e) if e.kind()==std::io::ErrorKind::NotFound=>Ok(None),Err(e)=>Err(e.to_string())}
 }
 pub fn revision(root:&Path,alias:&str)->Result<String,String>{
+    if super::shared::path(root).is_some(){return super::shared::revision(root);}
     Ok(format!("{:x}",Sha256::digest(serde_json::to_vec(&load(root,alias)?).map_err(|e|e.to_string())?)))
 }
 fn account(c:&Connection)->String {
@@ -20,6 +22,7 @@ pub fn validate_backup(root:&Path,c:&Connection)->Result<(),String>{
     if c.password_auth{crate::data::vault::read(root,&account(c))?;}Ok(())
 }
 pub fn save(root:&Path,c:&Connection,expected:&str,password:Option<&str>)->Result<String,String>{
+    if super::shared::path(root).is_some(){return super::shared::save(root,c,expected,password);}
     static SAVE_LOCK:std::sync::Mutex<()>=std::sync::Mutex::new(());
     let _lock=SAVE_LOCK.lock().map_err(|_|"配置保存锁不可用")?;
     c.profile.validate()?;
@@ -34,6 +37,10 @@ pub fn save(root:&Path,c:&Connection,expected:&str,password:Option<&str>)->Resul
     std::fs::create_dir_all(root.join("connections")).map_err(|e|e.to_string())?;
     crate::data::storage::write_json_atomic(&path(root,&c.profile.alias),&serde_json::to_value(c).map_err(|e|e.to_string())?)?;
     revision(root,&c.profile.alias)
+}
+pub fn export_shared(root:&Path,c:&Connection)->Result<serde_json::Value,String>{
+    let p=&c.profile;let mut value=serde_json::json!({"name":p.alias,"host":p.hostname,"port":p.port,"username":p.user,"privateKey":p.identity_file,"proxyJump":p.proxy_jump});
+    if c.password_auth{value["password"]=serde_json::json!(String::from_utf8(crate::data::vault::read(root,&account(c))?).map_err(|_|"密码编码无效")?);}Ok(value)
 }
 pub fn configure(process:&mut tokio::process::Command,c:&Connection,root:&Path)->Result<(),String>{
     process.env("LC_ALL","C");

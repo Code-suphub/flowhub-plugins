@@ -1,7 +1,13 @@
-.embedded .masthead { padding: 16px 22px 12px; }
-.embedded .masthead h1 { margin: 0; font-size: 20px; }
-.embedded main { padding: 16px 22px 28px; }
+.embedded .masthead { padding: 10px 16px; }
+.embedded .masthead h1 { margin: 0; font-size: 18px; }
+.machine-shell.embedded > main { padding: 12px 16px 20px; }
 .embedded .notice { padding: 9px 22px; }
+.machine-shell { font-size: 13px; line-height: 1.5; }
+.machine-shell :where(button, input, select) { font-family: inherit; letter-spacing: normal; }
+.machine-shell :where(button:not([role="tab"]), input, select) { font-size: 13px; }
+.machine-shell :where(button) { font-weight: 500; }
+.machine-shell .masthead .actions > button,
+.machine-shell .masthead .actions > div > button { min-height: 32px; padding-inline: 12px; border-radius: 6px; }
 .masthead {
   display: flex;
   align-items: center;
@@ -10,16 +16,16 @@
   border-bottom: 1px solid var(--line);
   background: color-mix(in srgb, var(--fh-canvas,#0d1410) 72%, transparent);
 }
-.masthead h1 { margin: 0; }
+.masthead h1 { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: normal; }
 .version { margin-left: 12px; padding: 3px 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--accent); font: 10px Menlo, monospace; vertical-align: middle; }
-main { width: min(100%, 1440px); margin: 0 auto; padding: 18px clamp(20px, 4vw, 56px) 40px; }
+.machine-shell > main { width: min(100%, 1440px); margin: 0 auto; padding: 18px clamp(20px, 4vw, 56px) 40px; }
 .notice { margin: 0; padding: 10px clamp(20px, 4vw, 56px); border-bottom: 1px solid var(--line); background: var(--fh-surface,#1b2b21); color: var(--accent); white-space: pre-wrap; overflow-wrap: anywhere; }
 .notice:empty { display: none; }
 .notice.error { background: var(--fh-danger-soft,#2b201d); color: var(--bad); }
 
 @media (max-width: 850px) {
   .masthead { padding: 20px 20px 14px; }
-  main { padding: 16px 20px 32px; }
+  .machine-shell > main { padding: 16px 20px 32px; }
 }
 @media (max-width: 600px) {
   .masthead .actions { flex: 0 0 auto; }

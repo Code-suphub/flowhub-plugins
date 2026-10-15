@@ -7,7 +7,7 @@ export type NetdataDraft = { id?: string; name: string; url: string; networkChar
 export type NetdataHistoryQuery = { instanceId: string; chartId: string; seconds: number };
 export type NetdataHistory = { chartId: string; labels: readonly string[]; data: readonly (readonly (number | null)[])[]; units?: string };
 export type NetdataInstallDraft = { hostId: string; port: number; bind: string; retentionDays: number; diskMiB: number };
-export type NetdataInstallPreview = { alias?: string; name?: string; command: string };
+export type NetdataInstallPreview = { alias?: string; name?: string; targetRevision?: string; command: string };
 export type NetdataSuggestion = { message: ReactNode; url?: string };
 
 export interface NetdataPanelActions {

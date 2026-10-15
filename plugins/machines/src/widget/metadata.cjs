@@ -12,9 +12,15 @@ function expiry(at, now = Date.now()) {
   return { text: remaining > 0 ? `剩余 ${duration}` : remaining === 0 ? '已到期' : `已过期 ${duration}`, urgent: remaining <= 7 * 86400000, expired: remaining <= 0 };
 }
 
-function traffic(value, now = Date.now()) {
+function traffic(value, now = Date.now(), monitorStatus) {
+  // Older local usage summaries predate the explicit source field.
+  const ssh = value?.source === 'localSsh' || (!value?.source && value?.mode === 'usage' && ('partial' in value || 'bootBaseline' in value));
+  if (ssh && monitorStatus && monitorStatus !== 'healthy') {
+    return { kind: 'empty', label: '流量 —', hint: 'SSH 采集未就绪，历史用量不作为当前数据展示' };
+  }
   const stale = !value?.at || !Number.isFinite(Date.parse(value.at)) || now - Date.parse(value.at) > 900000;
   const divisor = Number.isFinite(value?.divisor) && value.divisor > 0 ? value.divisor : 1073741824;
+  const source = value?.source === 'localNet' ? 'Netdata 独立采集 · ' : value?.source === 'localSsh' ? 'SSH 网卡采集 · ' : '';
   const format = (n) => (n / divisor).toLocaleString('zh-CN', { maximumFractionDigits: 2 });
   if (value && !value.error && !stale && value.mode === 'usage' && Number.isFinite(value.used) && value.used >= 0) {
     const used = value.used / divisor;
@@ -25,17 +31,17 @@ function traffic(value, now = Date.now()) {
     const label = hasLimit ? used >= 1
       ? `${used.toLocaleString('zh-CN', { maximumFractionDigits: 2 })}/${format(value.total)} ${unit}`
       : `${amount}/${format(value.total)} ${unit}` : amount;
-    return { kind: 'usage', label, title: `${value.bootBaseline
+    return { kind: 'usage', label, title: `${source}${value.bootBaseline
       ? '本期估算已用：月周期起点与开机时间吻合，使用网卡计数器估算；不等同服务商计费或准确套餐余额'
       : value.partial
         ? '本期已采集：仅本期首次采样以来的网卡用量；周期历史不完整，不能推算套餐余额'
         : '本期估算已用：本周期监控用量，不代表账单或套餐余额'}${hasLimit ? '；斜杠后为配置额度，不代表可用余额' : ''}` };
   }
   if (!value || value.error || stale || !Number.isFinite(value.remaining) || !Number.isFinite(value.total) || value.total <= 0) {
-    return { kind: 'empty', label: '剩余流量 —', hint: !value ? '请先配置并查询云流量' : value.error ? '查询失败 / 暂无有效套餐' : stale ? '流量数据已过期' : '暂无数据' };
+    return { kind: 'empty', label: value?.mode === 'usage' || ssh ? '流量 —' : '剩余流量 —', hint: !value ? '请先配置并查询云流量' : value.error ? '查询失败 / 暂无有效套餐' : stale ? '流量数据已过期' : '暂无数据' };
   }
   const shared = value.scope === 'account' || value.scope?.startsWith('region:');
-  return { kind: 'quota', label: `${shared ? '共享 ' : ''}${format(value.remaining)}/${format(value.total)} GB`, title: shared ? '共享流量池：剩余 / 总量' : '剩余流量 / 套餐总量' };
+  return { kind: 'quota', label: `${shared ? '共享 ' : ''}${format(value.remaining)}/${format(value.total)} GB`, title: source + (shared ? '共享流量池：剩余 / 总量' : '剩余流量 / 套餐总量') };
 }
 
 module.exports = { flag, expiry, traffic };

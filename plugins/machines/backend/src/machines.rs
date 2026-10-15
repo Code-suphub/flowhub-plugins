@@ -167,6 +167,7 @@ struct Config {
     netdata: Vec<crate::monitoring::netdata::Instance>,
     exporters: HashMap<String,crate::monitoring::exporter::Endpoint>,
     retention_days:u64,
+    shared_config_file:Option<String>,
 }
 const DEFAULT_CONNECTION_IDLE: u64 = 8 * 3600;
 const MAX_CONNECTION_IDLE: u64 = 7 * 24 * 3600;
@@ -436,7 +437,9 @@ impl Runtime {
         let snapshot=json!({"config":self.config.lock().unwrap().clone(),"metrics":self.metrics.lock().unwrap().clone()});
         let mut status=status_summary(&snapshot, chrono::Utc::now().timestamp_millis());
         let instances=self.config.lock().unwrap().netdata.clone();let cache=self.netdata_cache.lock().unwrap();
-        for instance in instances { if let Some(data)=cache.get(&instance.id){if let Some(rows)=data["rows"].as_array(){status["rows"].as_array_mut().unwrap().extend(rows.iter().cloned());}} }
+        for instance in instances { if let Some(data)=cache.get(&instance.id){if let Some(rows)=data["rows"].as_array(){
+            for row in rows{let mut row=row.clone();row["name"]=json!(instance.name);row["kind"]=json!("netdata");row["source"]=json!("Netdata");if let Some(error)=data["error"].as_str(){row["error"]=json!(error);}status["rows"].as_array_mut().unwrap().push(row);}
+        }} }
         let traffic=self.traffic_cache.lock().unwrap();
         for row in status["rows"].as_array_mut().unwrap() {
             if let Some(value)=row["id"].as_str().and_then(|id|traffic.get(id)){row["traffic"]=value.clone();}
@@ -446,7 +449,13 @@ impl Runtime {
         status
     }
     fn snapshot(&self) -> Value {
-        json!({"config": self.config.lock().unwrap().clone(), "pending": self.pending.lock().unwrap().clone(), "metrics": self.metrics.lock().unwrap().clone(), "active": self.active.lock().unwrap().values().map(|a| a.job.summary()).collect::<Vec<_>>(), "history": self.history.lock().unwrap().iter().map(Job::summary).collect::<Vec<_>>(), "readonly": false})
+        let config = self.config.lock().unwrap();
+        let revisions: serde_json::Map<String,Value> = config.hosts.iter().map(|host| {
+            let revision = crate::ssh::connections::load(self.path.parent().unwrap(), &host.alias)
+                .map(|connection| target_revision(host, &connection)).unwrap_or_default();
+            (host.id.clone(), json!(revision))
+        }).collect();
+        json!({"config":*config,"targetRevisions":revisions,"pending":self.pending.lock().unwrap().clone(),"metrics":self.metrics.lock().unwrap().clone(),"active":self.active.lock().unwrap().values().map(|a|a.job.summary()).collect::<Vec<_>>(),"history":self.history.lock().unwrap().iter().map(Job::summary).collect::<Vec<_>>(),"readonly":false})
     }
     fn cancel_all(&self) {
         for active in self.active.lock().unwrap().values() {
@@ -464,7 +473,7 @@ fn status_summary(snapshot: &Value, now: i64) -> Value {
         let at = m["at"].as_i64();
         let status = if at.is_none() { "unknown" } else if now - at.unwrap() > stale_ms { "stale" }
             else if m["status"] == "success" { "healthy" } else { "error" };
-        json!({"id":id,"name":h["name"],"status":status,"at":at,"countryCode":h["countryCode"],"expiresAt":h["expiresAt"],
+        json!({"id":id,"name":h["name"],"kind":"machine","source":if config["exporters"].get(id).is_some(){"Node Exporter"}else{"SSH"},"status":status,"at":at,"countryCode":h["countryCode"],"expiresAt":h["expiresAt"],
             "values": if status == "healthy" {m["values"].clone()} else {Value::Null}})
     }).collect();
     json!({"title":"机器状态","monitoring":config["monitoring"],"rows":rows,"updatedAt":now})
@@ -473,6 +482,24 @@ fn status_summary(snapshot: &Value, now: i64) -> Value {
 #[cfg(test)]
 mod status_tests {
     use super::*;
+    #[test]
+    fn widget_sources_keep_same_named_machine_and_agent_distinct(){
+        let root=std::env::temp_dir().join(format!("fh-widget-sources-{}",chrono::Utc::now().timestamp_nanos_opt().unwrap()));
+        let runtime=Runtime::new(root.clone()).unwrap();
+        {
+            let mut config=runtime.config.lock().unwrap();
+            config.hosts.push(Host{id:"host".into(),alias:"host".into(),name:"tencent-sg".into(),group:String::new(),country_code:String::new(),expires_at:None,read_only:false,bastion:None});
+            config.netdata.push(crate::monitoring::netdata::Instance{id:"agent".into(),name:"tencent-sg".into(),url:"http://127.0.0.1:19999".into(),network_chart:String::new(),host_id:Some("host".into())});
+        }
+        runtime.metrics.lock().unwrap().insert("host".into(),json!({"at":chrono::Utc::now().timestamp_millis(),"status":"success","values":{"cpu":2.}}));
+        runtime.netdata_cache.lock().unwrap().insert("agent".into(),json!({"rows":[{"id":"netdata-agent","name":"tencent-sg · 无法连接","status":"error","values":{}}]}));
+        let status=runtime.status_snapshot();let rows=status["rows"].as_array().unwrap();
+        assert_eq!(rows.len(),2);assert_eq!(rows[0]["name"],rows[1]["name"]);
+        assert_eq!(rows[0]["source"],"SSH");assert_eq!(rows[0]["status"],"healthy");
+        assert_eq!(rows[1]["source"],"Netdata");assert_eq!(rows[1]["kind"],"netdata");assert_eq!(rows[1]["status"],"error");
+        assert_eq!(rows[0]["id"],"host");assert_eq!(rows[1]["id"],"netdata-agent");
+        drop(runtime);std::fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn one_netdata_agent_per_machine_preserves_existing_duplicates(){
         let mut config=Config::default();
@@ -692,6 +719,60 @@ pub(crate) async fn machines_api(
 ) -> Result<Value, String> {
     let rt = app.runtime.clone();
     match action.as_str() {
+        "sharedConfig" => {
+            let root=rt.path.parent().unwrap().to_path_buf();
+            let file=payload["path"].as_str().map(PathBuf::from).or_else(||dirs::home_dir().map(|h|h.join(".ssh/mcp-servers.json"))).ok_or("找不到配置文件")?;
+            if !file.is_absolute(){return Err("请选择配置文件的绝对路径".into());}
+            {let c=rt.config.lock().unwrap();authorize(&c,"ssh:configure")?;if c.monitoring || !rt.active.lock().unwrap().is_empty(){return Err("请先暂停监控并等待执行任务结束，再切换配置文件".into());}}
+            let mut old=rt.config.lock().unwrap().hosts.clone();
+            let mut listed=crate::ssh::shared::request(file.clone(),json!({"action":"init"})).await?;
+            // Same endpoint under a different shared alias keeps the original machine ID/history.
+            for host in &mut old {
+                if host.bastion.is_none() && !listed["hosts"].as_array().unwrap().iter().any(|r|r["name"]==host.alias) {
+                    if let Some(c)=crate::ssh::connections::load(&root,&host.alias)? {
+                        let matches:Vec<_>=listed["hosts"].as_array().unwrap().iter().filter(|r|r["host"]==c.profile.hostname && r["username"]==c.profile.user && r["port"].as_u64().unwrap_or(22)==u64::from(c.profile.port)).collect();
+                        if matches.len()==1{host.alias=matches[0]["name"].as_str().ok_or("共享别名无效")?.into();}
+                    }
+                }
+            }
+            // Add legacy connections absent from the chosen file. Existing shared entries win.
+            for host in &old {
+                if !listed["hosts"].as_array().unwrap().iter().any(|h|h["name"]==host.alias){
+                    let mut record=if let Some(profile)=&host.bastion {json!({"name":host.alias,"type":"relay","relay":profile})}
+                        else if let Some(c)=crate::ssh::connections::load(&root,&host.alias)? {
+                            crate::ssh::connections::export_shared(&root,&c)?
+                        } else {continue};
+                    record["readOnly"]=json!(host.read_only);
+                    record["queryHashes"]=json!([format!("{:x}",Sha256::digest(COLLECT.as_bytes()))]);
+                    crate::ssh::shared::request(file.clone(),json!({"action":"save","profile":record,"revision":listed["revision"]})).await?;
+                    listed=crate::ssh::shared::request(file.clone(),json!({"action":"profiles"})).await?;
+                }
+            }
+            for host in &old {
+                if listed["hosts"].as_array().unwrap().iter().any(|row|row["name"]==host.alias) {
+                    let row=listed["hosts"].as_array().unwrap().iter().find(|row|row["name"]==host.alias).unwrap();
+                    let restricted=host.read_only||row["readOnly"].as_bool().unwrap_or(false);
+                    let record=if row["type"]=="relay"{json!({"name":host.alias,"type":"relay","relay":row["relay"],"readOnly":restricted,"queryHashes":[format!("{:x}",Sha256::digest(COLLECT.as_bytes()))]})}
+                    else{let mut record=crate::ssh::shared::rows(&file)?.into_iter().find(|row|row["name"]==host.alias).unwrap();record["readOnly"]=json!(restricted);record["queryHashes"]=json!([format!("{:x}",Sha256::digest(COLLECT.as_bytes()))]);record};
+                    crate::ssh::shared::request(file.clone(),json!({"action":"save","profile":record,"revision":listed["revision"]})).await?;
+                    listed=crate::ssh::shared::request(file.clone(),json!({"action":"profiles"})).await?;
+                }
+            }
+            let mut hosts=Vec::new();
+            for row in listed["hosts"].as_array().ok_or("共享配置缺少连接列表")? {
+                let alias=row["name"].as_str().ok_or("缺少别名")?.to_string();
+                let mut host=old.iter().find(|h|h.alias==alias).cloned().unwrap_or(Host{id:format!("shared-{:x}",Sha256::digest(alias.as_bytes()))[..31].into(),alias:alias.clone(),name:alias.clone(),group:String::new(),country_code:String::new(),expires_at:None,read_only:false,bastion:None});
+                host.read_only=host.read_only||row["readOnly"].as_bool().unwrap_or(false);
+                host.bastion=if row["type"]=="relay"{Some(serde_json::from_value(row["relay"].clone()).map_err(|_|"relay 配置无效")?)}else{None};
+                hosts.push(host);
+            }
+            validate_hosts(&hosts)?;
+            rt.save(|c|{c.shared_config_file=Some(file.to_string_lossy().into());c.hosts=hosts;Ok(())})
+        }
+        "sharedSessions" => {
+            let path=crate::ssh::shared::path(rt.path.parent().unwrap()).ok_or("请先选择共享 SSH 配置文件")?;
+            crate::ssh::shared::request(path,json!({"action":"list"})).await
+        }
         "trafficRead" | "trafficSave" | "trafficQuery" | "tencentRead" | "tencentSave" | "tencentQuery" => {
             let provider=payload["provider"].as_str().unwrap_or("tencent");
             let key={
@@ -747,8 +828,9 @@ pub(crate) async fn machines_api(
             // 脚本携带必要的超时、回滚和诊断逻辑，避免在真正入队时被普通命令上限拒绝。
             validate_command_with_limit(&script, 16384)?;
             let host={let c=rt.config.lock().unwrap();authorize(&c,"ssh:execute")?;let h=c.hosts.iter().find(|h|Some(h.id.as_str())==payload["hostId"].as_str()).ok_or("请选择目标机器")?;check_operation(h,"command",&script)?;if h.bastion.is_some(){return Err("一键安装使用普通 SSH；堡垒机请在已登录的系统终端执行安装命令".into());}h.clone()};
-            if action=="netdataInstallPlan"{return Ok(json!({"command":script,"hostId":host.id,"alias":host.alias,"name":host.name}));}
-            if payload["expectedAlias"]!=host.alias || payload["command"]!=script{return Err("安装配置发生变化，请重新预览".into());}
+            let revision = target_revision(&host, &crate::ssh::connections::load(rt.path.parent().unwrap(), &host.alias)?);
+            if action=="netdataInstallPlan"{return Ok(json!({"command":script,"hostId":host.id,"alias":host.alias,"name":host.name,"targetRevision":revision}));}
+            if payload["expectedAlias"]!=host.alias || payload["command"]!=script || payload["targetRevision"]!=revision{return Err("安装配置发生变化，请重新预览".into());}
             let id=format!("netdata-{}",chrono::Utc::now().timestamp_nanos_opt().unwrap());let task_id=id.clone();
             let task_app=app.clone();
             let task_error=Arc::new(Mutex::new(None::<String>));
@@ -757,7 +839,7 @@ pub(crate) async fn machines_api(
             // 等待同一把锁，否则在有写锁排队时任务永远不会进入 execute 的 queued 阶段。
             tokio::spawn(async move{
                 if task_app.backup.pending_restore(){*task_error_writer.lock().unwrap()=Some("插件正在等待恢复，请先重新加载机器插件".into());return;}
-                if let Err(error)=machines_run(task_app.clone(),host.id,host.alias,task_id,"command".into(),Some(script)).await{
+                if let Err(error)=machines_run(task_app.clone(),host.id,host.alias,task_id,"command".into(),Some(script),Some(revision)).await{
                     *task_error_writer.lock().unwrap()=Some(error);
                 }
             });
@@ -778,8 +860,17 @@ pub(crate) async fn machines_api(
                 authorize(&config, "ssh:terminal")?;
                 config.hosts.iter().find(|h| Some(h.id.as_str()) == payload["hostId"].as_str()).cloned().ok_or("机器不存在")?
             };
+            if let Some(path)=crate::ssh::shared::path(rt.path.parent().unwrap()) {
+                if matches!(action.as_str(),"bastionSend"|"bastionTerminal"){check_operation(&host,"terminal","")?;}
+                if action=="bastionTerminal"{crate::ssh::shared::terminal(path.clone(),&host.alias).await?;return crate::ssh::shared::request(path,json!({"action":"state","alias":host.alias})).await;}
+                let method=match action.as_str(){"bastionStart"=>"start","bastionStop"=>"stop","bastionSend"=>"send",_=>"state"};
+                return crate::ssh::shared::request(path,json!({"action":method,"alias":host.alias,"text":payload["text"],"key":payload["key"]})).await;
+            }
             let profile = host.bastion.as_ref().ok_or("不是堡垒机连接")?;
             if matches!(action.as_str(), "bastionSend" | "bastionTerminal") { check_operation(&host, "terminal", "")?; }
+            if action == "bastionStop" {
+                for task in rt.active.lock().unwrap().values().filter(|a| a.job.host_id == host.id && a.job.kind == "collect") { task.cancel.store(true, Ordering::Release); }
+            }
             crate::ssh::bastion::handle(&rt.path, &host.id, profile, &action, &payload).await
         }
         "state" => Ok(rt.snapshot()),
@@ -881,6 +972,19 @@ pub(crate) async fn machines_api(
             let c = rt.config.lock().unwrap();
             Ok(json!({"installed": c.installed.is_some(), "enabled": c.enabled}))
         }
+        "networkRead" | "networkSave" => {
+            let (path,request)={
+                let config=rt.config.lock().unwrap();
+                authorize(&config,"ssh:configure")?;
+                let path=crate::ssh::shared::path(rt.path.parent().unwrap()).ok_or("请先在连接与会话中启用共享配置")?;
+                let alias=payload["alias"].as_str().filter(|s|valid_alias(s)).ok_or("SSH 别名无效")?;
+                if !config.hosts.iter().any(|h|h.alias==alias){return Err("请先保存机器，再配置网络策略".into());}
+                if action=="networkSave" && (config.monitoring || !rt.active.lock().unwrap().is_empty()){return Err("请先暂停监控并等待任务结束，再修改网络策略".into());}
+                let request=if action=="networkRead"{json!({"action":"network-read","alias":alias})}else{json!({"action":"network-save","alias":alias,"policy":payload["policy"],"revision":payload["revision"]})};
+                (path,request)
+            };
+            crate::ssh::shared::request(path,request).await
+        }
         "sshRead" | "sshSave" | "sshProbe" | "chooseIdentity" => {
             {
                 let config = rt.config.lock().unwrap();
@@ -896,6 +1000,12 @@ pub(crate) async fn machines_api(
                     serde_json::from_value(payload["profile"].clone())
                         .map_err(|e| e.to_string())?;
                 let connection=crate::ssh::connections::Connection {profile,password_auth:payload["passwordAuth"].as_bool().unwrap_or(false)};
+                // Keep registration and profile writes under the same config lock.
+                let config = rt.config.lock().unwrap();
+                authorize(&config, "ssh:configure")?;
+                if rt.active.lock().unwrap().values().any(|a| a.job.alias == connection.profile.alias) {
+                    return Err("此连接仍有排队或运行任务，请等待结束后再修改".into());
+                }
                 let revision=crate::ssh::connections::save(rt.path.parent().unwrap(),&connection,payload["revision"].as_str().ok_or("请先读取连接配置")?,payload["password"].as_str())?;
                 return Ok(json!({"revision": revision}));
             }
@@ -970,6 +1080,10 @@ pub(crate) async fn machines_api(
                 return Ok(
                     json!({"profile": profile, "revision": revision, "inheritedKeys": inherited_keys, "effective": {"hostname": field("hostname"), "user": field("user"), "port": field("port"), "proxyJump": field("proxyjump")}}),
                 );
+            }
+            if let Some(path)=crate::ssh::shared::path(rt.path.parent().unwrap()) {
+                let response=crate::ssh::shared::request(path,json!({"action":"exec","alias":alias,"command":"hostname","isolated":true,"timeout":20})).await?;
+                return Ok(json!({"success":response["exit_code"]==0,"reason":"共享会话 hostname 查询完成","output":response["output"]}));
             }
             if !payload["profile"].is_null() {
                 let profile: crate::ssh::ssh_profiles::Profile =
@@ -1228,6 +1342,17 @@ pub(crate) async fn machines_api(
                     return Err("请先结束运行任务并断开堡垒机会话，再修改操作权限".into());
                 }
             }
+            if let Some(path)=crate::ssh::shared::path(rt.path.parent().unwrap()) {
+                let sessions=crate::ssh::shared::request(path.clone(),json!({"action":"list"})).await?;
+                for h in &hosts {
+                    if old.iter().any(|previous|previous.id==h.id && previous.read_only!=h.read_only) && sessions["sessions"].as_array().unwrap().iter().any(|session|session["alias"]==h.alias && session["config_file"]==path.to_string_lossy().as_ref()) {return Err("请先断开共享会话，再修改操作权限".into());}
+                    let listed=crate::ssh::shared::request(path.clone(),json!({"action":"profiles"})).await?;
+                    if let Some(mut row)=crate::ssh::shared::rows(&path)?.into_iter().find(|row|row["name"]==h.alias) {
+                        row["readOnly"]=json!(h.read_only);row["queryHashes"]=json!([format!("{:x}",Sha256::digest(COLLECT.as_bytes()))]);
+                        crate::ssh::shared::request(path.clone(),json!({"action":"save","profile":row,"revision":listed["revision"]})).await?;
+                    }
+                }
+            }
             let keep: HashSet<String> = hosts
                 .iter()
                 .filter(|h| old.iter().any(|o| o.id == h.id && o.alias == h.alias))
@@ -1247,6 +1372,10 @@ pub(crate) async fn machines_api(
             Ok(rt.snapshot())
         }
         "import" => {
+            if let Some(path)=crate::ssh::shared::path(rt.path.parent().unwrap()) {
+                let result=crate::ssh::shared::request(path,json!({"action":"profiles"})).await?;
+                return Ok(json!({"aliases":result["hosts"].as_array().unwrap().iter().map(|h|h["name"].clone()).collect::<Vec<_>>(),"note":"来自共享 SSH 配置文件"}));
+            }
             let path = dirs::home_dir()
                 .ok_or("找不到用户目录")?
                 .join(".ssh/config");
@@ -1296,6 +1425,7 @@ pub(crate) async fn machines_api(
                 check_operation(host, "terminal", "")?;
                 host.alias.clone()
             };
+            if let Some(path)=crate::ssh::shared::path(rt.path.parent().unwrap()) {crate::ssh::shared::terminal(path,&alias).await?;return Ok(json!({"ok":true}));}
             let options = connection_args(&rt.config.lock().unwrap())?;
             let mut args = vec![std::env::current_exe().map_err(|e|e.to_string())?.to_string_lossy().into_owned(),"--terminal".into(),rt.path.parent().unwrap().to_string_lossy().into_owned(),alias]; args.extend(options);
             let command = format!("exec {}", args.iter().map(|s| format!("'{}'", s.replace('\'', "'\\''"))).collect::<Vec<_>>().join(" "));
@@ -1396,6 +1526,12 @@ fn ssh_args(alias: &str, command: &str) -> Vec<String> {
     .map(|s| s.to_string())
     .collect()
 }
+fn execution_target(host: &Host, connection: &Option<crate::ssh::connections::Connection>, exporter: &Option<crate::monitoring::exporter::Endpoint>) -> Value {
+    json!({"alias":host.alias,"readOnly":host.read_only,"bastion":host.bastion,"connection":connection,"exporter":exporter})
+}
+fn target_revision(host: &Host, connection: &Option<crate::ssh::connections::Connection>) -> String {
+    format!("{:x}", Sha256::digest(execution_target(host, connection, &None).to_string().as_bytes()))
+}
 async fn execute(
     app: Context,
     host_id: String,
@@ -1403,6 +1539,7 @@ async fn execute(
     id: String,
     kind: String,
     command: String,
+    expected_revision: Option<String>,
 ) -> Result<Job, String> {
     if !valid_alias(&id) {
         return Err("任务 ID 无效".into());
@@ -1417,7 +1554,7 @@ async fn execute(
     }
     let rt = app.runtime.clone();
     let cancel = Arc::new(AtomicBool::new(false));
-    let mut job = {
+    let (mut job, target, connection, bastion, exporter) = {
         let config = rt.config.lock().unwrap();
         authorize(
             &config,
@@ -1436,7 +1573,13 @@ async fn execute(
             return Err("机器地址在审阅后发生变化，请重新选择目标".into());
         }
         check_operation(host, &kind, &command)?;
-        if host.bastion.is_some() && kind != "collect" && !query_allowed(&command) { return Err("堡垒机自由命令请使用持久会话工作台；结构化调用仅支持内置查询".into()); }
+        let connection = crate::ssh::connections::load(rt.path.parent().unwrap(), &host.alias)?;
+        if expected_revision.as_ref().is_some_and(|revision| revision != &target_revision(host, &connection)) {
+            return Err("机器连接配置在审阅后发生变化，请刷新并重新选择目标".into());
+        }
+        let bastion = host.bastion.clone();
+        let exporter = if kind == "collect" { config.exporters.get(&host.id).cloned() } else { None };
+        let target = execution_target(host, &connection, &exporter);
         let job = Job {
             id: id.clone(),
             host_id,
@@ -1474,7 +1617,7 @@ async fn execute(
                 job: job.clone(),
             },
         );
-        job
+        (job, target, connection, bastion, exporter)
     };
     let acquire = rt.slots.acquire();
     tokio::pin!(acquire);
@@ -1500,29 +1643,43 @@ async fn execute(
             && config
                 .hosts
                 .iter()
-                .any(|h| h.id == job.host_id && h.alias == job.alias && check_operation(h, &job.kind, &command).is_ok())
+                .find(|h| h.id == job.host_id).is_some_and(|h| {
+                    let current = crate::ssh::connections::load(rt.path.parent().unwrap(), &h.alias);
+                    let endpoint = if job.kind == "collect" { config.exporters.get(&h.id).cloned() } else { None };
+                    check_operation(h, &job.kind, &command).is_ok()
+                        && current.is_ok_and(|c| execution_target(h, &c, &endpoint) == target)
+                })
     };
-    let exporter=if job.kind=="collect"{rt.config.lock().unwrap().exporters.get(&job.host_id).cloned()}else{None};
     if cancel.load(Ordering::Acquire) || !allowed {
         job.status = "cancelled".into();
+        if !allowed { job.stderr = "目标连接配置在排队期间发生变化，请重新审阅并提交".into(); }
     } else {
         job.status = "running".into();
         if let Some(a) = rt.active.lock().unwrap().get_mut(&id) {
             a.job.status = job.status.clone();
         }
-        let bastion = rt.config.lock().unwrap().hosts.iter().find(|h| h.id == job.host_id).and_then(|h| h.bastion.clone());
         if let Some(endpoint)=&exporter {
             match crate::monitoring::exporter::collect(endpoint).await {Ok(values)=>{job.stdout=values.to_string();job.status="success".into();job.exit_code=Some(0);},Err(e)=>{job.status="failed".into();job.stderr=e;}}
             if cancel.load(Ordering::Acquire){job.status="cancelled".into();}
+        } else if let Some(path)=crate::ssh::shared::path(rt.path.parent().unwrap()) {
+            let request=crate::ssh::shared::request(path,json!({"action":"exec","alias":job.alias,"command":command,"isolated":job.kind=="collect","timeout":if job.kind=="collect"{20}else{60}}));
+            tokio::pin!(request);
+            let response=loop {tokio::select!{result=&mut request=>break Some(result),_=tokio::time::sleep(Duration::from_millis(100))=>{if cancel.load(Ordering::Acquire){break None;}}}};
+            match response {
+                Some(Ok(data))=>{job.stdout=data["output"].as_str().unwrap_or("").into();job.exit_code=data["exit_code"].as_i64().map(|n|n as i32);job.status=if job.exit_code==Some(0){"success"}else{"failed"}.into();},
+                Some(Err(error))=>{job.status="failed".into();job.stderr=error;},
+                None=>{job.status="cancelled".into();job.stderr="已停止等待；共享会话中的远端命令可能仍在执行".into();}
+            }
         } else if let Some(profile) = bastion {
-            match crate::ssh::bastion::collect(&rt.path, &job.host_id, &profile, &command, &cancel).await {
+            let duration = Duration::from_secs(if job.kind == "collect" { 20 } else { 60 });
+            match crate::ssh::bastion::run_command(&rt.path, &job.host_id, &profile, &command, &cancel, duration).await {
                 Ok(output) => { job.stdout = output; job.status = "success".into(); job.exit_code = Some(0); }
                 Err(error) => { job.status = if cancel.load(Ordering::Acquire) { "cancelled" } else { "failed" }.into(); job.stderr = error; }
             }
         } else {
         let mut child = Command::new("/usr/bin/ssh");
         let options = connection_args(&rt.config.lock().unwrap()).and_then(|options| {
-            if let Some(connection)=crate::ssh::connections::load(rt.path.parent().unwrap(),&job.alias)? {crate::ssh::connections::configure(&mut child,&connection,rt.path.parent().unwrap())?;}
+            if let Some(connection)=&connection {crate::ssh::connections::configure(&mut child,connection,rt.path.parent().unwrap())?;}
             rt.history_store.save(&job)?; Ok(options)
         });
         if let Ok(options) = &options { child.args(options); }
@@ -1552,8 +1709,11 @@ async fn execute(
         if config
             .hosts
             .iter()
-            .any(|h| h.id == job.host_id && h.alias == job.alias)
-            && config.exporters.get(&job.host_id) == exporter.as_ref()
+            .find(|h| h.id == job.host_id).is_some_and(|h| {
+                let endpoint = config.exporters.get(&h.id).cloned();
+                crate::ssh::connections::load(rt.path.parent().unwrap(), &h.alias)
+                    .is_ok_and(|connection| execution_target(h, &connection, &endpoint) == target)
+            })
         {
             if let Err(e)=rt.history_store.sample(&job.id,&job.host_id,job.finished_at.unwrap(),&job.status,if exporter.is_some(){"node_exporter"}else{"ssh"},&parsed.clone().unwrap_or(Value::Null)){job.status="failed".into();job.stderr.push_str(&format!("历史保存失败：{e}"));}
             rt.metrics.lock().unwrap().insert(job.host_id.clone(), json!({"at": job.finished_at, "status": job.status, "values": parsed, "error": job.stderr.chars().take(1000).collect::<String>()}));
@@ -1660,6 +1820,7 @@ pub(crate) async fn machines_run(
     id: String,
     kind: String,
     command: Option<String>,
+    expected_revision: Option<String>,
 ) -> Result<Value, String> {
     let script = if kind == "collect" {
         COLLECT.to_string()
@@ -1667,7 +1828,7 @@ pub(crate) async fn machines_run(
         command.ok_or("缺少命令")?
     };
     Ok(
-        serde_json::to_value(execute(app, host_id, expected_alias, id, kind, script).await?)
+        serde_json::to_value(execute(app, host_id, expected_alias, id, kind, script, expected_revision).await?)
             .unwrap(),
     )
 }
@@ -1677,7 +1838,7 @@ pub(crate) fn start_netdata(app:&Context){
         if !app.backup.pending_restore(){
             let instances=app.runtime.config.lock().unwrap().netdata.clone();
             let permits=Arc::new(Semaphore::new(4));let mut jobs=tokio::task::JoinSet::new();
-            for instance in instances {let permits=permits.clone();jobs.spawn(async move {let _permit=permits.acquire().await.unwrap();let result=crate::monitoring::netdata::fetch(&instance).await.unwrap_or_else(|e|json!({"rows":[{"id":format!("netdata-{}",instance.id),"name":format!("{} · 无法连接",instance.name),"status":"error","values":{},"at":chrono::Utc::now().timestamp_millis()}],"error":e}));(instance.id,result)});}
+            for instance in instances {let permits=permits.clone();jobs.spawn(async move {let _permit=permits.acquire().await.unwrap();let result=crate::monitoring::netdata::fetch(&instance).await.unwrap_or_else(|e|json!({"rows":[{"id":format!("netdata-{}",instance.id),"name":instance.name,"kind":"netdata","status":"error","values":{},"at":chrono::Utc::now().timestamp_millis()}],"error":e}));(instance.id,result)});}
             while let Some(Ok((id,result)))=jobs.join_next().await {app.runtime.netdata_cache.lock().unwrap().insert(id,result);}
         }}
         tokio::time::sleep(Duration::from_secs(30)).await;
@@ -1741,6 +1902,7 @@ pub(crate) fn start_monitor(app: &Context) {
                         id,
                         "collect".into(),
                         COLLECT.into(),
+                        None,
                     )),
                 ));
                 if batch.len() == 4 {
@@ -1771,13 +1933,59 @@ pub(crate) fn start_monitor(app: &Context) {
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn writable_bastion_templates_record_results_and_read_only_rejects_custom_commands() {
+        use std::os::unix::fs::PermissionsExt;
+        if !std::path::Path::new("/opt/homebrew/bin/tmux").exists() && !std::path::Path::new("/usr/local/bin/tmux").exists() { return; }
+        let root=std::env::temp_dir().join(format!("fh-bastion-template-{}",chrono::Utc::now().timestamp_nanos_opt().unwrap()));
+        let rt=Arc::new(Runtime::new(root.clone()).unwrap());
+        let target=String::from_utf8(Command::new("hostname").output().await.unwrap().stdout).unwrap().trim().to_string();
+        let relay=root.join("relay");std::fs::write(&relay,format!("#!/bin/sh\nexport PS1='test@{target}:~$ '\nexec /bin/sh -i\n")).unwrap();std::fs::set_permissions(&relay,std::fs::Permissions::from_mode(0o700)).unwrap();
+        let profile=crate::ssh::bastion::Profile {script:relay.to_string_lossy().into(),target,command:"n".into()};
+        rt.config.lock().unwrap().hosts.push(Host {id:"test".into(),alias:"test-target".into(),name:"Test".into(),group:String::new(),country_code:String::new(),expires_at:None,read_only:false,bastion:Some(profile.clone())});
+        let app=Context {runtime:rt.clone(),gate:Arc::new(tokio::sync::RwLock::new(())),backup:Arc::new(crate::data::backup::Manager::new(root.clone()))};
+        crate::ssh::bastion::handle(&rt.path,"test",&profile,"bastionStart",&json!({})).await.unwrap();tokio::time::sleep(Duration::from_millis(200)).await;
+        let command=format!("printf 'TEMPLATE_FIXTURE\\n'\ncd '{}'\nls",root.display());
+        let result=execute(app.clone(),"test".into(),"test-target".into(),"template-test".into(),"command".into(),command.clone(),None).await;
+        rt.config.lock().unwrap().hosts[0].read_only=true;
+        let denied=execute(app,"test".into(),"test-target".into(),"readonly-test".into(),"command".into(),"ls".into(),None).await;
+        crate::ssh::bastion::handle(&rt.path,"test",&profile,"bastionStop",&json!({})).await.unwrap();
+        let job=result.unwrap();assert_eq!(job.status,"success");assert!(job.stdout.contains("TEMPLATE_FIXTURE"));assert!(job.stdout.contains("relay"));
+        let saved=rt.history_store.job("template-test").unwrap().unwrap();assert_eq!(saved["command"],command);assert_eq!(saved["status"],"success");
+        assert!(denied.err().unwrap().contains("仅允许查询"));drop(rt);std::fs::remove_dir_all(root).unwrap();
+    }
+    #[tokio::test]
+    async fn queued_command_cancels_when_endpoint_changes_without_alias_change() {
+        let root = std::env::temp_dir().join(format!("fh-target-race-{}", chrono::Utc::now().timestamp_nanos_opt().unwrap()));
+        let rt = Arc::new(Runtime::new(root.clone()).unwrap());
+        rt.config.lock().unwrap().hosts.push(Host { id:"test".into(), alias:"same-alias".into(), name:"Test".into(), group:String::new(), country_code:String::new(), expires_at:None, read_only:false, bastion:None });
+        let app = Context { runtime:rt.clone(), gate:Arc::new(tokio::sync::RwLock::new(())), backup:Arc::new(crate::data::backup::Manager::new(root.clone())) };
+        let permits = rt.slots.acquire_many(4).await.unwrap();
+        let task = tokio::spawn(execute(app.clone(), "test".into(), "same-alias".into(), "queued-test".into(), "command".into(), "echo must-not-run".into(), None));
+        tokio::time::timeout(Duration::from_secs(2), async { while rt.active.lock().unwrap().is_empty() { tokio::task::yield_now().await; } }).await.unwrap();
+        let profile = crate::ssh::ssh_profiles::Profile { alias:"same-alias".into(),hostname:"never-connect.invalid".into(),user:"tester".into(),port:22,identity_file:String::new(),proxy_jump:String::new() };
+        let revision = crate::ssh::connections::revision(&root, "same-alias").unwrap();
+        let denied = machines_api(app, "sshSave".into(), json!({"profile":profile,"revision":revision})).await;
+        assert!(denied.unwrap_err().contains("排队或运行"));
+        // Simulate an external profile writer that bypasses the UI guard.
+        crate::ssh::connections::save(&root, &crate::ssh::connections::Connection {profile,password_auth:false}, &revision, None).unwrap();
+        drop(permits);
+        let result = task.await.unwrap().unwrap();
+        assert_eq!(result.status, "cancelled");
+        assert!(result.stdout.is_empty());
+        assert!(result.stderr.contains("连接配置"));
+        let app = Context { runtime:rt.clone(), gate:Arc::new(tokio::sync::RwLock::new(())), backup:Arc::new(crate::data::backup::Manager::new(root.clone())) };
+        let stale = execute(app, "test".into(), "same-alias".into(), "stale-review".into(), "command".into(), "echo must-not-run".into(), Some("stale-review-revision".into())).await.err().unwrap();
+        assert!(stale.contains("审阅后"));
+        drop(rt); std::fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn query_policy_rejects_shell_composition_and_terminal_access() {
         use super::*;
         let host: Host = serde_json::from_value(json!({"id":"prod","alias":"prod","name":"Prod","group":"","readOnly":true})).unwrap();
         assert!(check_operation(&host,"collect",COLLECT).is_ok());
         for command in ["uptime","hostname","uname -a","df -h /","free -m"] { assert!(check_operation(&host,"command",command).is_ok()); }
-        for command in ["uptime; touch /tmp/x","uptime\nrm -rf /","echo $(id)","sudo uptime","df -h / > /tmp/x", "sh", "env"] { assert!(check_operation(&host,"command",command).is_err()); }
+        for command in ["ls","uptime; touch /tmp/x","uptime\nrm -rf /","echo $(id)","sudo uptime","df -h / > /tmp/x", "sh", "env"] { assert!(check_operation(&host,"command",command).is_err()); }
         assert!(check_operation(&host,"terminal","").is_err());
     }
     #[tokio::test]

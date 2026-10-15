@@ -10,6 +10,7 @@ import type { MachineTab } from './MachineWorkspace';
 import type { FleetActions, FleetActiveJob, FleetHost, FleetSnapshot } from './types';
 
 interface MachineState {
+  targetRevisions?: Record<string, string>;
   config: { hosts: (FleetHost & { bastion?: unknown })[]; enabled: boolean; installed: { version: string } | null; monitoring?: boolean; interval: number };
   metrics: FleetSnapshot['metrics'];
   active: (FleetActiveJob & HistoryJob)[];
@@ -108,7 +109,7 @@ export function FleetController({ api, run, backupApi = null }: { api: MachinesA
     const hosts = current.current.config.hosts.filter(host => ids.includes(host.id));
     if (!hosts.length || hosts.length > 16) { message('请选择 1–16 台机器', true); return; }
     message(`正在提交 ${hosts.length} 台机器的采集任务…`);
-    const results = await Promise.allSettled(hosts.map(host => run({ hostId: host.id, expectedAlias: host.alias, id: crypto.randomUUID(), kind: 'collect', command: null })));
+    const results = await Promise.allSettled(hosts.map(host => run({ hostId: host.id, expectedAlias: host.alias, expectedRevision: current.current.targetRevisions?.[host.id], id: crypto.randomUUID(), kind: 'collect', command: null })));
     const rejected = results.filter(result => result.status === 'rejected');
     const failed = results.filter(result => result.status === 'fulfilled' && (result.value as { status?: string })?.status !== 'success');
     const errors = rejected.map(result => String(result.reason)).join('；');

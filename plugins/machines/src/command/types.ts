@@ -15,11 +15,13 @@ export interface CommandHost {
 }
 
 export interface CommandState {
+  targetRevisions?: Record<string, string>;
   config: {
     enabled: boolean;
     hosts: readonly CommandHost[];
     templates?: readonly CommandTemplate[];
     installed?: { templates?: readonly CommandTemplate[] } | null;
+    sharedConfigFile?: string;
     reuseConnections?: boolean;
     connectionIdleSeconds?: number;
   };
@@ -43,6 +45,9 @@ export interface CommandJob {
 
 export interface BastionState {
   connected: boolean;
+  phase?: 'disconnected' | 'authenticating' | 'connecting' | 'gateway' | 'ready' | 'busy' | 'failed';
+  paused?: boolean;
+  exitCode?: number | null;
   output: string;
 }
 

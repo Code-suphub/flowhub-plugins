@@ -1,0 +1,9 @@
+{
+  "component": "flowhub-ssh-core",
+  "version": "0.3.0",
+  "archive": "ssh-core-0.3.0.tar.gz",
+  "sha256": "de50e020169a5e62cc44d5f75c3ae30d8b963ca2d50b3515ff7d9477cb77c2fb",
+  "source": "https://github.com/Code-suphub/toolkit/tree/master/flowhub_ssh",
+  "export": "python scripts/export-ssh-core.py <archive>",
+  "note": "Generated source artifact. Edit canonical source, export, update checksum; never edit archive contents by hand."
+}

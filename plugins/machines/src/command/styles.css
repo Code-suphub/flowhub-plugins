@@ -19,17 +19,16 @@
   letter-spacing: .16em;
 }
 
-.command-react__bastion header > span {
+.command-react__connection-status {
   display: inline-flex;
   align-items: center;
-  min-height: 28px;
   padding: 0;
   border: 0;
   color: var(--fh-muted,#91a69a);
-  font: 700 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
-  letter-spacing: .08em;
+  font-size: 12px;
+  white-space: nowrap;
 }
-.command-react__bastion header > .is-connected { color: var(--fh-accent,#a9e0b8); }
+.command-react__connection-status.is-connected { color: var(--fh-positive, var(--fh-accent,#a9e0b8)); }
 
 .command-react__workspace-tabs { min-width: 0; }
 .command-react__subtabs {
@@ -38,7 +37,7 @@
   border-bottom-color: var(--fleet-line, var(--fh-border,#2a3d31)) !important;
 }
 .command-react__subtab {
-  min-height: 44px !important;
+  min-height: 32px !important;
   padding: 0 1px !important;
   border: 0 !important;
   border-bottom: 2px solid transparent !important;
@@ -46,7 +45,7 @@
   background: transparent !important;
   box-shadow: none !important;
   color: var(--fh-muted,#7f9689) !important;
-  font-size: 14px !important;
+  font-size: 13px !important;
   letter-spacing: normal !important;
   text-transform: none !important;
 }
@@ -59,7 +58,7 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr);
-  min-height: 520px;
+  min-height: 0;
   border: 1px solid var(--fleet-line, var(--fh-border,#2a3d31));
   border-radius: 8px;
   overflow: visible;
@@ -70,17 +69,18 @@
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 10px;
-  padding: 14px;
+  gap: 8px;
+  padding: 10px 12px;
   border-bottom: 1px solid var(--fleet-line, var(--fh-border,#2a3d31));
   background: color-mix(in srgb, var(--fh-surface,#111d16) 90%, transparent);
 }
-.command-react__target-head { display: flex; min-height: 28px; align-items: center; justify-content: space-between; gap: 12px; }
-.command-react__target-head strong,
 .command-react__control-group > span:first-child { color: var(--fh-muted,#8da497); font: 600 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .08em; }
-.command-react__target-head strong { display: block; color: var(--fh-text,#e9f2ec); font-size: 13px; }
-.command-react__target-head em { color: var(--fh-muted,#8fa698); font: normal 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; }
-.command-react__targets .fh-combobox { width: min(100%, 480px); }
+.command-react__target-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.command-react__targets .fh-combobox { flex: 0 1 360px; width: 360px; max-width: 100%; }
+.command-react__targets .fh-combobox__control { min-height: 34px; border-radius: 6px; }
+.command-react__targets .fh-combobox__input,
+.command-react__targets .fh-combobox__toggle { min-height: 32px; height: 32px; }
+.command-react__selection-count { color: var(--fh-muted,#8fa698); font-size: 12px; white-space: nowrap; }
 
 .command-react__main { min-width: 0; padding: 14px; }
 .command-react__controls {
@@ -106,7 +106,7 @@
 .command-react__control-group .fh-combobox__toggle { min-height: 36px; }
 
 .command-react__terminal { overflow: hidden; border: 1px solid var(--fh-border,#314b3c); border-radius: 7px; background: var(--fh-canvas,#07100b); }
-.command-react__terminal > header { display: flex; min-height: 38px; align-items: center; gap: 14px; padding: 0 10px 0 13px; border-bottom: 1px solid var(--fh-border,#263d30); background: var(--fh-canvas,#101c15); color: var(--fh-muted,#789082); font: 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .08em; }
+.command-react__terminal > header { display: flex; min-height: 32px; align-items: center; gap: 12px; padding: 0 10px 0 12px; border-bottom: 1px solid var(--fh-border,#263d30); background: var(--fh-canvas,#101c15); color: var(--fh-muted,#789082); font-size: 12px; }
 .command-react__terminal > header > div { display: flex; align-items: center; gap: 8px; margin-right: auto; color: var(--fh-accent,#b8c9bf); font-weight: 700; }
 .command-react__terminal > header button { min-height: 30px; padding-inline: 8px; }
 .command-react__lamp { width: 7px; height: 7px; border-radius: 50%; background: var(--fh-muted,#68c884); box-shadow: 0 0 10px color-mix(in srgb, var(--fh-muted,#68c884) 55%, transparent); }
@@ -134,27 +134,31 @@
 .command-react__composer > span { align-self: center; color: var(--fh-muted,#87b397); font: 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; }
 .command-react__composer textarea { min-height: 40px; max-height: 150px; resize: vertical; border: 0; border-radius: 4px; background: transparent; padding: 10px 4px; box-shadow: none; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .command-react__composer button { min-height: 40px; }
-.command-react__footer { display: flex; justify-content: space-between; gap: 12px; padding: 6px 2px 10px; color: var(--fh-muted,#6f8679); font-size: 12px; }
-.command-react__footer span:first-child { max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.command-react__footer { display: flex; justify-content: flex-end; gap: 12px; padding: 6px 2px 10px; color: var(--fh-muted,#6f8679); font-size: 12px; }
 
 .command-react__notice,
 .command-react__error { margin-top: 10px !important; padding: 9px 11px; border-radius: 5px; color: var(--fh-accent,#abc6b5); background: var(--fh-surface,#12281b); font-size: 13px; }
 .command-react__error { color: var(--fh-danger,#ffc4c7); background: var(--fh-danger-soft,#351c20); }
 
-.command-react__bastion > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 14px; padding: 4px 2px 12px; border-bottom: 1px solid var(--fh-border,#293f33); }
-.command-react__bastion h3 { color: var(--fh-text,#edf5ef); font-size: 18px; }
-.command-react__bastion header p { margin-top: 4px; color: var(--fh-muted,#80978a); }
-.command-react__actionbar,
+.command-react__actionbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.command-react__actionbar button { min-height: 32px; padding-inline: 10px; border-radius: 6px; }
+.command-react__actionbar .fh-help__trigger { min-height: 24px; width: 24px; height: 24px; padding: 0; }
+.command-react__disconnect-confirmation { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.command-react__disconnect-confirmation button { min-height: 32px; padding-inline: 10px; }
 .command-react__query { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; }
-.command-react__actionbar button,
-.command-react__query button { min-height: 38px; }
+.command-react__query button { min-height: 32px; padding-inline: 10px; border-radius: 6px; }
+.command-react__query .fh-select__trigger { min-height: 32px; }
 .command-react__confirm { color: var(--fh-danger,#e5b36f); font-size: 13px; }
-.command-react__query .fh-select { min-width: 180px; }
+.command-react__session-command { flex: 0 1 360px; width: 360px; max-width: 100%; }
+.command-react__session-command .fh-combobox__control { min-height: 34px; border-radius: 6px; }
+.command-react__session-command .fh-combobox__input { min-height: 32px; padding-block: 6px; font-size: 13px; resize: vertical; }
+.command-react__session-command .fh-combobox__toggle { min-height: 32px; height: 32px; padding: 0; }
+.command-react__query .fh-help__trigger { min-height: 24px; width: 24px; height: 24px; padding: 0; }
 .command-react__query .fh-checkbox { margin-left: auto; }
-.command-react__bastion-output { min-height: 340px; max-height: 480px; margin: 0; overflow: auto; padding: 14px; color: var(--fh-accent,#b7cabc); outline: none; }
+.command-react__bastion-output { height: clamp(160px, 26vh, 320px); min-height: 160px; max-height: 320px; margin: 0; overflow: auto; padding: 12px; color: var(--fh-text,#b7cabc); font-size: 12px; outline: none; }
 .command-react__session-input { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; padding: 10px; border-top: 1px solid var(--fh-border,#263d30); background: var(--fh-canvas,#0b1711); }
 .command-react__session-input input,
-.command-react__session-input button { min-height: 40px; }
+.command-react__session-input button { min-height: 34px; }
 
 .command-react__template-manager {
   overflow: hidden;
@@ -208,13 +212,20 @@
   .command-react__composer { grid-template-columns: 1fr auto; }
   .command-react__composer > span { grid-column: 1 / -1; }
   .command-react__footer { display: block; }
-  .command-react__footer span { display: block; max-width: none !important; margin-top: 4px; }
+  .command-react__footer span { display: block; margin-top: 4px; }
+  .command-react__targets .fh-combobox { flex-basis: 100%; }
+  .command-react__actionbar button:not(.fh-help__trigger) { padding-inline: 8px; }
   .command-react__session-input { grid-template-columns: 1fr 1fr; }
   .command-react__session-input input { grid-column: 1 / -1; }
   .command-react__template-manager > header { align-items: center; padding: 12px; }
   .command-react__template-row { grid-template-columns: minmax(0, 1fr) auto; gap: 6px 9px; padding: 10px 12px; }
   .command-react__template-row code { grid-column: 1; grid-row: 2; }
   .command-react__template-row > .command-react__template-actions { grid-column: 2; grid-row: 1 / 3; max-width: 140px; }
-  .command-react__query .fh-select { flex: 1 1 150px; min-width: 0; }
+  .command-react__query .fh-combobox { flex: 1 1 100%; min-width: 0; }
   .command-react__query .fh-checkbox { width: 100%; margin-left: 0; }
 }
+
+.command-react__shared-manager { padding: 16px; display: grid; gap: 12px; min-width: 0; overflow-wrap: anywhere; }
+.command-react__shared-manager label { display: grid; gap: 6px; }
+.command-react__shared-manager button { justify-self: start; }
+.command-react__shared-manager ul { margin: 0; padding-left: 20px; }

@@ -13,6 +13,7 @@ import {
 } from '@flowhub/plugin-common/react';
 
 import './styles.css';
+import { NetworkSettings } from './NetworkSettings';
 import type {
   HostAuthMethod,
   HostConnectionType,
@@ -422,6 +423,7 @@ export function HostEditor({
           </Tabs.Panel>
           <Tabs.Panel value="connection" className="host-editor__tab-panel">
             <ConnectionPanel value={value} errors={errors} actions={actions} loadState={loadState} testState={testState} change={change} />
+            {value.connectionType === 'ssh' ? <NetworkSettings alias={value.alias} api={monitoringApi} saved={saved} /> : null}
           </Tabs.Panel>
           <Tabs.Panel value="monitoring" className="host-editor__tab-panel">
             <MonitoringPanel saved={saved} hostId={value.id ?? ''} hostName={value.name || value.alias} api={monitoringApi} footerTarget={monitoringFooterTarget} />

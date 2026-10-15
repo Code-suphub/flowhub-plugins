@@ -2,3 +2,5 @@
 pub(crate) mod connections;
 pub(crate) mod ssh_profiles;
 pub(crate) mod bastion;
+
+pub(crate) mod shared;

@@ -22,6 +22,16 @@ async fn dispatch(ctx: Context, request: &Value) -> Result<Value, String> {
         ctx.runtime.backup_ready()?;
         return ctx.backup.api(&request["params"]).await;
     }
+    let exclusive=if request["method"]=="machines_api" && ["sharedConfig","networkSave"].contains(&request["params"]["action"].as_str().unwrap_or("")) {
+        Some((request["params"]["action"].as_str().unwrap(),request["params"]["payload"].clone()))
+    }else if request["method"]=="widget_api" && request["params"]["action"]=="machineSettings" && request["params"]["request"]["action"]=="networkSave" {
+        Some(("networkSave",request["params"]["request"]["payload"].clone()))
+    }else{None};
+    if let Some((action,payload))=exclusive {
+        let _guard=ctx.gate.write().await;
+        if ctx.backup.pending_restore(){return Err("请先重新加载插件完成恢复".into());}
+        return machines::machines_api(ctx.clone(),action.into(),payload).await;
+    }
     let _guard=ctx.gate.read().await;
     if ctx.backup.pending_restore(){return Err("恢复已准备好，请在插件市场重新加载机器插件".into());}
     let p = &request["params"];
@@ -30,7 +40,7 @@ async fn dispatch(ctx: Context, request: &Value) -> Result<Value, String> {
         "widget_api" => match p["action"].as_str() {
             Some("machineSettings") => {
                 let action=p["request"]["action"].as_str().unwrap_or("");
-                if !["state","hosts","sshRead","sshSave","sshProbe","chooseIdentity"].contains(&action){Err("此页面只支持机器配置操作".into())}
+                if !["state","hosts","sshRead","sshSave","sshProbe","networkRead","networkSave","chooseIdentity"].contains(&action){Err("此页面只支持机器配置操作".into())}
                 else {machines::machines_api(ctx.clone(),action.into(),p["request"]["payload"].clone()).await}
             },
             Some("settings") => machines::widget_settings(ctx.clone(),p.clone(),false),
@@ -39,7 +49,7 @@ async fn dispatch(ctx: Context, request: &Value) -> Result<Value, String> {
             _ => Err("不支持的组件操作".into()),
         },
         "machines_api" => machines::machines_api(ctx.clone(),text("action"),p["payload"].clone()).await,
-        "machines_run" => machines::machines_run(ctx.clone(),text("hostId"),text("expectedAlias"),text("id"),text("kind"),p["command"].as_str().map(str::to_owned)).await,
+        "machines_run" => machines::machines_run(ctx.clone(),text("hostId"),text("expectedAlias"),text("id"),text("kind"),p["command"].as_str().map(str::to_owned),p["expectedRevision"].as_str().map(str::to_owned)).await,
         "health" => Ok(json!({"protocol":1,"name":"flowhub-machines","version":env!("CARGO_PKG_VERSION")})),
         "status_snapshot" => Ok(ctx.runtime.status_snapshot()),
         "status_history" => machines::machines_api(ctx.clone(),"metricHistory".into(),serde_json::json!({"hostId":p["row"],"metric":p["metric"],"seconds":p["seconds"]})).await,
@@ -60,6 +70,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if config["hosts"].as_array().is_some_and(|hosts|hosts.iter().any(|host|host["alias"].as_str()==Some(alias) && host["readOnly"].as_bool()==Some(true))) {
             return Err("此机器仅允许查询，不允许系统终端".into());
         }
+        if let Some(path)=crate::ssh::shared::path(&root) {
+            let status=tokio::process::Command::new(crate::ssh::shared::binary()?).args(["console",alias,"--config"]).arg(path).status().await?;
+            std::process::exit(status.code().unwrap_or(1));
+        }
         let mut process=tokio::process::Command::new("/usr/bin/ssh");
         if let Some(connection)=crate::ssh::connections::load(&root,alias)? {crate::ssh::connections::configure(&mut process,&connection,&root)?;}
         let status=process.args(&args[4..]).args(["-o","StrictHostKeyChecking=ask","--",alias]).status().await?;
@@ -67,6 +81,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let root = std::env::var_os("FLOWHUB_PLUGIN_DATA").map(PathBuf::from).ok_or("缺少 FLOWHUB_PLUGIN_DATA")?;
     crate::data::backup::apply_pending(&root)?;
+    // Fresh installs use the bundled shared core without requiring a second CLI.
+    // Existing installations retain their explicit legacy/shared mode.
+    if !root.join("state.json").exists() {
+        let config=dirs::home_dir().ok_or("找不到用户目录")?.join(".ssh/mcp-servers.json");
+        crate::ssh::shared::call(&config,json!({"action":"init"}))?;
+        crate::data::storage::write_json_atomic(&root.join("state.json"),&json!({"sharedConfigFile":config,"interval":60,"monitoring":false,"hosts":[]}))?;
+    }
+
     let ctx = Context { runtime: Arc::new(machines::Runtime::new(root.clone())?),gate:Arc::new(tokio::sync::RwLock::new(())),backup:Arc::new(crate::data::backup::Manager::new(root)) };
     cli::serve(ctx.clone(), &std::env::var_os("FLOWHUB_PLUGIN_DATA").map(PathBuf::from).unwrap()).await?;
     machines::start_monitor(&ctx);

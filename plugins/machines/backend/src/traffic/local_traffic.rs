@@ -178,8 +178,11 @@ pub fn query_ssh(root: &Path, host: &str, limit_gb: f64, cycle_start: Option<&st
     let daily_days = if partial { ((now.timestamp_millis() - samples[0].at_ms) as f64 / 86_400_000.0).max(1.0 / 86_400.0) } else { period_days };
     let daily_avg = used / daily_days;
     let remaining = (limit_bytes - used).max(0.0);
+    // Reading stored counters does not constitute a new successful sample.
+    let sampled_at = DateTime::<Utc>::from_timestamp_millis(samples.last().unwrap().at_ms)
+        .ok_or("采集时间无效")?;
     Ok(json!({
-        "provider":"localSsh", "at":now.to_rfc3339(), "rows":[{
+        "provider":"localSsh", "at":sampled_at.to_rfc3339(), "queriedAt":now.to_rfc3339(), "rows":[{
             "InstanceId":host, "TrafficPackageSet":[{
                 "TrafficPackageTotal":limit_bytes, "TrafficUsed":used,
                 "TrafficPackageRemaining":if partial { None } else { Some(remaining) },
@@ -434,6 +437,8 @@ mod tests {
         }
         drop(db);
         let result = query_ssh(&root, "machine", 500.0, Some("2025-01-31"), None, 60).unwrap();
+        assert_eq!(DateTime::parse_from_rfc3339(result["at"].as_str().unwrap()).unwrap().timestamp_millis(),now-60_000);
+        assert!(DateTime::parse_from_rfc3339(result["queriedAt"].as_str().unwrap()).unwrap().timestamp_millis()>=now);
         let pack = &result["rows"][0]["TrafficPackageSet"][0];
         assert_eq!(pack["TrafficUsed"], 900.0);
         let outbound = query_ssh(&root, "machine", 500.0, Some("2025-01-31"), Some("tx"), 60).unwrap();

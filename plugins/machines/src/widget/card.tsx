@@ -12,12 +12,28 @@ function Gauge({ label, value }: { label: string; value: number | null }) {
   return <div className={`fh-gauge ${amount >= 85 ? 'warning' : ''}`}><svg viewBox="0 0 100 86" role="img" aria-label={`${label} ${value == null ? '无数据' : `${value.toFixed(1)}%`}`}><path className="track" d="M 16 67 A 39 39 0 1 1 84 67" pathLength="100"/><path className="fill" d="M 16 67 A 39 39 0 1 1 84 67" pathLength="100" strokeDasharray={`${amount} 100`}/><text x="50" y="48">{value == null ? '—' : `${Math.round(value)}%`}</text><text className="unit" x="50" y="65">{label}</text></svg></div>;
 }
 
-function Network({ row, metrics }: { row: WidgetRow; metrics: string[] }) {
+function MachineMetrics({ row, metrics, expiryInfo, now }: { row: WidgetRow; metrics: string[]; expiryInfo: ReturnType<typeof expiry>; now: number }) {
   const hasRates = metrics.includes('tx') || metrics.includes('rx');
   const rate = (key: 'tx' | 'rx') => { const value = number(row.values?.[key]); return value == null ? '—' : value >= 1000 ? `${(value / 1000).toFixed(1)} MB/s` : `${value.toFixed(1)} KB/s`; };
-  const trafficInfo = metrics.includes('traffic') ? traffic(row.traffic) : null;
-  if (!trafficInfo && !hasRates) return null;
-  return <div className="network-row">{trafficInfo ? <div className="traffic-metric" title={[trafficInfo.title, trafficInfo.hint].filter(Boolean).join(" · ")} aria-label={[trafficInfo.kind === 'usage' ? '流量采集结果' : '', trafficInfo.label, trafficInfo.title, trafficInfo.hint].filter(Boolean).join(" · ")}><b>{trafficInfo.label}</b></div> : <span />}{hasRates && <div className="network-rates">{metrics.includes('tx') && <span aria-label={`上传速率 ${rate('tx')}`}>↑ {rate('tx')}</span>}{metrics.includes('rx') && <span aria-label={`下载速率 ${rate('rx')}`}>↓ {rate('rx')}</span>}</div>}</div>;
+  const trafficInfo = metrics.includes('traffic') ? traffic(row.traffic, now, row.status ?? 'unknown') : null;
+  const hasSummary = metrics.includes('load') || metrics.includes('uptime');
+  const summary = hasSummary && <div className="bottom-metrics">{metrics.includes('load') && <span>负载 {number(row.values?.load)?.toFixed(1) ?? '—'}</span>}{metrics.includes('uptime') && <span>运行 {number(row.values?.uptime) == null ? '—' : `${(number(row.values?.uptime)! / 86400).toFixed(1)}天`}</span>}</div>;
+  const rates = hasRates && <div className="network-rates">{metrics.includes('tx') && <span aria-label={`上传速率 ${rate('tx')}`}>↑{rate('tx').replace(' ', '')}</span>}{metrics.includes('rx') && <span aria-label={`下载速率 ${rate('rx')}`}>↓{rate('rx').replace(' ', '')}</span>}</div>;
+  const usage = trafficInfo && <div className="traffic-metric" title={[trafficInfo.title, trafficInfo.hint].filter(Boolean).join(" · ")} aria-label={[trafficInfo.kind === 'usage' ? '流量采集结果' : '', trafficInfo.label, trafficInfo.title, trafficInfo.hint].filter(Boolean).join(" · ")}><b>{trafficInfo.label}</b></div>;
+  const countdown = expiryInfo && <span className={`expiry ${expiryInfo.expired ? 'expired' : expiryInfo.urgent ? 'urgent' : ''}`} aria-label={expiryInfo.text} title={`到期时间：${new Date(row.expiresAt!).toLocaleString()}`}>{expiryInfo.text.replace(/\s+/g, '')}</span>;
+  const blocks = Number(!!trafficInfo) + Number(hasRates) + Number(hasSummary) + Number(!!expiryInfo);
+  if (!blocks) return null;
+  if (blocks === 2) return <div className="network-row network-row--compact">{usage}{rates}{summary}{countdown}</div>;
+  return <>
+    {(trafficInfo || hasSummary) && <div className="network-row">
+      {usage}
+      {summary}
+    </div>}
+    {(hasRates || expiryInfo) && <div className="widget-foot">
+      {rates}
+      {countdown}
+    </div>}
+  </>;
 }
 
 function Card({ context }: { context: WidgetContext }) {
@@ -41,7 +57,7 @@ function Card({ context }: { context: WidgetContext }) {
   }
   if (!row) return <article className="card"><p className="empty">{context.snapshot ? '目标已移除或尚无数据' : '正在等待插件状态…'}</p></article>;
   const expiryInfo = config.showExpiry === false ? null : expiry(row.expiresAt, now);
-  return <article className="card card--machine"><div className="card-head"><h2>{config.showCountry === false ? '' : `${flag(row.countryCode)} `}{title}</h2><span className={`status ${labels[row.status ?? 'unknown'] ? row.status : 'unknown'}`}>● {labels[row.status ?? 'unknown'] ?? '未知'}</span></div><div className="card-body"><div className="gauges">{(['cpu', 'memory', 'disk'] as const).filter((key) => metrics.includes(key)).map((key) => <Gauge key={key} label={{ cpu: 'CPU', memory: '内存', disk: '磁盘' }[key]} value={number(row.values?.[key])} />)}</div><Network row={row} metrics={metrics} /><div className="widget-foot">{metrics.some((key) => ['load', 'uptime'].includes(key)) && <div className="bottom-metrics">{metrics.includes('load') && <span>负载 {number(row.values?.load)?.toFixed(1) ?? '—'}</span>}{metrics.includes('uptime') && <span>运行 {number(row.values?.uptime) == null ? '—' : `${(number(row.values?.uptime)! / 86400).toFixed(1)}天`}</span>}</div>}{expiryInfo && <span className={`expiry ${expiryInfo.expired ? 'expired' : expiryInfo.urgent ? 'urgent' : ''}`} title={`到期时间：${new Date(row.expiresAt!).toLocaleString()}`}>{expiryInfo.text}</span>}</div></div></article>;
+  return <article className="card card--machine"><div className="card-head"><h2>{config.showCountry === false ? '' : `${flag(row.countryCode)} `}{title}</h2><span title={`${row.source || '监控'} 采集：${labels[row.status ?? 'unknown'] ?? '未知'}；流量按各自来源独立更新`} className={`status ${labels[row.status ?? 'unknown'] ? row.status : 'unknown'}`}>● {labels[row.status ?? 'unknown'] ?? '未知'}</span></div><div className="card-body"><div className="gauges">{(['cpu', 'memory', 'disk'] as const).filter((key) => metrics.includes(key)).map((key) => <Gauge key={key} label={{ cpu: 'CPU', memory: '内存', disk: '磁盘' }[key]} value={number(row.values?.[key])} />)}</div><MachineMetrics row={row} metrics={metrics} expiryInfo={expiryInfo} now={now} /></div></article>;
 }
 
 const root = document.querySelector('#widget-root');

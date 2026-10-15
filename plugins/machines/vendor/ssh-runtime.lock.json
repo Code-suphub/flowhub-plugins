@@ -1,0 +1,17 @@
+{
+  "deploymentTarget": "11.0",
+  "tmux": {
+    "version": "3.6a",
+    "url": "https://github.com/tmux/tmux/releases/download/3.6a/tmux-3.6a.tar.gz",
+    "sha256": "b6d8d9c76585db8ef5fa00d4931902fa4b8cbe8166f528f44fc403961a3f3759",
+    "configureEnv": {
+      "ac_cv_func_tiparm": "no",
+      "ac_cv_func_tiparm_s": "no"
+    }
+  },
+  "libevent": {
+    "version": "2.1.13-stable",
+    "url": "https://github.com/libevent/libevent/releases/download/release-2.1.13-stable/libevent-2.1.13-stable.tar.gz",
+    "sha256": "f7e9383b8c0baa81b687e5b5eecc01beefaf1b19b64151d95ed61647fe7a315c"
+  }
+}

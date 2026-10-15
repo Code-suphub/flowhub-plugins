@@ -2,6 +2,7 @@ import {execFileSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {inlineCommonHtml} from '../../../scripts/inline-common.mjs';
 import {mkdirSync,copyFileSync,chmodSync,renameSync,rmSync,readFileSync,writeFileSync} from 'node:fs';
+execFileSync('python3',['scripts/build-ssh-core.py'],{stdio:'inherit'});
 execFileSync('cargo',['build','--release','--manifest-path','backend/Cargo.toml'],{stdio:'inherit'});
 // Replace the inode atomically: overwriting a running Mach-O can leave macOS
 // code-signature validation stuck when launching the updated executable.

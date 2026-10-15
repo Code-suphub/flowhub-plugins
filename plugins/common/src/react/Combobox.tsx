@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
   type ChangeEvent,
+  type FocusEvent,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 
@@ -35,6 +36,10 @@ export interface ComboboxProps {
   className?: string;
   inputClassName?: string;
   menuClassName?: string;
+  /** Persist typed values as well as selected options. */
+  allowCustomValue?: boolean;
+  /** Preserve scripts and other values containing line breaks. */
+  multiline?: boolean;
 }
 
 function normalize(value: string): string {
@@ -45,7 +50,7 @@ export function Combobox(props: ComboboxProps) {
   return <ComboboxControl {...props} />;
 }
 
-export interface MultiComboboxProps extends Omit<ComboboxProps, 'value' | 'onChange'> {
+export interface MultiComboboxProps extends Omit<ComboboxProps, 'value' | 'onChange' | 'allowCustomValue' | 'multiline'> {
   value: string[];
   onChange: (value: string[]) => void;
   maxSelected?: number;
@@ -72,6 +77,8 @@ function ComboboxControl({
   className,
   inputClassName,
   menuClassName,
+  allowCustomValue = false,
+  multiline = false,
   multipleValue,
   onMultipleChange,
   maxSelected = Infinity,
@@ -80,9 +87,10 @@ function ComboboxControl({
   const comboboxId = id ?? `fh-combobox-${generatedId}`;
   const listboxId = `${comboboxId}-listbox`;
   const shellRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const scrollActiveRef = useRef(false);
+  const keyboardSelectionRef = useRef(false);
   const [open, setOpen] = useState(false);
   const [menuPlacement, setMenuPlacement] = useState<"above" | "below">("below");
   const [menuMaxHeight, setMenuMaxHeight] = useState(256);
@@ -161,6 +169,7 @@ function ComboboxControl({
   function openMenu(): void {
     if (disabled || !options.length) return;
     scrollActiveRef.current = true;
+    keyboardSelectionRef.current = false;
     const selectedIndex = filteredOptions.findIndex((option) => option.value === value && !option.disabled);
     setActiveIndex(selectedIndex >= 0 ? selectedIndex : filteredOptions.findIndex((option) => !option.disabled));
     setOpen(true);
@@ -195,22 +204,26 @@ function ComboboxControl({
     });
   }
 
-  function handleInput(event: ChangeEvent<HTMLInputElement>): void {
+  function handleInput(event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>): void {
     setQuery(event.target.value);
+    if (allowCustomValue) onChange(event.target.value);
+    keyboardSelectionRef.current = false;
     scrollActiveRef.current = true;
     setActiveIndex(0);
     setOpen(true);
   }
 
-  function handleKeyDown(event: ReactKeyboardEvent<HTMLInputElement>): void {
+  function handleKeyDown(event: ReactKeyboardEvent<HTMLInputElement | HTMLTextAreaElement>): void {
     if (event.nativeEvent.isComposing || event.keyCode === 229) return;
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       if (!open) openMenu();
       else moveActive(event.key === "ArrowDown" ? 1 : -1);
-    } else if (event.key === "Enter" && open) {
+      keyboardSelectionRef.current = true;
+    } else if (event.key === "Enter" && open && !(multiline && event.shiftKey)) {
       event.preventDefault();
-      commit(activeOption);
+      if (allowCustomValue && !keyboardSelectionRef.current) closeMenu();
+      else commit(activeOption);
     } else if (event.key === "Escape" && open) {
       event.preventDefault();
       event.stopPropagation();
@@ -220,6 +233,30 @@ function ComboboxControl({
     }
   }
 
+  const inputProps = {
+    id: comboboxId,
+    role: "combobox",
+    autoComplete: "off",
+    className: cx("fh-combobox__input min-h-10 min-w-0 flex-1 !rounded-none !border-0 !bg-transparent px-2.5 text-sm text-[var(--fh-text,#e5f0e9)] !shadow-none !outline-none placeholder:text-[var(--fh-muted,#70877a)] disabled:cursor-not-allowed", inputClassName),
+    value: allowCustomValue ? value : open ? query : (multipleValue ? (multipleValue.length > 2 ? `已选 ${multipleValue.length} 项` : summary ?? '') : selectedOption?.label ?? ""),
+    title: allowCustomValue ? value : summary,
+    placeholder,
+    "aria-label": resolvedAriaLabel,
+    "aria-describedby": resolvedAriaDescribedBy,
+    "aria-autocomplete": "list" as const,
+    "aria-controls": listboxId,
+    "aria-expanded": open,
+    "aria-activedescendant": activeOptionId,
+    "aria-required": required || undefined,
+    disabled,
+    onFocus: openMenu,
+    onBlur: (event: FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      if (!shellRef.current?.contains(event.relatedTarget as Node)) closeMenu();
+    },
+    onChange: handleInput,
+    onKeyDown: handleKeyDown,
+  };
+
   return (
     <div ref={shellRef} className={cx("fh-combobox relative min-w-0", className)} data-open={open || undefined} onBlur={event => { if (!shellRef.current?.contains(event.relatedTarget as Node)) closeMenu(); }}>
       {name ? (multipleValue ?? [value]).map(item => <input key={item} type="hidden" name={name} value={item} disabled={disabled} />) : null}
@@ -228,31 +265,7 @@ function ComboboxControl({
           <circle cx="8.5" cy="8.5" r="5" stroke="currentColor" strokeWidth="1.6" />
           <path d="m12.3 12.3 4 4" stroke="currentColor" strokeLinecap="round" strokeWidth="1.6" />
         </svg>
-        <input
-          ref={inputRef}
-          id={comboboxId}
-          role="combobox"
-          type="text"
-          autoComplete="off"
-          className={cx("fh-combobox__input min-h-10 min-w-0 flex-1 !rounded-none !border-0 !bg-transparent px-2.5 text-sm text-[var(--fh-text,#e5f0e9)] !shadow-none !outline-none placeholder:text-[var(--fh-muted,#70877a)] disabled:cursor-not-allowed", inputClassName)}
-          value={open ? query : (multipleValue ? (multipleValue.length > 2 ? `已选 ${multipleValue.length} 项` : summary ?? '') : selectedOption?.label ?? "")}
-          title={summary}
-          placeholder={placeholder}
-          aria-label={resolvedAriaLabel}
-          aria-describedby={resolvedAriaDescribedBy}
-          aria-autocomplete="list"
-          aria-controls={listboxId}
-          aria-expanded={open}
-          aria-activedescendant={activeOptionId}
-          aria-required={required || undefined}
-          disabled={disabled}
-          onFocus={openMenu}
-          onBlur={(event) => {
-            if (!shellRef.current?.contains(event.relatedTarget as Node)) closeMenu();
-          }}
-          onChange={handleInput}
-          onKeyDown={handleKeyDown}
-        />
+        {multiline ? <textarea {...inputProps} rows={Math.min(4, Math.max(1, value.split('\n').length))} ref={element => { inputRef.current = element; }} /> : <input {...inputProps} type="text" ref={element => { inputRef.current = element; }} />}
         <button
           type="button"
           tabIndex={-1}

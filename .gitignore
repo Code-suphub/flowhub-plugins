@@ -8,3 +8,5 @@
 *.key
 credentials.key
 *.sqlite3*
+
+**/__pycache__/

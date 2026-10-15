@@ -6,6 +6,7 @@ export type MachinesApi = (
 export interface MachinesRunRequest {
   hostId: string;
   expectedAlias: string;
+  expectedRevision?: string;
   id: string;
   kind: 'command' | 'collect';
   command?: string | null;

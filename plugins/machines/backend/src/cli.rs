@@ -12,6 +12,10 @@ pub async fn request(ctx: Context, value: Value) -> Result<Value, String> {
         return Ok(Value::Array(hosts.iter().map(|h| json!({"id":h["id"],"alias":h["alias"],"name":h["name"],"group":h["group"],"readOnly":h["readOnly"],"connectionType":if h["bastion"].is_object(){"bastion"}else{"ssh"}})).collect()));
     }
     if action == "status" { return Ok(ctx.runtime.status_snapshot()); }
+    if action=="monitor" {return crate::machines::machines_api(ctx,"monitor".into(),json!({"enabled":value["target"]=="on","interval":state["config"]["interval"].as_u64().filter(|v|*v>=30).unwrap_or(60)})).await;}
+    if action=="sessions" {return crate::machines::machines_api(ctx,"sharedSessions".into(),json!({})).await;}
+    if action=="shared-config" {return crate::machines::machines_api(ctx,"sharedConfig".into(),json!({"path":value["target"]})).await;}
+
     if !["collect", "query", "exec", "traffic-source-ssh", "traffic-cycle-start"].contains(&action) { return Err("支持 list、status、collect、query、exec、traffic-source-ssh、traffic-cycle-start".into()); }
     let target = value["target"].as_str().ok_or("缺少机器 ID 或别名")?;
     let matched: Vec<_> = hosts.iter().filter(|h| h["id"].as_str()==Some(target) || h["alias"].as_str()==Some(target)).collect();
@@ -43,7 +47,7 @@ pub async fn request(ctx: Context, value: Value) -> Result<Value, String> {
     ring::rand::SecureRandom::fill(&ring::rand::SystemRandom::new(),&mut bytes).map_err(|_|"无法生成任务 ID")?;
     let id=bytes.iter().map(|b|format!("{b:02x}")).collect();
     crate::machines::machines_run(ctx,host["id"].as_str().unwrap().into(),host["alias"].as_str().unwrap().into(),id,
-        if action=="collect"{"collect"}else{"command"}.into(),Some(command.into())).await
+        if action=="collect"{"collect"}else{"command"}.into(),Some(command.into()), state["targetRevisions"][host["id"].as_str().unwrap()].as_str().map(str::to_owned)).await
 }
 
 pub async fn serve(ctx: Context, root: &Path) -> Result<(), String> {
@@ -66,8 +70,13 @@ pub async fn serve(ctx: Context, root: &Path) -> Result<(), String> {
                 let mut line=String::new();
                 let read=tokio::time::timeout(std::time::Duration::from_secs(5), (&mut reader).take(16385).read_line(&mut line)).await;
                 let result=match read {
-                    Ok(Ok(_)) if line.len()<=16384 => match serde_json::from_str(&line) {
-                        Ok(value)=>{let _guard=ctx.gate.read().await; if ctx.backup.pending_restore(){Err("请先重新加载插件完成恢复".into())}else{request(ctx.clone(),value).await}},
+                    Ok(Ok(_)) if line.len()<=16384 => match serde_json::from_str::<Value>(&line) {
+                        Ok(value)=>{
+                            if value["action"]=="shared-config" {
+                                let _guard=ctx.gate.write().await;
+                                if ctx.backup.pending_restore(){Err("请先重新加载插件完成恢复".into())}else{request(ctx.clone(),value).await}
+                            }else{let _guard=ctx.gate.read().await; if ctx.backup.pending_restore(){Err("请先重新加载插件完成恢复".into())}else{request(ctx.clone(),value).await}}
+                        },
                         Err(_)=>Err("无效 JSON 请求".into())
                     },
                     _=>Err("请求超时或超过 16 KiB".into())
@@ -82,7 +91,7 @@ pub async fn serve(ctx: Context, root: &Path) -> Result<(), String> {
 
 pub async fn run(args: &[String]) -> Result<(), String> {
     if args.is_empty() || args[0]=="--help" {
-        println!("flowhub-machines --cli list|status\nflowhub-machines --cli collect <机器ID或别名>\nflowhub-machines --cli query <机器> 'uptime'\nflowhub-machines --cli exec <机器> '命令'\nflowhub-machines --cli traffic-source-ssh <机器ID或别名>\nflowhub-machines --cli traffic-cycle-start <机器ID或别名> <YYYY-MM-DDTHH:mm:ss>\n连接正在运行的 FlowHub 机器插件，返回 JSON；FLOWHUB_PLUGIN_DATA 可指定数据目录。周期起点按北京时间解释。");
+        println!("flowhub-machines --cli monitor on|off\nflowhub-machines --cli sessions\nflowhub-machines --cli shared-config [绝对路径]\nflowhub-machines --cli list|status\nflowhub-machines --cli collect <机器ID或别名>\nflowhub-machines --cli query <机器> 'uptime'\nflowhub-machines --cli exec <机器> '命令'\nflowhub-machines --cli traffic-source-ssh <机器ID或别名>\nflowhub-machines --cli traffic-cycle-start <机器ID或别名> <YYYY-MM-DDTHH:mm:ss>\n连接正在运行的 FlowHub 机器插件，返回 JSON；FLOWHUB_PLUGIN_DATA 可指定数据目录。周期起点按北京时间解释。");
         return Ok(());
     }
     let root=std::env::var_os("FLOWHUB_PLUGIN_DATA").map(std::path::PathBuf::from).or_else(||dirs::home_dir().map(|h|h.join("Library/Application Support/FlowHub/machines"))).ok_or("找不到插件目录")?;

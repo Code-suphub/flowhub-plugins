@@ -126,9 +126,9 @@ pub fn summary(data:&Value)->Value{
   let packs=||data["rows"].as_array().into_iter().flatten().flat_map(|row|row["TrafficPackageSet"].as_array().into_iter().flatten());
   let partial=packs().any(|p|p["PartialHistory"]==true);
   let boot_baseline=packs().any(|p|p["BootBaseline"]==true);
-  if total<=0.||partial||boot_baseline{return json!({"mode":"usage","used":used,"total":total,"partial":partial,"bootBaseline":boot_baseline,"at":data["at"]});}
+  if total<=0.||partial||boot_baseline{return json!({"mode":"usage","source":data["provider"],"used":used,"total":total,"partial":partial,"bootBaseline":boot_baseline,"at":data["at"]});}
   let remaining=data["rows"].as_array().into_iter().flatten().flat_map(|row|row["TrafficPackageSet"].as_array().into_iter().flatten()).filter_map(|p|p["TrafficPackageRemaining"].as_f64()).filter(|n|n.is_finite()&&*n>=0.).sum::<f64>();
-  return json!({"remaining":remaining,"total":total,"at":data["at"]});
+  return json!({"source":data["provider"],"remaining":remaining,"total":total,"at":data["at"]});
  }
  if data["summary"].is_object(){return data["summary"].clone();}
  let now=chrono::Utc::now();let mut remaining=0f64;let mut total=0f64;let mut count=0;
@@ -142,6 +142,14 @@ pub fn summary(data:&Value)->Value{
 }
 
 #[cfg(test)]mod summary_tests{use super::*;
+#[test]fn local_summaries_preserve_the_source_and_sample_time(){
+ for source in ["localSsh","localNet"]{
+  let data=json!({"provider":source,"at":"2026-10-10T00:00:00Z","rows":[{"TrafficPackageSet":[{"TrafficUsed":42.0,"TrafficPackageTotal":500.0,"TrafficPackageRemaining":458.0}]}]});
+  let quota=summary(&data);assert_eq!(quota["source"],source);assert_eq!(quota["at"],data["at"]);
+  let mut partial=data;partial["rows"][0]["TrafficPackageSet"][0]["PartialHistory"]=json!(true);
+  let usage=summary(&partial);assert_eq!(usage["source"],source);assert_eq!(usage["at"],partial["at"]);assert_eq!(usage["mode"],"usage");
+ }
+}
 #[test]fn excludes_expired_and_future_packages_but_keeps_exhausted(){let data=json!({"at":"test","rows":[{"TrafficPackageSet":[{"TrafficPackageRemaining":0,"TrafficPackageTotal":300},{"TrafficPackageRemaining":100,"TrafficPackageTotal":100,"EndTime":"2000-01-01T00:00:00Z"},{"TrafficPackageRemaining":100,"TrafficPackageTotal":100,"StartTime":"2999-01-01T00:00:00Z"}]}]});let s=summary(&data);assert_eq!(s["remaining"],0.0);assert_eq!(s["total"],300.0);assert!(summary(&json!({"rows":[]}))["error"].is_string());}
 #[test]fn local_net_without_limit_still_reports_usage(){let s=summary(&json!({"provider":"localNet","at":"test","rows":[{"TrafficPackageSet":[{"TrafficUsed":123456789,"TrafficPackageTotal":0}]}]}));assert_eq!(s["mode"],"usage");assert_eq!(s["used"],123456789.0);assert_eq!(s["total"],0.0);}
 #[test]fn local_partial_usage_keeps_configured_limit_without_fabricating_remaining(){let s=summary(&json!({"provider":"localSsh","at":"test","rows":[{"TrafficPackageSet":[{"TrafficUsed":42.0,"TrafficPackageTotal":500.0,"TrafficPackageRemaining":458.0,"PartialHistory":true}]}]}));assert_eq!(s["mode"],"usage");assert_eq!(s["used"],42.0);assert_eq!(s["total"],500.0);assert!(s.get("remaining").is_none());}

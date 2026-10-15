@@ -19,7 +19,7 @@
   --fleet-red: var(--fh-danger,#ee9a8e);
   --fleet-blue: var(--fh-accent,#91c5d8);
   --fleet-panel-pad: clamp(16px, 2.2vw, 26px);
-  font-family: "DIN Alternate", "Bahnschrift", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
 }
 
 dialog.fleet__remove-dialog { width: min(420px, calc(100vw - 24px)); }
@@ -472,14 +472,15 @@ dialog.fleet__remove-dialog { width: min(420px, calc(100vw - 24px)); }
 }
 
 .machine-tabs [role="tab"] {
-  padding: 10px 3px 9px;
+  padding: 7px 3px 6px;
   border: 0;
   border-bottom: 2px solid transparent;
   border-radius: 0;
   background: transparent;
   color: var(--muted);
-  font-size: 14px;
-  min-height: 44px;
+  font-size: 13px;
+  font-weight: 500;
+  min-height: 34px;
   letter-spacing: normal;
   text-transform: none;
 }

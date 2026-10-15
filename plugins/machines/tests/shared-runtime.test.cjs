@@ -1,0 +1,31 @@
+const {test} = require('node:test');
+const assert = require('node:assert/strict');
+const {spawn} = require('node:child_process');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const readline = require('node:readline');
+
+test('installed FlowHub initializes and uses the embedded core without toolkit, Python or tmux in PATH', {timeout:30000}, async(t) => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'flowhub-standalone-'));
+  const home=path.join(root,'home');fs.mkdirSync(home,{mode:0o700});
+  const data=path.join(root,'data');fs.mkdirSync(data,{mode:0o700});
+  const config=path.join(home,'.ssh/mcp-servers.json');
+  const child=spawn(path.resolve('bin/flowhub-machines'),[],{env:{PATH:'/usr/bin:/bin',HOME:home,FLOWHUB_PLUGIN_DATA:data,TOOLKIT_BIN:'/must-not-be-used'},stdio:['pipe','pipe','pipe']});
+  t.after(()=>{child.kill();fs.rmSync(root,{recursive:true,force:true});});
+  let next=1;const pending=new Map();let stderr='';child.stderr.on('data',b=>{stderr+=b.toString();});
+  const lines=readline.createInterface({input:child.stdout});
+  lines.on('line',line=>{const reply=JSON.parse(line);pending.get(reply.id)?.(reply);pending.delete(reply.id);});
+  child.on('exit',()=>{for(const resolve of pending.values())resolve({error:'child exited: '+stderr});});
+  const call=(action,payload={})=>new Promise(resolve=>{const id=next++;pending.set(id,resolve);child.stdin.write(JSON.stringify({id,method:'machines_api',params:{action,payload}})+'\n');});
+  const selected=await call('sharedConfig',{path:config});assert(!selected.error,selected.error);
+  assert.equal(selected.result.config.sharedConfigFile,config);assert.equal(fs.statSync(config).mode&0o777,0o600);
+  const shared=await call('sharedSessions');assert(!shared.error,shared.error);assert(Array.isArray(shared.result.sessions));
+  const read=await call('sshRead',{alias:'standalone'});assert(!read.error,read.error);
+  const saved=await call('sshSave',{profile:{alias:'standalone',hostname:'203.0.113.1',user:'tester',port:22,identityFile:'',proxyJump:''},passwordAuth:false,revision:read.result.revision});assert(!saved.error,saved.error);
+  const registered=await call('hosts',{hosts:[{id:'test',name:'Test',alias:'standalone',group:''}]});assert(!registered.error,registered.error);
+  const network=await call('networkRead',{alias:'standalone'});assert(!network.error,network.error);
+  assert.equal(network.result.policy.mode,'system');assert.equal(network.result.clash.available,false);
+  const cached=path.join(home,'.cache/flowhub/ssh-core');assert(fs.existsSync(cached));
+  child.stdin.end();await new Promise(resolve=>child.once('exit',resolve));lines.close();
+});

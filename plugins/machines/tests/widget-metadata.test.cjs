@@ -26,3 +26,20 @@ test('local usage keeps its number but moves the collection caveat to the toolti
  assert.match(traffic({mode:'usage',used:40.76*1073741824,total:500*1073741824,partial:true,at},now).title,/配置额度，不代表可用余额/);
  assert.equal(traffic({mode:'usage',used:1048576,total:500*1073741824,partial:true,at},now).label,'1 MiB/500 GiB');
 });
+
+test('failed SSH monitoring suppresses historical local traffic without masking independent sources',()=>{
+ const at='2026-10-10T00:00:00Z',now=Date.parse(at);
+ const usage={source:'localSsh',mode:'usage',used:302.69*1073741824,total:500*1073741824,partial:true,at};
+ assert.equal(traffic(usage,now,'healthy').label,'302.69/500 GiB');
+ for(const status of ['error','stale','unknown']){
+  const result=traffic(usage,now,status);
+  assert.equal(result.kind,'empty');assert.equal(result.label,'流量 —');assert.match(result.hint,/SSH/);
+ }
+ const legacy={...usage};delete legacy.source;
+ assert.equal(traffic(legacy,now,'error').kind,'empty');
+ assert.equal(traffic({...usage,source:'localNet'},now,'error').kind,'usage');
+ assert.match(traffic({...usage,source:'localNet'},now,'error').title,/Netdata 独立采集/);
+ assert.equal(traffic({remaining:9e9,total:10e9,divisor:1e9,at},now,'error').label,'9/10 GB');
+ assert.equal(traffic({mode:'usage',used:2e9,divisor:1e9,at},now,'error').label,'2 GB');
+ assert.equal(traffic(usage,now+900001,'healthy').kind,'empty');
+});

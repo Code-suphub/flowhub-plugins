@@ -24,9 +24,25 @@ fn endpoint(raw:&str,path:&str)->Result<url::Url,String>{
     if !["http","https"].contains(&base.scheme())||base.host_str().is_none()||!base.username().is_empty()||base.password().is_some()||base.query().is_some()||base.fragment().is_some(){return Err("仅支持不含密码和查询参数的 HTTP(S) Agent 地址".into());}
     base.set_path(&format!("{}/{path}",base.path().trim_end_matches('/')));Ok(base)
 }
+async fn agent_response(url:&url::Url,direct:bool)->Result<reqwest::Response,String>{
+    let builder=reqwest::Client::builder().timeout(Duration::from_secs(12)).redirect(reqwest::redirect::Policy::none());
+    let client=if direct{builder.no_proxy()}else{builder}.build().map_err(|e|e.to_string())?;
+    let response=client.get(url.clone()).send().await.map_err(|_|"无法连接 Netdata，请检查地址、网络和 Agent 访问权限")?;
+    if !response.status().is_success(){return Err(format!("Netdata 返回 HTTP {}，请检查 Agent 地址和访问权限",response.status().as_u16()));}
+    Ok(response)
+}
 async fn read(url:url::Url)->Result<Value,String>{
-    let client=reqwest::Client::builder().timeout(Duration::from_secs(12)).redirect(reqwest::redirect::Policy::none()).build().map_err(|e|e.to_string())?;
-    let mut response=client.get(url).send().await.map_err(|_|"无法连接 Netdata，请检查地址、网络和 Agent 访问权限")?.error_for_status().map_err(|_|"Netdata 返回错误，请确认使用可访问的 Agent 地址")?;
+    // A system proxy may reject an otherwise reachable Agent's monitoring port.
+    // Keep working proxy routes, but retry failed requests directly to the same URL.
+    match read_agent(&url,false).await{
+        Ok(data)=>Ok(data),
+        Err(default_error)=>read_agent(&url,true).await.map_err(|direct_error|{
+            if default_error==direct_error{direct_error}else{format!("{direct_error}；默认连接也失败：{default_error}")}
+        }),
+    }
+}
+async fn read_agent(url:&url::Url,direct:bool)->Result<Value,String>{
+    let mut response=agent_response(url,direct).await?;
     let mut bytes=Vec::new();while let Some(chunk)=response.chunk().await.map_err(|_|"读取指标失败")?{if bytes.len()+chunk.len()>8*1024*1024{return Err("指标响应超过 8 MiB".into());}bytes.extend_from_slice(&chunk);}
     serde_json::from_slice(&bytes).map_err(|_|"返回内容不是 Netdata JSON 数据".into())
 }
@@ -252,6 +268,35 @@ echo '请确认本机防火墙与云安全组已放行 {port} 端口；历史保
 }
 pub(crate) fn is_install(script:&str)->bool{script.starts_with("set -eu\n# FlowHub Netdata installation\n")}
 #[cfg(test)]mod tests{use super::*;
+ #[test]fn failed_proxy_retries_agent_directly(){
+    use std::io::{Read,Write};
+    use std::sync::{Arc,atomic::{AtomicUsize,Ordering}};
+    let listener=std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let proxy=format!("http://{}",listener.local_addr().unwrap());
+    listener.set_nonblocking(true).unwrap();
+    let requests=Arc::new(AtomicUsize::new(0));let seen=requests.clone();
+    let server=std::thread::spawn(move||{
+        let deadline=std::time::Instant::now()+Duration::from_secs(10);
+        while seen.load(Ordering::Relaxed)<2 && std::time::Instant::now()<deadline{
+            match listener.accept(){
+                Ok((mut stream,_))=>{stream.set_read_timeout(Some(Duration::from_secs(2))).unwrap();let mut bytes=[0;4096];let _=stream.read(&mut bytes);
+                    let response:&[u8]=if seen.load(Ordering::Relaxed)==0{b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"}else{b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\nConnection: close\r\n\r\n{"};
+                    let _=stream.write_all(response);seen.fetch_add(1,Ordering::Relaxed);},
+                Err(e) if e.kind()==std::io::ErrorKind::WouldBlock=>std::thread::sleep(Duration::from_millis(10)),
+                Err(e)=>panic!("{e}"),
+            }
+        }
+    });
+    // Isolate proxy environment changes from the concurrently running tests.
+    let result=std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact","monitoring::netdata::tests::reads_agent_metrics_and_history_over_http"])
+        .env("HTTP_PROXY",&proxy).env("http_proxy",&proxy).env("HTTPS_PROXY",&proxy).env("https_proxy",&proxy)
+        .env("ALL_PROXY",&proxy).env("all_proxy",&proxy).env("NO_PROXY","").env("no_proxy","")
+        .output().unwrap();
+    server.join().unwrap();
+    assert!(result.status.success(),"{}",String::from_utf8_lossy(&result.stdout));
+    assert_eq!(requests.load(Ordering::Relaxed),2,"metrics and history must both try the proxy before direct fallback");
+ }
  #[tokio::test]async fn reads_agent_metrics_and_history_over_http(){
     use tokio::io::{AsyncReadExt,AsyncWriteExt};
     let listener=tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();let address=listener.local_addr().unwrap();

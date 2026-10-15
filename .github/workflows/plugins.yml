@@ -57,6 +57,8 @@ jobs:
           cache: npm
           cache-dependency-path: plugins/${{ matrix.plugin }}/package-lock.json
       - uses: dtolnay/rust-toolchain@stable
+      - uses: astral-sh/setup-uv@v6
+        if: matrix.plugin == 'machines'
       - run: npm ci
         working-directory: plugins/${{ matrix.plugin }}
       - run: npm run build

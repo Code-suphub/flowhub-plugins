@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import {
   Button,
   Checkbox,
@@ -13,8 +13,10 @@ import {
   Textarea,
 } from '@flowhub/plugin-common/react';
 
+import { bastionCommandOptions } from './bastionCommands';
+import { useBastionSession } from './useBastionSession';
+
 import type {
-  BastionState,
   CommandHost,
   CommandJob,
   CommandJobStatus,
@@ -31,7 +33,6 @@ const IDLE_OPTIONS = [
   { value: '3600', label: '1 小时' }, { value: '28800', label: '8 小时' },
   { value: '86400', label: '24 小时' }, { value: '604800', label: '7 天' },
 ];
-const QUERY_OPTIONS = ['uptime', 'hostname', 'uname -a', 'df -h /', 'free -m'].map((value) => ({ value, label: value }));
 
 function errorText(error: unknown): string {
   return String(error instanceof Error ? error.message : error).replace(/^(?:Error:\s*)+/, '');
@@ -114,17 +115,22 @@ function TemplateManager({ initial, busy, onSave }: {
   </section>;
 }
 
-function TargetRail({ hosts, selected, disabled, onChange }: {
+function TargetRail({ hosts, selected, disabled, onChange, actions, confirmation }: {
   hosts: readonly CommandHost[];
   selected: ReadonlySet<string>;
   disabled: boolean;
   onChange: (hostIds: ReadonlySet<string>) => void;
+  actions?: ReactNode;
+  confirmation?: ReactNode;
 }) {
   return <aside className="command-react__targets" aria-label="目标机器">
-    <div className="command-react__target-head"><strong>目标机器</strong><em>已选 {selected.size}/16</em></div>
+    <div className="command-react__target-row">
     <MultiCombobox id="command-targets" aria-label="搜索目标机器" placeholder="搜索并选择机器…" emptyMessage="没有匹配的机器" disabled={disabled} maxSelected={16}
       options={hosts.map(host => ({ value: host.id, label: `${host.name}${host.group ? ` · ${host.group}` : ''}`, search: host.alias }))}
       value={[...selected]} onChange={ids => onChange(new Set(ids))} />
+    {actions ? <div className="command-react__actionbar" aria-label="堡垒机会话操作">{actions}</div> : <span className="command-react__selection-count">已选 {selected.size}/16</span>}
+    </div>
+    {confirmation}
   </aside>;
 }
 
@@ -156,14 +162,13 @@ export function CommandWorkspace({ api, run, active = true, selectedHostIds, onS
   const [running, setRunning] = useState(false);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
-  const [workspaceView, setWorkspaceView] = useState<'execute' | 'templates'>('execute');
+  const [workspaceView, setWorkspaceView] = useState<'execute' | 'templates' | 'sessions'>('execute');
   const [templateBusy, setTemplateBusy] = useState(false);
   const [query, setQuery] = useState('uptime');
-  const [bastion, setBastion] = useState<BastionState>({ connected: false, output: '尚未连接此机器的会话。' });
-  const [bastionBusy, setBastionBusy] = useState(false);
-  const [secret, setSecret] = useState(false);
-  const [sessionInput, setSessionInput] = useState('');
+  const [sessionDraft, setSessionDraft] = useState({ key: '', text: '', secret: false });
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
+  const bastionOutputRef = useRef<HTMLPreElement>(null);
+  const followOutput = useRef(true);
   const history = useRef<string[]>([]);
   const historyIndex = useRef(0);
   const historyDraft = useRef('');
@@ -185,25 +190,47 @@ export function CommandWorkspace({ api, run, active = true, selectedHostIds, onS
     return () => { loadVersion.current++; };
   }, [active, load]);
 
+  const [configFile, setConfigFile] = useState('');
+  const [sharedSessions, setSharedSessions] = useState<{id:string;alias:string;type:string;attached:boolean;busy:boolean;dead:boolean;config_file:string}[]>([]);
+  const [sharedBusy, setSharedBusy] = useState(false);
+  async function refreshSessions() {
+    if (!api) return;
+    try { const value = await api('sharedSessions') as {sessions:typeof sharedSessions}; setSharedSessions(value.sessions); }
+    catch (reason) { setError(errorText(reason)); }
+  }
+  async function saveSharedConfig() {
+    if (!api) return;
+    setSharedBusy(true); setError('');
+    try {
+      const value = await api('sharedConfig', configFile.trim() ? {path:configFile.trim()} : {}) as CommandState;
+      setState(value); setNotice('已切换共享连接配置。工具与机器管理使用同一套会话。'); await refreshSessions();
+    } catch (reason) { setError(errorText(reason)); }
+    finally { setSharedBusy(false); }
+  }
   const hosts = state?.config.hosts ?? [];
   const selectedHosts = useMemo(() => hosts.filter((host) => selected.has(host.id)), [hosts, selected]);
-  const bastionHost = selectedHosts.length === 1 && selectedHosts[0]?.bastion ? selectedHosts[0] : null;
-  const hasBastion = selectedHosts.some((host) => host.bastion);
+  const bastionHost = selectedHosts.length === 1 && (selectedHosts[0]?.bastion || state?.config.sharedConfigFile) ? selectedHosts[0] : null;
+  const hasBastion = (!!state?.config.sharedConfigFile && selectedHosts.length === 1) || selectedHosts.some((host) => host.bastion);
   const templates = state?.config.templates ?? state?.config.installed?.templates ?? [];
 
-  const pollBastion = useCallback(async () => {
-    if (!api || !active || !bastionHost || bastionBusy || document.hidden) return;
-    try { setBastion(await api('bastionState', { hostId: bastionHost.id }) as BastionState); }
-    catch (reason) { setError(errorText(reason)); }
-  }, [active, api, bastionBusy, bastionHost]);
+  const { key: sessionKey, bastion, bastionBusy, sessionAction } = useBastionSession(api, bastionHost, active && workspaceView === 'execute', setError);
+  const sessionStatus = bastionBusy ? '通信中…' : bastion.phase ? ({ disconnected: bastion.paused ? '自动连接已暂停' : '未连接', authenticating: '等待认证', connecting: '连接目标中', gateway: '已返回网关', ready: '已连接', busy: '会话运行中', failed: '连接已退出' }[bastion.phase]) : bastion.connected ? '会话在线' : '未连接';
+  const sessionInput = sessionDraft.key === sessionKey ? sessionDraft.text : '';
+  const secret = sessionDraft.key === sessionKey && sessionDraft.secret;
+  function setSessionInput(text: string) { setSessionDraft({ key: sessionKey, text, secret }); }
+  function setSecret(value: boolean) { setSessionDraft({ key: sessionKey, text: sessionInput, secret: value }); }
+  const selectionKey = [...selectedHostIds].sort().join('\0');
+  useEffect(() => {
+    setConfirmDisconnect(false);
+    setSessionDraft({ key: sessionKey, text: '', secret: false });
+    setCommand(''); setQuery('uptime'); followOutput.current = true;
+    history.current = []; historyIndex.current = 0; historyDraft.current = '';
+  }, [sessionKey, selectionKey]);
 
   useEffect(() => {
-    setBastion({ connected: false, output: bastionHost ? '尚未连接此机器的会话。' : '请选择一台堡垒机机器。' });
-    if (!bastionHost) return;
-    void pollBastion();
-    const timer = window.setInterval(() => void pollBastion(), 1500);
-    return () => window.clearInterval(timer);
-  }, [bastionHost?.id, pollBastion]);
+    const output = bastionOutputRef.current;
+    if (output && followOutput.current) output.scrollTop = output.scrollHeight;
+  }, [bastion.output, sessionKey]);
 
   function updateSelection(next: ReadonlySet<string>) {
     onSelectionChange([...next]);
@@ -225,13 +252,14 @@ export function CommandWorkspace({ api, run, active = true, selectedHostIds, onS
     if (!hostList.length || hostList.length > 16 || !value.trim() || byteLength(value) > 8192) {
       setError('请选择 1–16 台机器，并输入不超过 8192 字节的命令。'); return;
     }
+    followOutput.current = true;
     setRunning(true); setError(''); setNotice(`正在向 ${hostList.length} 台机器提交命令…`);
     const pending = hostList.map((host) => ({ id: crypto.randomUUID(), hostId: host.id, name: host.name, alias: host.alias, command: value, status: 'queued' as const, startedAt: Date.now(), finishedAt: null }));
     setJobs((current) => [...current, ...pending].slice(-100));
     const results = await Promise.allSettled(pending.map(async (job) => {
       setJobs((current) => current.map((item) => item.id === job.id ? { ...item, status: 'running' } : item));
       try {
-        const result = await run({ hostId: job.hostId, expectedAlias: job.alias, id: job.id, kind: 'command', command: value }) as Partial<CommandJob>;
+        const result = await run({ hostId: job.hostId, expectedAlias: job.alias, expectedRevision: state?.targetRevisions?.[job.hostId], id: job.id, kind: 'command', command: value }) as Partial<CommandJob>;
         setJobs((current) => current.map((item) => item.id === job.id ? { ...item, ...result, status: result.status ?? 'success', finishedAt: result.finishedAt ?? Date.now() } : item));
         return result;
       } catch (reason) {
@@ -239,17 +267,21 @@ export function CommandWorkspace({ api, run, active = true, selectedHostIds, onS
         throw reason;
       }
     }));
+    if (hostList.length === 1 && hostList[0]?.bastion) await sessionAction('bastionState');
     const rejected = results.filter((result) => result.status === 'rejected').length;
     const unsuccessful = results.filter((result) => result.status === 'fulfilled' && result.value.status && result.value.status !== 'success').length;
     setNotice(`任务结束：${results.length - rejected - unsuccessful} 成功，${unsuccessful} 未成功，${rejected} 未提交。`);
-    if (rejected || unsuccessful) setError('部分命令未成功，请查看控制台输出。');
+    if (rejected || unsuccessful) {
+      const failed = results.find((result) => result.status === 'rejected' || (result.status === 'fulfilled' && result.value.status && result.value.status !== 'success'));
+      setError(failed?.status === 'rejected' ? errorText(failed.reason) : failed?.status === 'fulfilled' && failed.value.stderr ? failed.value.stderr : '部分命令未成功，请查看执行记录或控制台输出。');
+    }
     setRunning(false);
-    void load();
+    if (!rejected && !unsuccessful) void load();
   }
 
   function submitCommand() {
     const value = command;
-    if (!value.trim()) return;
+    if (running || !value.trim()) return;
     if (history.current.at(-1) !== value) history.current = [...history.current.slice(-99), value];
     historyIndex.current = history.current.length; historyDraft.current = '';
     setCommand('');
@@ -266,14 +298,6 @@ export function CommandWorkspace({ api, run, active = true, selectedHostIds, onS
     setCommand(historyIndex.current === history.current.length ? historyDraft.current : history.current[historyIndex.current] ?? '');
   }
 
-  async function sessionAction(action: string, extra: Record<string, unknown> = {}) {
-    if (!api || !bastionHost || bastionBusy) return;
-    setBastionBusy(true); setError('');
-    try { setBastion(await api(action, { hostId: bastionHost.id, ...extra }) as BastionState); }
-    catch (reason) { setError(errorText(reason)); }
-    finally { setBastionBusy(false); }
-  }
-
   async function saveTemplates(next: readonly CommandTemplate[]) {
     if (!api) return;
     setTemplateBusy(true);
@@ -285,35 +309,54 @@ export function CommandWorkspace({ api, run, active = true, selectedHostIds, onS
   if (!state) return <section className="command-react"><EmptyState title={error || '正在读取命令工作台…'} /></section>;
 
   return <section className="command-react" aria-label="远程命令">
-    <Tabs value={workspaceView} onValueChange={(value) => setWorkspaceView(value as 'execute' | 'templates')} className="command-react__workspace-tabs">
+    <Tabs value={workspaceView} onValueChange={(value) => setWorkspaceView(value as 'execute' | 'templates' | 'sessions')} className="command-react__workspace-tabs">
       <Tabs.List aria-label="远程命令工作区" className="command-react__subtabs">
         <Tabs.Trigger value="execute" className="command-react__subtab" title="选择目标机器、输入命令，再执行；输出显示在当前工作区。">执行命令</Tabs.Trigger>
+        <Tabs.Trigger value="sessions" className="command-react__subtab">连接与会话</Tabs.Trigger>
         <Tabs.Trigger value="templates" className="command-react__subtab" title="集中维护常用命令，一次编辑一条，保存后生效。选择模板只会填入命令，不会自动执行。">命令模板</Tabs.Trigger>
       </Tabs.List>
       <Tabs.Panel value="execute" forceMount className="command-react__workspace-panel">
         <div className="command-react__layout">
-      <TargetRail hosts={hosts} selected={selected} disabled={!state.config.enabled} onChange={updateSelection} />
-      <main className="command-react__main">
+      <TargetRail hosts={hosts} selected={selected} disabled={!state.config.enabled} onChange={updateSelection}
+        actions={bastionHost ? <>
+          <Button variant="primary" disabled={bastionBusy || bastion.connected} onClick={() => void sessionAction('bastionStart')}>连接</Button>
+          <Button aria-label="系统终端附着" disabled={bastionBusy || !bastion.connected || !!bastionHost.readOnly} onClick={() => void sessionAction('bastionTerminal')}>系统终端</Button>
+          <Button disabled={bastionBusy || !bastion.connected || !!bastionHost.readOnly} onClick={() => void sessionAction('bastionSend', { key: 'C-c' })}>Ctrl+C</Button>
+          <Button variant="danger" disabled={bastionBusy || (!bastion.connected && bastion.phase !== 'failed') || confirmDisconnect} onClick={() => setConfirmDisconnect(true)}>断开</Button>
+          <span className={`command-react__connection-status${bastion.phase === 'ready' ? ' is-connected' : ''}`} role="status">{sessionStatus}</span>
+          <HelpPopover label="堡垒机会话说明">目标：{bastionHost.alias}。页面与系统终端共享同一会话，断开会终止该会话并暂停自动连接。遮盖输入框仅隐藏当前输入，远端终端仍可能回显；密码应在远端关闭回显的认证提示中输入。</HelpPopover>
+        </> : null}
+        confirmation={bastionHost && confirmDisconnect ? <div className="command-react__disconnect-confirmation" role="group" aria-label="确认断开共享会话"><span className="command-react__confirm">确定终止共享会话？</span><Button variant="danger" disabled={bastionBusy} onClick={() => { setConfirmDisconnect(false); void sessionAction('bastionStop'); }}>确认断开</Button><Button variant="ghost" onClick={() => setConfirmDisconnect(false)}>取消</Button></div> : null}
+      />
+      <div className="command-react__main">
         {hasBastion ? <section className="command-react__bastion">
-          <header><div><h3>{bastionHost ? `${bastionHost.name} · ${bastionHost.alias}` : '堡垒机会话'}</h3><p>{bastionHost ? '页面与系统终端共享本机 tmux 会话。' : '堡垒机模式一次只能选择一台机器。'}</p></div><span className={bastion.connected ? 'is-connected' : ''}>{bastion.connected ? '已连接' : '未连接'}</span></header>
-          {!bastionHost ? <EmptyState size="compact" title="请只保留一台堡垒机" description="清除其他目标后即可连接共享会话。" /> : <>
-            <div className="command-react__actionbar"><Button variant="primary" disabled={bastionBusy || bastion.connected} onClick={() => void sessionAction('bastionStart')}>连接会话</Button><Button disabled={bastionBusy || !bastion.connected || !!bastionHost.readOnly} onClick={() => void sessionAction('bastionTerminal')}>系统终端附着</Button><Button disabled={bastionBusy || !bastion.connected || !!bastionHost.readOnly} onClick={() => void sessionAction('bastionSend', { key: 'C-c' })}>Ctrl+C</Button>{confirmDisconnect ? <><span className="command-react__confirm">确定终止共享会话？</span><Button variant="danger" disabled={bastionBusy} onClick={() => { setConfirmDisconnect(false); void sessionAction('bastionStop'); }}>确认断开</Button><Button variant="ghost" onClick={() => setConfirmDisconnect(false)}>取消</Button></> : <Button variant="danger" disabled={bastionBusy || !bastion.connected} onClick={() => setConfirmDisconnect(true)}>断开</Button>}</div>
-            <div className="command-react__query"><Select aria-label="查询命令" value={query} options={QUERY_OPTIONS} onChange={setQuery} /><Button disabled={bastionBusy || !bastion.connected} onClick={() => void execute([bastionHost], query)}>执行查询</Button><Checkbox label="隐藏输入" checked={secret} disabled={!!bastionHost.readOnly} onChange={setSecret} /></div>
-            <section className="command-react__terminal"><header><div><span className="command-react__lamp" aria-hidden="true" />共享终端</div><span>{bastionBusy ? '通信中…' : bastion.connected ? '会话在线' : '等待连接'}</span></header><pre className="command-react__bastion-output" tabIndex={0}>{bastion.output}</pre><div className="command-react__session-input"><Input type={secret ? 'password' : 'text'} aria-label="终端输入" value={sessionInput} disabled={!bastion.connected || bastionBusy || !!bastionHost.readOnly} placeholder="输入内容后按 Enter 发送" onChange={(event) => setSessionInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); const value = sessionInput; setSessionInput(''); void sessionAction('bastionSend', { text: value }); } }} /><Button disabled={!bastion.connected || bastionBusy || !!bastionHost.readOnly} onClick={() => { const value = sessionInput; setSessionInput(''); void sessionAction('bastionSend', { text: value }); }}>发送并回车</Button><Button variant="ghost" disabled={!bastion.connected || bastionBusy || !!bastionHost.readOnly} onClick={() => void sessionAction('bastionSend', { key: 'Enter' })}>仅回车</Button></div></section>
+          {!bastionHost ? <EmptyState size="compact" title="请选择一台机器" description="清除其他目标后即可连接共享会话。" /> : <>
+            <div className="command-react__query"><Combobox className="command-react__session-command" aria-label={bastionHost.readOnly ? '选择查询命令' : '选择模板或输入命令'} value={query} options={bastionCommandOptions(templates, !!bastionHost.readOnly)} allowCustomValue={!bastionHost.readOnly} multiline={!bastionHost.readOnly} placeholder="选择模板或输入命令" emptyMessage={bastionHost.readOnly ? '没有可用的查询命令' : '没有匹配的模板，可直接执行输入的命令'} disabled={running || bastionBusy} onChange={setQuery} /><Button disabled={running || bastionBusy || !bastion.connected || !query.trim() || (!!bastion.phase && bastion.phase !== 'ready')} onClick={() => void execute([bastionHost], query)}>{bastionHost.readOnly ? '执行查询' : running ? '执行中…' : '执行命令'}</Button><HelpPopover label="会话命令说明">选择模板会填入完整命令，也可直接输入或修改。点击执行后在当前机器会话中运行，输出保存到执行记录；单次命令最长 60 秒。交互式程序请使用下方终端输入或系统终端。仅允许查询的机器只能使用内置查询。</HelpPopover><Checkbox label="遮盖输入框" checked={secret} disabled={!!bastionHost.readOnly} onChange={setSecret} /></div>
+            <section className="command-react__terminal"><header><div><span className="command-react__lamp" aria-hidden="true" />共享终端</div><span>{sessionStatus}</span></header><pre ref={bastionOutputRef} className="command-react__bastion-output" tabIndex={0} onScroll={event => { const output = event.currentTarget; followOutput.current = output.scrollHeight - output.scrollTop - output.clientHeight < 24; }}>{bastion.output}</pre><div className="command-react__session-input"><Input type={secret ? 'password' : 'text'} aria-label="终端输入" value={sessionInput} disabled={!bastion.connected || bastionBusy || !!bastionHost.readOnly} placeholder="输入内容后按 Enter 发送" onChange={(event) => setSessionInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); const value = sessionInput; setSessionInput(''); void sessionAction('bastionSend', { text: value }); } }} /><Button disabled={!bastion.connected || bastionBusy || !!bastionHost.readOnly} onClick={() => { const value = sessionInput; setSessionInput(''); void sessionAction('bastionSend', { text: value }); }}>发送并回车</Button><Button variant="ghost" disabled={!bastion.connected || bastionBusy || !!bastionHost.readOnly} onClick={() => void sessionAction('bastionSend', { key: 'Enter' })}>仅回车</Button></div></section>
           </>}
         </section> : <>
           <div className="command-react__controls" aria-label="命令设置">
-            <div className="command-react__control-group"><span>连接</span><Select className="command-react__connection-select" aria-label="SSH 连接方式" value={state.config.reuseConnections ? 'reuse' : 'independent'} options={[{ value: 'independent', label: '每次独立连接' }, { value: 'reuse', label: '复用已认证连接' }]} onChange={(value) => void saveConnection(value === 'reuse', state.config.connectionIdleSeconds ?? 28800)} />{state.config.reuseConnections ? <Select className="command-react__idle-select" aria-label="连接空闲保留" value={String(state.config.connectionIdleSeconds ?? 28800)} options={IDLE_OPTIONS} onChange={(value) => void saveConnection(true, Number(value))} /> : null}<HelpPopover label="SSH 连接说明">复用连接适合频繁执行命令。首次需要密码或验证码时，请先从机器菜单打开系统终端完成认证；共享连接不继承 Shell 目录。</HelpPopover></div>
+            <div className="command-react__control-group"><span>连接</span>{state.config.sharedConfigFile ? <span>共享持久会话</span> : <><Select className="command-react__connection-select" aria-label="SSH 连接方式" value={state.config.reuseConnections ? 'reuse' : 'independent'} options={[{ value: 'independent', label: '每次独立连接' }, { value: 'reuse', label: '复用已认证连接' }]} onChange={(value) => void saveConnection(value === 'reuse', state.config.connectionIdleSeconds ?? 28800)} />{state.config.reuseConnections ? <Select className="command-react__idle-select" aria-label="连接空闲保留" value={String(state.config.connectionIdleSeconds ?? 28800)} options={IDLE_OPTIONS} onChange={(value) => void saveConnection(true, Number(value))} /> : null}<HelpPopover label="SSH 连接说明">复用连接适合频繁执行命令。首次需要密码或验证码时，请先从机器菜单打开系统终端完成认证；共享连接不继承 Shell 目录。</HelpPopover></>}</div>
             {templates.length ? <div className="command-react__control-group command-react__template-controls"><span>模板</span><Combobox className="command-react__template-select" aria-label="搜索或选择命令模板" value="" placeholder="搜索模板" emptyMessage="没有匹配的模板" options={templates.map((template, index) => ({ value: String(index), label: template.name }))} onChange={(value) => setCommand(templates[Number(value)]?.command ?? '')} /></div> : null}
           </div>
           <div className="command-react__composer"><span aria-hidden="true">{selectedHosts.length === 1 ? `${selectedHosts[0]?.alias} $` : selectedHosts.length ? `${selectedHosts.length} 台 $` : '$'}</span><Textarea rows={1} spellCheck={false} autoComplete="off" placeholder="输入命令，回车执行" value={command} onChange={(event) => setCommand(event.target.value)} onKeyDown={commandKeyDown} /><Button variant="primary" disabled={running || !selectedHosts.length || !command.trim()} onClick={submitCommand}>{running ? '执行中…' : '执行 ↵'}</Button></div>
-          <footer className="command-react__footer"><span>{selectedHosts.length ? selectedHosts.map((host) => host.name).join('、') : '尚未选择机器'}</span><span>Enter 执行 · Shift+Enter 换行 · ↑↓ 历史</span></footer>
+          <footer className="command-react__footer"><span>Enter 执行 · Shift+Enter 换行 · ↑↓ 历史</span></footer>
           <JobConsole jobs={jobs} selectedHosts={selectedHosts} onCancel={(job) => void api('cancel', { id: job.id }).catch((reason) => setError(errorText(reason)))} onClear={() => setJobs((current) => current.filter((job) => !job.finishedAt))} />
         </>}
         {notice ? <p className="command-react__notice" role="status">{notice}</p> : null}
         {error ? <p className="command-react__error" role="alert">{error}</p> : null}
-      </main>
+      </div>
         </div>
+      </Tabs.Panel>
+      <Tabs.Panel value="sessions" forceMount className="command-react__workspace-panel">
+        <section className="command-react__shared-manager" aria-label="共享连接与会话">
+          <label><span>连接配置文件</span><Input aria-label="连接配置文件" value={configFile} placeholder={state.config.sharedConfigFile || '~/.ssh/mcp-servers.json（留空使用默认路径）'} onChange={event => setConfigFile(event.target.value)} /></label>
+          <p>内置 SSH 组件可独立运行，无需安装 toolkit。选择 JSON 文件后，可与 toolkit 共用连接配置及会话。已有连接会补入文件，密码字段按文件格式保存；请仅允许当前用户读取。切换前暂停监控并等待任务结束。</p>
+          <Button disabled={sharedBusy || running} onClick={() => void saveSharedConfig()}>{sharedBusy ? '切换中…' : '使用此配置文件'}</Button>
+          {state.config.sharedConfigFile ? <><p>当前文件：{state.config.sharedConfigFile}</p><Button onClick={() => void refreshSessions()}>刷新共享会话</Button>
+          <ul>{sharedSessions.map(session => <li key={session.id}><strong>{session.alias}</strong> · {session.type} · {session.dead ? '已退出' : session.busy ? '执行中或结果未知' : session.attached ? '终端已附着' : '可用'}<br /><code>{session.id}</code> · {session.config_file}</li>)}</ul></> : null}
+          {notice ? <p role="status">{notice}</p> : null}{error ? <p role="alert">{error}</p> : null}
+        </section>
       </Tabs.Panel>
       <Tabs.Panel value="templates" forceMount className="command-react__workspace-panel">
         <TemplateManager initial={templates} busy={templateBusy} onSave={saveTemplates} />

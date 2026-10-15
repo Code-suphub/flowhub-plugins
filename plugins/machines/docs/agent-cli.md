@@ -27,3 +27,11 @@ Agent 可直接使用可执行文件的绝对路径。默认数据目录为 `~/L
 勾选“仅允许查询”后，插件关闭自由输入和系统终端，保留固定查询和采集。堡垒机登录脚本仍会运行；需要手动密码或验证码的环境，应先完成必要的登录脚本/账号配置，受限会话不提供任意文本输入。切换堡垒机权限前须先断开原会话。已打开的普通 SSH 终端不因切换配置而撤销权限。
 
 这是插件操作约束，不是远端权限隔离。生产账号仍需由 SSH/堡垒机权限管理限制写入；插件无法限制用户绕过它直接使用 SSH、修改本地配置或替换远端程序。
+
+## 共享 SSH 后端
+
+更新插件后，可用 `--cli monitor off` 暂停采集，再用 `--cli shared-config /absolute/path/mcp-servers.json` 切换配置文件，`--cli sessions` 返回与 toolkit 相同的 tmux 列表。机器权限与历史检查继续由 FlowHub 执行。共享模式下普通 SSH 与 relay 都支持持续会话；非受限机器的 exec 可保留目录状态。`--cli monitor on` 恢复原采集间隔。CLI 仍需连接正在运行的机器插件；独立使用 toolkit SSH 不依赖 FlowHub。
+
+SSH 后端现在随机器插件内置，运行时无需安装 toolkit。独立 CLI、FlowHub 和 toolkit
+仍使用同一配置及持久会话。网络策略 UI 位于机器编辑器的连接配置页；toolkit 入口为
+`toolkit ssh network <alias>`，修改使用读取结果的 revision，并遵守暂停监控和断开目标会话要求。

@@ -84,6 +84,10 @@
           Object.assign(job, { status, finishedAt: Date.now(), exitCode: status === 'success' ? 0 : 1,
             stdout: status === 'success' ? `【模拟输出，未执行命令】\n${args.command || '指标采集'}\n目标：${host.alias}` + (args.command && args.command.includes('FLOWHUB Netdata installation') ? '\nFLOWHUB_NETDATA_AGENT_HOST=203.0.113.10\nFLOWHUB_NETDATA_AGENT_PORT=19999' : '') : '',
             stderr: status === 'success' ? '' : `模拟${status === 'cancelled' ? '取消' : status === 'timeout' ? '连接超时' : '认证失败'}` });
+          if (host.bastion && sessions.has(host.id)) {
+            const session = sessions.get(host.id);
+            session.output = (session.output + `\n$ ${args.command}\n${job.stdout || job.stderr}\ndemo@${host.alias}:~$ `).slice(-65536);
+          }
           state.history.unshift(job);
           if (job.kind === 'command') archive.unshift(clone(job));
           const counts = {};
@@ -104,7 +108,7 @@
     if (action.startsWith('bastion')) {
       const host = state.config.hosts.find(h => h.id === payload.hostId);
       if (!host?.bastion) throw Error('请选择堡垒机机器');
-      if (action === 'bastionStart' && !sessions.has(host.id)) sessions.set(host.id, { connected: true, output: `【模拟会话，未运行 relay】\ndemo@relay -> ${host.bastion.command} ${host.bastion.target}\n已进入模拟目标机器。\ndemo@${host.alias}:~$ ` });
+      if (action === 'bastionStart' && !sessions.has(host.id)) sessions.set(host.id, { connected: true, phase: 'ready', output: `【模拟会话，未运行 relay】\ndemo@relay -> ${host.bastion.command} ${host.bastion.target}\n已进入模拟目标机器。\ndemo@${host.alias}:~$ ` });
       if (action === 'bastionStop') sessions.delete(host.id);
       if (action === 'bastionTerminal') throw Error('模拟预览不打开系统终端；桌面版将附着到同一 tmux 会话。');
       if (action === 'bastionSend') {
@@ -158,6 +162,8 @@
         return { profile: clone(profile), passwordAuth:!!saved?.passwordAuth,effective: clone(profile), revision: 'preview', inheritedKeys: [] };
       }
       case 'sshSave': profiles.set(payload.profile.alias, {profile:clone(payload.profile),passwordAuth:!!payload.passwordAuth}); return { revision: 'preview' };
+      case 'networkRead': return {revision:'preview',policy:state.networkPolicy??{mode:'system',proxy:'',extraPorts:[]},clash:{available:true,groups:['自动选择','日本'],tun:true,matches:[]},route:{interface:'utun4'},endpoint:{host:'203.0.113.10',port:22}};
+      case 'networkSave': state.networkPolicy=clone(payload.policy); return {revision:'preview',note:'模拟网络策略已保存；没有修改本机路由。'};
       case 'sshProbe': return { reason: document.querySelector('#previewOutcome').value === 'success' ? '模拟连接成功，未建立真实连接' : '模拟连接失败', durationMs: 25, stderr: '' };
       case 'chooseIdentity': throw new Error('模拟预览不读取私钥；可在表单输入虚拟路径。');
       case 'terminal': throw new Error('模拟预览不打开终端；真实 SSH 请使用开发版 FlowHub。');
