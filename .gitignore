@@ -10,3 +10,6 @@ credentials.key
 *.sqlite3*
 
 **/__pycache__/
+
+# Developer-local SSH source dependency; release builds use the pinned archive.
+/plugins/machines/vendor/flowhub_ssh

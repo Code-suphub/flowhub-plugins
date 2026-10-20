@@ -1,4 +1,5 @@
-"""Build the pinned shared source into a self-contained helper embedded in Rust."""
+"""Freeze shared SSH source into a self-contained helper embedded in Rust."""
+import argparse
 import hashlib
 import io
 import json
@@ -6,31 +7,27 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
-import tarfile
 import tempfile
 from build_tmux import build_tmux
+from ssh_core_source import prepare_source
 
 root=Path(__file__).resolve().parents[1]
-lock=json.loads((root/'vendor/ssh-core.lock.json').read_text())
-archive=root/'vendor'/lock['archive']
-if hashlib.sha256(archive.read_bytes()).hexdigest()!=lock['sha256']:raise SystemExit('SSH core source checksum mismatch')
+parser=argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--source',choices=('auto','linked','pinned'),default=os.environ.get('FLOWHUB_SSH_SOURCE','auto'))
+args=parser.parse_args()
 output=root/'bin/flowhub-ssh'
 output.parent.mkdir(exist_ok=True)
 build=root/'backend/target/ssh-core';build.mkdir(parents=True,exist_ok=True)
 stamp=build/'fingerprint.json'
-tmux=build_tmux(root)
-fingerprint={'source':lock['sha256'],'tmux':hashlib.sha256(Path(tmux).read_bytes()).hexdigest(),'pyinstaller':'6.16.0'}
-if output.is_file() and stamp.is_file() and json.loads(stamp.read_text())==fingerprint:
- print('Bundled SSH runtime is current');raise SystemExit(0)
 with tempfile.TemporaryDirectory(prefix='flowhub-ssh-build-') as tmp:
  source=Path(tmp)/'source';source.mkdir()
- with tarfile.open(archive,'r:gz') as tar:
-  for member in tar.getmembers():
-   if not member.isfile() or any(part in ('..','') for part in Path(member.name).parts) or Path(member.name).is_absolute():raise SystemExit('Invalid core archive member')
-   dest=source/member.name;dest.parent.mkdir(parents=True,exist_ok=True);dest.write_bytes(tar.extractfile(member).read())
- manifest=json.loads((source/'source.json').read_text())
- for name,sha in manifest['files'].items():
-  if hashlib.sha256((source/name).read_bytes()).hexdigest()!=sha:raise SystemExit('Core manifest checksum mismatch')
+ try: selected=prepare_source(root,source,args.source,os.environ)
+ except (ValueError,OSError) as error: raise SystemExit(str(error)) from error
+ print('SSH core source:',selected['mode'],selected['sha256'],flush=True)
+ tmux=build_tmux(root)
+ fingerprint={'source':selected,'tmux':hashlib.sha256(Path(tmux).read_bytes()).hexdigest(),'pyinstaller':'6.16.0'}
+ if output.is_file() and stamp.is_file() and json.loads(stamp.read_text())==fingerprint:
+  print('Bundled SSH runtime is current');raise SystemExit(0)
  # Entry imports absolute package names and never imports toolkit.
  entry=source/'entry.py';entry.write_text('from flowhub_ssh.__main__ import main\nraise SystemExit(main())\n')
  python_license=Path(subprocess.check_output(['uv','python','find','3.12.13'],text=True).strip()).resolve().parents[1]/'lib/python3.12/LICENSE.txt'

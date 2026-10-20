@@ -126,10 +126,24 @@ toolkit 的 `ssh console`、`ssh session attach` 与页面共享同一个会话�
 两者继续共用 `~/.ssh/mcp-servers.json`、`toolkit-ssh` tmux server、会话 ID、
 命令锁及手动断开标记；升级不会另建一套会话。
 
-底层源码在 toolkit 仓库的 `flowhub_ssh/`，插件通过 `vendor/ssh-core.lock.json`
-锁定可复现源码包的 SHA256。源码包为生成物，不在此维护第二份源码。
-更新方式：在 toolkit 执行 `python scripts/export-ssh-core.py <本插件/vendor/源码包路径>`，
-更新 lock 的 SHA256，然后执行 `npm run build`。构建机需要 Python 3、uv 和 Xcode 命令行工具；tmux/libevent 按锁定源码及 macOS 11 部署目标构建，避免引入 Homebrew 动态库依赖。
+底层源码在 toolkit 仓库的 `flowhub_ssh/`。本地开发通过软链接直接复用源码：
+
+```sh
+python3 scripts/link-ssh-core.py --toolkit /path/to/toolkit
+pnpm run build
+```
+
+脚本创建 `vendor/flowhub_ssh` 相对软链接，不复制 Python 源码；该链接不入库。
+移动仓库后可重跑命令修复链接。普通本地构建优先链接源码，并按实际文件内容更新构建指纹；
+断开的链接会明确报错，不会静默使用旧包。修改源码后仍需重建、重新加载插件才能更新运行组件。
+
+CI 默认使用 `vendor/ssh-core.lock.json` 校验的锁定源码包，不依赖本地链接。
+本地发布构建可用 `FLOWHUB_SSH_SOURCE=pinned pnpm run build`；
+也可单独用 `python3 scripts/build-ssh-core.py --source linked|pinned` 选择来源。
+`FLOWHUB_SSH_SOURCE=linked` 显式选择开发源码，即使在 CI 中也按请求使用。
+发布源码包的更新方式仍为：在 toolkit 执行 `python3 scripts/export-ssh-core.py <本插件/vendor/源码包路径>`，
+更新 lock 的 SHA256，再构建。源码包为生成物，不在此维护第二份源码。
+构建机需要 Python 3、uv 和 Xcode 命令行工具；tmux/libevent 按锁定源码及 macOS 11 部署目标构建，避免引入 Homebrew 动态库依赖。
 最终插件将冻结运行组件嵌入 Rust 可执行文件，用户不需要单独安装这些工具。
 `tests/shared-runtime.test.cjs` 在没有 toolkit/Python/tmux 的 PATH 下验证初始化和调用。
 
