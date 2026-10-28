@@ -30,6 +30,7 @@ with tempfile.TemporaryDirectory(prefix='flowhub-ssh-build-') as tmp:
   print('Bundled SSH runtime is current');raise SystemExit(0)
  # Entry imports absolute package names and never imports toolkit.
  entry=source/'entry.py';entry.write_text('from flowhub_ssh.__main__ import main\nraise SystemExit(main())\n')
+ subprocess.run(['uv','python','install','3.12.13'],check=True)
  python_license=Path(subprocess.check_output(['uv','python','find','3.12.13'],text=True).strip()).resolve().parents[1]/'lib/python3.12/LICENSE.txt'
  subprocess.run(['uv','run','--no-project','--python','3.12.13','--with','pyinstaller==6.16.0','--with','pyinstaller-hooks-contrib==2026.8','--with','PyYAML==6.0.3',
   'pyinstaller','--noconfirm','--clean','--onefile','--name','flowhub-ssh','--paths',str(source),
