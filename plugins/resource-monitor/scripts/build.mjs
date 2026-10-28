@@ -1,0 +1,13 @@
+import {execFileSync} from 'node:child_process';
+import {mkdirSync,copyFileSync,chmodSync,renameSync} from 'node:fs';
+import {fileURLToPath} from 'node:url';
+execFileSync('pnpm',['run','typecheck'],{stdio:'inherit'});
+execFileSync('cargo',['build','--release','--manifest-path','backend/Cargo.toml'],{stdio:'inherit'});
+mkdirSync('bin',{recursive:true});
+const temporary=`bin/.flowhub-resource-monitor-${process.pid}`;
+copyFileSync('backend/target/release/flowhub-resource-monitor',temporary);
+chmodSync(temporary,0o700);
+renameSync(temporary,'bin/flowhub-resource-monitor');
+execFileSync(process.execPath,[fileURLToPath(new URL('../../../scripts/package-plugin.mjs',import.meta.url)),'resource-monitor'],{stdio:'inherit'});
+execFileSync('pnpm',['run','build:ui'],{stdio:'inherit'});
+execFileSync(process.execPath,['../../scripts/check-built-ui.mjs','build'],{stdio:'inherit'});

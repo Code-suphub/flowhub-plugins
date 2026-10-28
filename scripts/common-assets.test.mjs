@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import {inlineCommonHtml} from './inline-common.mjs';
 
 test('desktop pages load shared scripts as package-local files without relaxing CSP', () => {
-  for (const id of ['machines', 'docker', 'twofa', 'social-hub']) {
+  for (const id of ['machines', 'docker', 'twofa', 'social-hub', 'resource-monitor']) {
     const root = new URL(`../plugins/${id}/ui/`, import.meta.url);
     for (const name of fs.readdirSync(root).filter(name => name.endsWith('.html'))) {
       const html = inlineCommonHtml(fs.readFileSync(new URL(name, root), 'utf8'), {scriptPrefix:'_common'});

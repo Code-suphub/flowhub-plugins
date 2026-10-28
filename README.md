@@ -10,6 +10,7 @@ FlowHub 官方插件集中在本仓库维护。每个插件保留独立的清单
 | Docker 管理 | `docker` | `plugins/docker` | [说明](plugins/docker/README.md) |
 | 社交聚合 | `social-hub` | `plugins/social-hub` | [说明](plugins/social-hub/README.md) |
 | 2FA 验证码 | `twofa` | `plugins/twofa` | [说明](plugins/twofa/README.md) |
+| 应用资源监控 | `resource-monitor` | `plugins/resource-monitor` | [说明](plugins/resource-monitor/README.md) |
 
 每个插件使用同一套目录布局：
 

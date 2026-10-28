@@ -30,7 +30,7 @@ function validPlugin(overrides = {}) {
     'flowhub-plugin.json': validManifest(manifestOverrides),
     'package.json': {name: 'flowhub-demo-plugin', version: '1.0.0', private: true, scripts: {build: 'node scripts/build.mjs', test: 'node --test tests/*.test.cjs'}},
     'README.md': '# 演示\n',
-    'package-lock.json': '{}\n',
+    'pnpm-lock.yaml': '{}\n',
     'backend/Cargo.toml': '[package]\nname="flowhub-demo"\nversion="1.0.0"\n',
     'ui/index.html': '<h1>demo</h1>\n',
     'scripts/build.mjs': '// build\n',
@@ -52,14 +52,22 @@ test('the repository plugins satisfy the convention', () => {
 
 test('missing release inputs are reported per plugin', (t) => {
   const files = validPlugin();
-  delete files['package-lock.json'];
+  delete files['pnpm-lock.yaml'];
   delete files['README.md'];
   delete files['backend/Cargo.toml'];
   delete files['package.json'];
   const {errors} = checkPlugins(fixtureRoot(t, {demo: files}));
-  for (const expected of ['缺少 package-lock.json', '缺少 README.md', '缺少 backend/Cargo.toml', '缺少 package.json']) {
+  for (const expected of ['缺少 pnpm-lock.yaml', '缺少 README.md', '缺少 backend/Cargo.toml', '缺少 package.json']) {
     assert.ok(errors.some(error => error.includes(expected)), `应报告 ${expected}：${errors.join(' | ')}`);
   }
+});
+
+test('existing npm plugins and new pnpm plugins can coexist without a repository-wide migration', (t) => {
+  const npm = validPlugin(), pnpm = validPlugin();
+  npm['package-lock.json'] = npm['pnpm-lock.yaml'];
+  delete npm['pnpm-lock.yaml'];
+  assert.deepEqual(checkPlugins(fixtureRoot(t, {demo: npm})).errors, []);
+  assert.deepEqual(checkPlugins(fixtureRoot(t, {demo: pnpm})).errors, []);
 });
 
 test('schema 1 manifests, version drift and id mismatch are rejected', (t) => {

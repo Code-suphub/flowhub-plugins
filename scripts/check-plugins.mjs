@@ -4,7 +4,7 @@ import {fileURLToPath} from 'node:url';
 
 const ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const SEMVER = /^\d+\.\d+\.\d+$/;
-const REQUIRED_FILES = ['README.md', 'package-lock.json'];
+const REQUIRED_FILES = ['README.md'];
 const REQUIRED_SCRIPTS = ['build', 'test'];
 const REQUIRED_WIDGET_PAGES = ['card', 'editor', 'detail'];
 
@@ -105,6 +105,9 @@ export function checkPlugins(root) {
 
     for (const required of REQUIRED_FILES) {
       if (!fs.existsSync(path.join(directory, required))) fail(`缺少 ${required}`);
+    }
+    if (!['pnpm-lock.yaml', 'package-lock.json'].some(file => fs.existsSync(path.join(directory, file)))) {
+      fail('缺少 pnpm-lock.yaml 或 package-lock.json（必须提供依赖锁文件）');
     }
 
     const packageFile = path.join(directory, 'package.json');

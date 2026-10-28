@@ -21,6 +21,10 @@
     "layout:machines": "npm --prefix plugins/machines run layout --",
     "test:docker": "npm --prefix plugins/docker test",
     "test:social-hub": "npm --prefix plugins/social-hub test",
-    "test:twofa": "npm --prefix plugins/twofa test"
+    "test:twofa": "npm --prefix plugins/twofa test",
+    "dev:resource-monitor": "pnpm --dir plugins/resource-monitor run dev",
+    "install:resource-monitor": "pnpm --dir plugins/resource-monitor install --frozen-lockfile",
+    "build:resource-monitor": "pnpm --dir plugins/resource-monitor run build",
+    "test:resource-monitor": "pnpm --dir plugins/resource-monitor test"
   }
 }

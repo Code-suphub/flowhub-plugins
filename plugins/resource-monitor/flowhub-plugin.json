@@ -1,0 +1,12 @@
+{
+  "schema": 2,
+  "id": "resource-monitor",
+  "name": "应用资源监控",
+  "version": "0.3.0",
+  "description": "本机应用占用排行、子进程与来源识别、手动结束进程及桌面监控",
+  "ui": "ui/index.html",
+  "executable": "bin/flowhub-resource-monitor",
+  "permissions": ["native-process"],
+  "statusSurface": true,
+  "widget": {"interactive": true, "card": "widget-card.html", "editor": "widget-editor.html", "detail": "widget-detail.html"}
+}

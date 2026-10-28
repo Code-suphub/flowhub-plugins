@@ -51,19 +51,35 @@ jobs:
           path: .shared/common-components
       - name: Link shared workspace dependency
         run: ln -s "$GITHUB_WORKSPACE/.shared/common-components" ../common-components
+      - name: Select plugin package manager
+        id: package-manager
+        run: |
+          if test -f "plugins/$PLUGIN_ID/pnpm-lock.yaml"; then
+            echo 'name=pnpm' >> "$GITHUB_OUTPUT"
+            echo 'lock=pnpm-lock.yaml' >> "$GITHUB_OUTPUT"
+          else
+            echo 'name=npm' >> "$GITHUB_OUTPUT"
+            echo 'lock=package-lock.json' >> "$GITHUB_OUTPUT"
+          fi
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.15.1
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: plugins/${{ matrix.plugin }}/package-lock.json
+          cache: ${{ steps.package-manager.outputs.name }}
+          cache-dependency-path: plugins/${{ matrix.plugin }}/${{ steps.package-manager.outputs.lock }}
       - uses: dtolnay/rust-toolchain@stable
       - uses: astral-sh/setup-uv@v6
         if: matrix.plugin == 'machines'
-      - run: npm ci
+      - run: |
+          if test -f pnpm-lock.yaml; then pnpm install --frozen-lockfile; else npm ci; fi
         working-directory: plugins/${{ matrix.plugin }}
-      - run: npm run build
+      - run: |
+          if test -f pnpm-lock.yaml; then pnpm run build; else npm run build; fi
         working-directory: plugins/${{ matrix.plugin }}
-      - run: npm test
+      - run: |
+          if test -f pnpm-lock.yaml; then pnpm test; else npm test; fi
         working-directory: plugins/${{ matrix.plugin }}
       - if: needs.plan.outputs.release == 'true'
         run: brew install minisign

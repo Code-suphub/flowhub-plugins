@@ -1,0 +1,19 @@
+[package]
+name = "flowhub-resource-monitor"
+version = "0.3.0"
+edition = "2021"
+
+[dependencies]
+libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+rusqlite = { version = "0.40", features = ["bundled"] }
+uuid = { version = "1", features = ["v4"] }
+
+[profile.release]
+strip = true
+
+[profile.dev]
+debug = 0
+incremental = false

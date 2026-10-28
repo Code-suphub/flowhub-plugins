@@ -1,0 +1,46 @@
+@layer theme, base, antd, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+@source "../../common/src/react";
+
+@layer base {
+  :root {--text-xs:11px;--text-sm:12px;--text-base:13px;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;color:var(--fh-text);background:var(--fh-surface);font-size:12px}
+  body {margin:0} *,::before,::after {box-sizing:border-box}
+  button,input {font:inherit} button {cursor:pointer} button:disabled {cursor:not-allowed}
+  p,h1,h2 {margin:0} button:focus-visible {outline:2px solid var(--fh-accent);outline-offset:3px}
+}
+@layer components {
+  .monitor {max-width:1480px;margin:auto;min-width:0}
+  .muted {color:var(--fh-muted)} .danger {color:var(--fh-danger)} .warning {color:var(--fh-warning)}
+  .numeric,.memory-cell {font-variant-numeric:tabular-nums;font-family:ui-monospace,"SF Mono",Menlo,monospace}
+  .live-dot {width:7px;height:7px;border-radius:50%;background:var(--fh-positive)} .live-dot.stale {background:var(--fh-warning)}
+  .system-strip {padding:10px 0;border-top:1px solid var(--fh-border);border-bottom:1px solid var(--fh-border)}
+  .system-strip>div {display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px}
+  .system-strip strong {font-size:15px;font-weight:600;font-variant-numeric:tabular-nums}
+  .search-input {width:min(330px,100%);min-height:30px;font-size:12px}
+  .app-identity {display:flex;align-items:center;gap:12px;min-width:0}
+  .app-mark {display:grid;place-items:center;flex-shrink:0;width:26px;height:26px;border:1px solid var(--fh-border);border-radius:7px;color:var(--fh-accent);background:var(--fh-surface-soft);font-size:12px}
+  .memory-cell strong {font-size:12px;font-weight:600}
+  .meter {margin-top:7px;margin-left:auto;max-width:100px;height:3px;background:var(--fh-surface-soft);border-radius:2px;overflow:hidden}
+  .meter i {display:block;height:100%;background:var(--fh-accent);border-radius:2px}
+  .compact-button {min-height:28px;padding:5px 8px;font-size:12px;letter-spacing:0;box-shadow:none}
+  .name-link {border:0;background:transparent;color:var(--fh-text);font:inherit;font-weight:600;padding:2px 0;text-align:left;overflow-wrap:anywhere}
+  .name-link:hover {color:var(--fh-accent)}
+  .context-row {display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--fh-border)}
+  .context-title {display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .context-path {display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .context-label {color:var(--fh-accent);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
+  .context-detail-modal .ant-modal-title {overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-right:20px}
+  .detail-modal {max-width:calc(100vw - 24px);top:40px}
+  .exited {opacity:.55}
+  .path {overflow-wrap:anywhere;white-space:pre-wrap;font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:12px}
+  .confirm-targets {max-height:300px;overflow-y:auto}
+  .confirm-target {display:grid;gap:5px;padding:10px 0;border-bottom:1px solid var(--fh-border)}
+  .widget {min-width:0;background:var(--fh-surface)}
+  .widget-row {display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;padding:10px 0;border:0;border-bottom:1px solid var(--fh-border);background:transparent;text-align:left;color:var(--fh-text);font-size:12px}
+  .widget-row:disabled {cursor:default;opacity:1}
+  .widget-row:hover:not(:disabled) {background:var(--fh-surface-soft)}
+  .text-link {border:0;padding:4px 0;background:transparent;color:var(--fh-accent);font-size:12px}
+  .text-link:disabled {opacity:.5}
+  @media(max-width:520px) {.search-input {width:100%}.system-strip {gap:8px}.system-strip>div {display:grid;gap:5px}.system-strip strong {font-size:14px}.compact-button {min-height:32px}.detail-modal {top:12px}}
+}

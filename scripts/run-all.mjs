@@ -12,6 +12,7 @@ if (ids.length === 0) throw new Error('plugins/ 下没有找到插件');
 for (const id of ids) {
   const pkg = JSON.parse(fs.readFileSync(path.join(root, 'plugins', id, 'package.json'), 'utf8'));
   if (!pkg.scripts?.[task]) { console.log(`跳过 ${id}：没有 ${task} 脚本`); continue; }
-  console.log(`==> ${id}: npm run ${task}`);
-  execFileSync('npm', ['--prefix', path.join('plugins', id), 'run', task], {cwd: root, stdio: 'inherit'});
+  const manager = fs.existsSync(path.join(root, 'plugins', id, 'pnpm-lock.yaml')) ? 'pnpm' : 'npm';
+  console.log(`==> ${id}: ${manager} run ${task}`);
+  execFileSync(manager, [manager === 'pnpm' ? '--dir' : '--prefix', path.join('plugins', id), 'run', task], {cwd: root, stdio: 'inherit'});
 }
