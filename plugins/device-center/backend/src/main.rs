@@ -93,58 +93,98 @@ fn device(category: &str, name: String, detail: String, discriminant: String,
         category: category.into(), kind, detail: short(&detail, 150), status: "connected".into(),
         battery, vendor, product_id }
 }
-fn usb(node: &Value, out: &mut Vec<Device>, depth: usize) {
-    if depth > 12 || out.len() >= 128 { return; }
+// USB entries may be beneath _items, a host_controller object, or other nested
+// containers depending on macOS version. Walk object containers but only emit nodes
+// that carry a USB hardware ID. Do not return serial numbers or volume metadata.
+fn usb(node: &Value, parent: &str, out: &mut Vec<Device>, depth: usize) {
+    if depth > 16 || out.len() >= 128 { return; }
     match node {
-        Value::Array(arr) => for v in arr { usb(v, out, depth + 1); },
+        Value::Array(arr) => for value in arr { usb(value, parent, out, depth + 1); },
         Value::Object(obj) => {
-            let name = field(node, &["_name", "name", "product_name"]);
             let vendor_id = field(node, &["vendor_id", "vendorID"]);
             let product_id = field(node, &["product_id", "productID"]);
-            // Controller/bus wrappers aren't peripherals.
+            let has_hardware_id = vendor_id.is_some() || product_id.is_some();
+            let name = field(node, &["_name", "name", "product_name", "device_name"])
+                .or_else(|| (has_hardware_id && !parent.is_empty()).then(|| short(parent, 92)));
             if let Some(name) = name {
-                let bus = name.contains("USB") && (name.ends_with("Bus") || name.ends_with("Controller"));
-                if !bus && (vendor_id.is_some() || product_id.is_some()) {
-                    let speed = field(node, &["speed", "device_speed"]).unwrap_or_default();
+                let lower = name.trim().to_ascii_lowercase();
+                // USB buses and controller wrappers are not attached peripherals.
+                let controller = lower.ends_with("bus") || lower.ends_with("controller");
+                if has_hardware_id && !controller {
+                    let speed = field(node, &["device_speed", "speed"]).unwrap_or_default();
                     let brand = field(node, &["manufacturer"]).unwrap_or_default();
-                    let detail = [brand.as_str(), speed.as_str()].iter().filter(|s| !s.is_empty())
-                        .copied().collect::<Vec<_>>().join(" · ");
-                    // Location ID helps distinguish identical attached USB devices, without using serial numbers.
-                    let port = field(node, &["location_id"]).unwrap_or_default();
+                    let detail = [brand.as_str(), speed.as_str()].iter()
+                        .filter(|s| !s.is_empty()).copied().collect::<Vec<_>>().join(" · ");
+                    let port = field(node, &["location_id", "locationID"]).unwrap_or_default();
                     let key = format!("{}:{}:{}", vendor_id.as_deref().unwrap_or(""),
                         product_id.as_deref().unwrap_or(""), port);
                     out.push(device("usb", name, detail, key, None, vendor_id, product_id));
                 }
             }
-            for key in ["_items", "items"] {
-                if let Some(v) = obj.get(key) { usb(v, out, depth + 1); }
+            for (key, value) in obj {
+                if !value.is_array() && !value.is_object() { continue; }
+                // Storage/volume metadata is not a child USB device tree.
+                if matches!(key.as_str(), "Media" | "media" | "Volumes" | "volumes") { continue; }
+                let next_parent = if matches!(key.as_str(),
+                    "_items" | "items" | "host_controller" | "device" | "devices" |
+                    "usb_devices" | "children" | "ports") { "" } else { key.as_str() };
+                usb(value, next_parent, out, depth + 1);
             }
         },
         _ => {}
     }
 }
-fn bluetooth(node: &Value, parent: &str, out: &mut Vec<Device>, depth: usize) {
-    if depth > 12 || out.len() >= 128 { return; }
+
+fn battery_percent(node: &Value) -> Option<String> {
+    let raw = field(node, &[
+        "device_batteryLevelMain", "device_batteryLevel",
+        "device_batteryLevelSingle", "battery_level"
+    ])?;
+    let percent = raw.trim().trim_end_matches('%').trim().parse::<u8>().ok()?;
+    (percent <= 100).then(|| format!("{percent}%"))
+}
+
+// The current macOS system_profiler format uses a connected-device collection:
+// "device_connected": [ {"AirPods": {"device_minorType": "...", ...}} ].
+// Legacy reports can instead use "devices" with an explicit scalar connected flag.
+// Never traverse device_not_connected, even if it contains stale battery metadata.
+fn bluetooth(node: &Value, parent: &str, in_connected_list: bool,
+    out: &mut Vec<Device>, depth: usize) {
+    if depth > 16 || out.len() >= 128 { return; }
     match node {
-        Value::Array(arr) => for v in arr { bluetooth(v, parent, out, depth + 1); },
+        Value::Array(arr) => for value in arr {
+            bluetooth(value, parent, in_connected_list, out, depth + 1);
+        },
         Value::Object(obj) => {
-            let connected = field(node, &["device_connected", "device_is_connected", "connected"]);
-            if connected.as_deref().is_some_and(flag) {
-                let name = field(node, &["_name", "name"]).unwrap_or_else(|| short(parent, 92));
-                if !name.is_empty() {
-                    let battery = field(node, &["device_batteryLevelMain", "device_batteryLevel", "battery_level"])
-                        .map(|s| if s.contains('%') {s} else {format!("{s}%")});
-                    let model = field(node, &["device_minorType", "device_type"]).unwrap_or_default();
-                    out.push(device("bluetooth", name, model, String::new(), battery, None, None));
+            let explicit = field(node, &["device_connected", "device_is_connected", "connected"])
+                .map(|s| flag(&s));
+            let name = field(node, &["device_name", "_name", "name"])
+                .or_else(|| (!parent.is_empty()).then(|| short(parent, 92)));
+            if (in_connected_list || explicit == Some(true)) && explicit != Some(false) {
+                if let Some(name) = name {
+                    if !name.is_empty() {
+                        let model = field(node, &["device_minorType", "device_type"])
+                            .unwrap_or_default();
+                        out.push(device("bluetooth", name, model,
+                            String::new(), battery_percent(node), None, None));
+                    }
                 }
             }
             for (key, value) in obj {
-                if value.is_array() || value.is_object() { bluetooth(value, key, out, depth + 1); }
+                if key == "device_not_connected" || key == "controller_properties" { continue; }
+                if !value.is_object() && !value.is_array() { continue; }
+                // A collection name is not a device name.
+                let next_parent = if matches!(key.as_str(),
+                    "device_connected" | "devices" | "_items" | "items") { "" }
+                    else { key.as_str() };
+                bluetooth(value, next_parent,
+                    in_connected_list || key == "device_connected", out, depth + 1);
             }
         },
         _ => {}
     }
 }
+
 fn displays(node: &Value, out: &mut Vec<Device>, depth: usize) {
     if depth > 12 || out.len() >= 32 { return; }
     match node {
@@ -193,8 +233,8 @@ fn power(node: &Value) -> Value {
 }
 fn parse(raw: &Value) -> Scan {
     let mut devices = vec![];
-    usb(&raw["SPUSBDataType"], &mut devices, 0);
-    bluetooth(&raw["SPBluetoothDataType"], "", &mut devices, 0);
+    usb(&raw["SPUSBDataType"], "", &mut devices, 0);
+    bluetooth(&raw["SPBluetoothDataType"], "", false, &mut devices, 0);
     displays(&raw["SPDisplaysDataType"], &mut devices, 0);
     let mut seen = BTreeSet::new();
     devices.retain(|d| seen.insert(d.id.clone()));
@@ -352,6 +392,59 @@ mod tests {
         assert_eq!(result.devices.len(), 1);
         assert_eq!(result.devices[0].battery.as_deref(), Some("82%"));
         assert_eq!(result.devices[0].name, "AirPods Pro 2");
+    }
+    #[test]
+    fn macos_connected_array_reads_names_and_excludes_disconnected_devices() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../tests/fixtures/macos-bluetooth-connected.json"
+        )).unwrap();
+        let devices = parse(&fixture).devices;
+        let bluetooth: Vec<_> = devices.iter().filter(|d| d.category == "bluetooth").collect();
+        assert_eq!(bluetooth.len(), 3);
+        assert!(bluetooth.iter().any(|d| d.name == "AirPods Pro 2"
+            && d.battery.as_deref() == Some("82%")));
+        assert!(bluetooth.iter().any(|d| d.name == "Magic Mouse"
+            && d.battery.as_deref() == Some("67%")));
+        assert!(bluetooth.iter().any(|d| d.name == "Keychron K3"
+            && d.battery.is_none()));
+        assert!(!bluetooth.iter().any(|d| d.name.contains("Disconnected")));
+        let output = serde_json::to_string(&bluetooth).unwrap();
+        assert!(!output.contains("AA-BB-CC"));
+        assert!(!output.contains("device_address"));
+    }
+    #[test]
+    fn macos_usb_host_controller_tree_and_empty_buses() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../tests/fixtures/macos-usb-host-controller.json"
+        )).unwrap();
+        let devices = parse(&fixture).devices;
+        let usb: Vec<_> = devices.iter().filter(|d| d.category == "usb").collect();
+        assert_eq!(usb.len(), 3);
+        assert!(usb.iter().any(|d| d.name == "Samsung T7 SSD"
+            && d.detail.contains("super_speed")));
+        assert!(usb.iter().any(|d| d.name == "Pixel 9 Pro"));
+        assert!(usb.iter().any(|d| d.name == "USB2.0 Hub"));
+        assert!(!usb.iter().any(|d| d.name.contains("Controller")
+            || d.name.contains("USB31Bus") || d.name == "Macintosh HD"));
+        assert!(!serde_json::to_string(&usb).unwrap().contains("PRIVATE_SERIAL"));
+    }
+    #[test]
+    fn empty_controller_reports_no_peripherals() {
+        let sample = json!({"SPUSBDataType":[
+            {"_name":"USB31Bus","host_controller":"AppleT8132USBXHCI"},
+            {"_name":"USB31Bus","host_controller":{"_name":"AppleT8132USBXHCI"}}
+        ],"SPBluetoothDataType":[{"controller_properties":{"controller_state":"On"},
+            "device_connected":[],"device_not_connected":[{"Old Mouse":{
+                "device_batteryLevelMain":"50%"}}]}]});
+        assert!(parse(&sample).devices.is_empty());
+    }
+    #[test]
+    fn invalid_battery_values_remain_unknown() {
+        for value in ["-1", "101%", "unknown"] {
+            let sample = json!({"SPBluetoothDataType":[{"device_connected":[
+                {"Device":{"device_batteryLevelMain":value}}]}]});
+            assert_eq!(parse(&sample).devices[0].battery, None);
+        }
     }
     #[test]
     fn collects_displays_and_reports_only_adapter_power() {

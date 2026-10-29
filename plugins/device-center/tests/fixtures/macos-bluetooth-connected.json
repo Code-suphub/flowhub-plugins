@@ -1,0 +1,39 @@
+{
+  "SPBluetoothDataType": [
+    {
+      "controller_properties": {
+        "controller_state": "On",
+        "controller_address": "FF-FF-FF-FF-FF-FF"
+      },
+      "device_connected": [
+        {
+          "AirPods Pro 2": {
+            "device_address": "AA-BB-CC-DD-EE-01",
+            "device_minorType": "Headphones",
+            "device_batteryLevelMain": "82%"
+          }
+        },
+        {
+          "Magic Mouse": {
+            "device_address": "AA-BB-CC-DD-EE-02",
+            "device_minorType": "Mouse",
+            "device_batteryLevelMain": "67"
+          }
+        },
+        {
+          "device_name": "Keychron K3",
+          "device_address": "AA-BB-CC-DD-EE-03",
+          "device_minorType": "Keyboard"
+        }
+      ],
+      "device_not_connected": [
+        {
+          "Disconnected Keyboard": {
+            "device_address": "AA-BB-CC-DD-EE-09",
+            "device_batteryLevelMain": "99%"
+          }
+        }
+      ]
+    }
+  ]
+}

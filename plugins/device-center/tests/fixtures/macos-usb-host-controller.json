@@ -1,0 +1,54 @@
+{
+  "SPUSBDataType": [
+    {
+      "_name": "USB31Bus",
+      "host_controller": "AppleT8132USBXHCI"
+    },
+    {
+      "_name": "USB31Bus",
+      "host_controller": "AppleT8132USBXHCI",
+      "_items": [
+        {
+          "_name": "USB2.0 Hub",
+          "product_id": "0x2513",
+          "vendor_id": "0x0424",
+          "location_id": "0x02000000",
+          "_items": [
+            {
+              "_name": "Samsung T7 SSD",
+              "product_id": "0x4001",
+              "vendor_id": "0x04e8  (Samsung)",
+              "manufacturer": "Samsung",
+              "device_speed": "super_speed",
+              "location_id": "0x02100000",
+              "serial_num": "PRIVATE_SERIAL",
+              "Media": [
+                {
+                  "_name": "Macintosh HD",
+                  "product_id": "0x4001",
+                  "vendor_id": "0x04e8"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "host_controller": [
+        {
+          "_name": "AppleUSBXHCI",
+          "device": [
+            {
+              "_name": "Pixel 9 Pro",
+              "vendor_id": "0x18d1",
+              "product_id": "0x4ee7",
+              "device_speed": "high_speed",
+              "location_id": "0x02200000"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
