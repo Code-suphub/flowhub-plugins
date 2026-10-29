@@ -365,7 +365,8 @@ mod tests {
     #[test]
     fn status_never_conflates_power_values() {
         let s = State::new();
-        let p = &s.full()["power"];
+        let full = s.full();
+        let p = &full["power"];
         assert!(p["batterySideWatts"].is_null());
         assert!(p["cableLimitWatts"].is_null());
     }
