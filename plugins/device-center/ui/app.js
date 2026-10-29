@@ -267,7 +267,7 @@ function widgetView() {
 function editorView() {
   const cfg=context.config||{},limit=Number(cfg.limit)||3;
   return '<main class="widget-editor"><h1>桌面外设组件</h1>'+
-    '<p class="subtitle" style="margin-bottom:22px">选择组件展示的设备数量和标题</p>'+
+    '<p class="subtitle editor-description">选择组件展示的设备数量和标题</p>'+
     '<label class="editor-field">组件标题<input id="widget-title" maxlength="40" value="'+esc(cfg.title||'外设中心')+'"></label>'+
     '<label class="editor-field">显示设备数量<select id="widget-limit">'+[2,3,5,8].map(n=>
       '<option value="'+n+'" '+(n===limit?'selected':'')+'>'+n+' 台</option>').join('')+
@@ -317,8 +317,11 @@ function render(){
   });
   for(const img of root.querySelectorAll('.media img')){
     img.addEventListener('error',()=>{
-      img.parentElement?.replaceChildren();
-      img.parentElement?.insertAdjacentHTML('beforeend',icon('device'));
+      const holder=img.parentElement;
+      if(!holder)return;
+      holder.replaceChildren();
+      holder.classList.add('media-fallback');
+      holder.insertAdjacentHTML('beforeend',icon('device'));
     },{once:true});
   }
   if(widget&&embedded&&token){

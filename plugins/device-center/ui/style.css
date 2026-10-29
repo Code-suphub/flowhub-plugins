@@ -172,3 +172,6 @@ h1{font-size:25px;font-weight:760;letter-spacing:-.8px;line-height:1.2;margin:0 
  .metric-symbol{width:35px;height:35px}
  .metric-number{font-size:22px}
 }
+.media-fallback{display:grid;place-items:center;color:#799d88}
+.media-fallback .svg-icon{width:25px;height:25px}
+.editor-description{margin-bottom:22px}

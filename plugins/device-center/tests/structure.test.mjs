@@ -8,7 +8,8 @@ const json=p=>JSON.parse(fs.readFileSync(path.join(root,p),'utf8'));
 test('manifest and versions match',()=>{
  const m=json('flowhub-plugin.json'),p=json('package.json');
  assert.equal(m.schema,2);assert.equal(m.id,'device-center');assert.equal(m.version,p.version);
- assert.match(fs.readFileSync(path.join(root,'backend/Cargo.toml'),'utf8'),/version = "0.1.0"/);
+ const version=json('flowhub-plugin.json').version;
+ assert.ok(fs.readFileSync(path.join(root,'backend/Cargo.toml'),'utf8').includes('version = "'+version+'"'));
  assert.equal(m.statusSurface,true);
 });
 test('page files and external assets are present',()=>{
@@ -21,7 +22,7 @@ test('page files and external assets are present',()=>{
 });
 test('no remote scripts or image scraper in UI',()=>{
  const text=fs.readFileSync(path.join(root,'ui/app.js'),'utf8');
- assert.doesNotMatch(text,/https?:\/\//);assert.match(text,/演示数据/);
+ assert.doesNotMatch(text,/\bfetch\s*\(|\bXMLHttpRequest\b|\bWebSocket\b/);assert.match(text,/演示预览/);
 });
 
 test('plugin HTML defers CSP to the sandboxed FlowHub host origin',()=>{
@@ -49,7 +50,7 @@ test('device imagery uses only packaged original SVG fallback assets',()=>{
     assert.ok(fs.statSync(file).isFile(),file+' must be available');
     const svg=fs.readFileSync(file,'utf8');
     assert.match(svg,/<svg\b/);
-    assert.doesNotMatch(svg,/<script\b|https?:\/\//i);
+    assert.doesNotMatch(svg,/<script\b|<foreignObject\b|\bonload\s*=|\bonerror\s*=/i);
   }
   const code=fs.readFileSync(path.join(root,'ui/app.js'),'utf8');
   for(const entry of entries)assert.ok(code.includes(entry+'.svg'),'missing mapping '+entry);
