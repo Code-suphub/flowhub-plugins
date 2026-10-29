@@ -23,3 +23,16 @@ test('no remote scripts or image scraper in UI',()=>{
  const text=fs.readFileSync(path.join(root,'ui/app.js'),'utf8');
  assert.doesNotMatch(text,/https?:\/\//);assert.match(text,/演示数据/);
 });
+
+test('plugin HTML defers CSP to the sandboxed FlowHub host origin',()=>{
+ const manifest=json('flowhub-plugin.json');
+ for(const page of [manifest.ui,...Object.values(manifest.widget)
+    .filter(value=>typeof value==='string').map(value=>'ui/'+value)]){
+  const html=fs.readFileSync(path.join(root,page),'utf8');
+  assert.doesNotMatch(html,/<meta\b[^>]*http-equiv\s*=\s*["']Content-Security-Policy["']/i,
+    page+' must not override the host flowhub-plugin:// CSP with self');
+  assert.match(html,/<script\s+src="app\.js"><\/script>/);
+  assert.match(html,/<link\s+rel="stylesheet"\s+href="style\.css">/);
+  assert.match(html,/正在加载外设中心/);
+ }
+});
