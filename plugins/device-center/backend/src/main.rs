@@ -69,7 +69,7 @@ fn flag(s: &str) -> bool {
 }
 fn kind_for(name: &str) -> String {
     let n = name.to_lowercase();
-    if ["airpods", "headphone", "earbuds", "耳机"].iter().any(|x| n.contains(x)) { "headphones" }
+    if ["airpods", "headphone", "headset", "earphone", "earbuds", "buds", "耳机", "耳麦"].iter().any(|x| n.contains(x)) { "headphones" }
     else if ["mouse", "鼠标", "trackpad"].iter().any(|x| n.contains(x)) { "mouse" }
     else if ["keyboard", "keychron", "键盘"].iter().any(|x| n.contains(x)) { "keyboard" }
     else if ["iphone", "pixel", "android", "phone", "手机"].iter().any(|x| n.contains(x)) { "phone" }
@@ -88,7 +88,7 @@ fn stable_id(category: &str, name: &str, discriminant: &str) -> String {
 }
 fn device(category: &str, name: String, detail: String, discriminant: String,
     battery: Option<String>, vendor: Option<String>, product_id: Option<String>) -> Device {
-    let kind = if category == "display" { "monitor".into() } else { kind_for(&name) };
+    let kind = if category == "display" { "monitor".into() } else { kind_for(&format!("{name} {detail}")) };
     Device { id: stable_id(category, &name, &discriminant), name: short(&name, 92),
         category: category.into(), kind, detail: short(&detail, 150), status: "connected".into(),
         battery, vendor, product_id }
@@ -304,11 +304,14 @@ impl State {
     }
     fn status(&self) -> Value {
         let rows: Vec<_> = self.scan.devices.iter().take(40).map(|d| {
-            json!({"id":d.id,"name":d.name,
+            json!({"id":d.id,"name":d.name,"category":d.category,"kind":d.kind,"battery":d.battery,
                 "status":if self.stale() {"stale"} else {"healthy"},
                 "summary":format!("{} · {}", category_label(&d.category), if d.detail.is_empty() {"已连接"} else {&d.detail})})
         }).collect();
         json!({"title":"外设中心","monitoring":true,"at":self.at,"rows":rows,
+            "counts":{"bluetooth":self.scan.devices.iter().filter(|d| d.category=="bluetooth").count(),
+                      "usb":self.scan.devices.iter().filter(|d| d.category=="usb").count(),
+                      "display":self.scan.devices.iter().filter(|d| d.category=="display").count()},
             "error":self.error,"stale":self.stale(),"count":self.scan.devices.len()})
     }
 }
@@ -454,6 +457,28 @@ mod tests {
         assert_eq!(result.devices.len(), 1);
         assert_eq!(result.power["adapterWatts"], "96");
         assert!(result.power["batterySideWatts"].is_null());
+    }
+    #[test]
+    fn headset_type_matches_real_bluetooth_model() {
+        let d = device("bluetooth", "Xiaomi Earphones Explore".into(),
+            "Headset".into(), String::new(), None, None, None);
+        assert_eq!(d.kind, "headphones");
+        let m = device("bluetooth", "Magic Mouse".into(),
+            "Mouse".into(), String::new(), Some("80%".into()), None, None);
+        assert_eq!(m.kind, "mouse");
+    }
+    #[test]
+    fn status_exposes_device_categories_for_widget_counts() {
+        let mut state=State::new();
+        state.scan.devices.push(device("bluetooth", "Headset".into(),
+            "Headset".into(), String::new(), None, None, None));
+        state.scan.devices.push(device("display", "DELL".into(),
+            "1920 x 1080".into(), String::new(), None, None, None));
+        let status=state.status();
+        assert_eq!(status["counts"]["bluetooth"],1);
+        assert_eq!(status["counts"]["display"],1);
+        assert_eq!(status["counts"]["usb"],0);
+        assert_eq!(status["rows"][0]["category"],"bluetooth");
     }
     #[test]
     fn status_never_conflates_power_values() {

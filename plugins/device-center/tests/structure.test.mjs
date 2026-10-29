@@ -36,3 +36,37 @@ test('plugin HTML defers CSP to the sandboxed FlowHub host origin',()=>{
   assert.match(html,/正在加载外设中心/);
  }
 });
+import {spawnSync} from 'node:child_process';
+
+test('new dashboard JavaScript parses under Node.js without DOM execution',()=>{
+  const result=spawnSync(process.execPath,['--check',path.join(root,'ui/app.js')],{encoding:'utf8'});
+  assert.equal(result.status,0,result.stderr);
+});
+test('device imagery uses only packaged original SVG fallback assets',()=>{
+  const entries=['earbuds','headphones','mouse','keyboard','phone','drive','hub','monitor','laptop','speaker','device'];
+  for(const entry of entries){
+    const file=path.join(root,'ui/assets',entry+'.svg');
+    assert.ok(fs.statSync(file).isFile(),file+' must be available');
+    const svg=fs.readFileSync(file,'utf8');
+    assert.match(svg,/<svg\b/);
+    assert.doesNotMatch(svg,/<script\b|https?:\/\//i);
+  }
+  const code=fs.readFileSync(path.join(root,'ui/app.js'),'utf8');
+  for(const entry of entries)assert.ok(code.includes(entry+'.svg'),'missing mapping '+entry);
+  assert.doesNotMatch(code,/\bfetch\s*\(/);
+});
+test('new layout uses responsive two-column device dashboard and no redundant side menu',()=>{
+  const css=fs.readFileSync(path.join(root,'ui/style.css'),'utf8');
+  const js=fs.readFileSync(path.join(root,'ui/app.js'),'utf8');
+  assert.match(css,/\.main-grid\s*\{display:grid;grid-template-columns:repeat\(2,/);
+  assert.match(css,/@media\(max-width:650px\)/);
+  assert.match(js,/class="tabs"/);
+  assert.doesNotMatch(js,/class="layout"/);
+});
+test('compact widget uses category counts and no private serial numbers',()=>{
+  const source=fs.readFileSync(path.join(root,'backend/src/main.rs'),'utf8');
+  assert.match(source,/"counts":\{"bluetooth"/);
+  assert.match(source,/"category":d.category/);
+  assert.doesNotMatch(fs.readFileSync(path.join(root,'ui/app.js'),'utf8'),/serial_num/);
+});
+

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="120" viewBox="0 0 160 120" role="img" aria-label="设备类别示意图"><defs>
+<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#F7FAF8"/><stop offset="1" stop-color="#E9F1EC"/></linearGradient>
+<linearGradient id="pearl" x1=".15" y1="0" x2=".85" y2="1"><stop stop-color="#FFFFFF"/><stop offset=".62" stop-color="#E9EEEB"/><stop offset="1" stop-color="#D6E0DA"/></linearGradient>
+<linearGradient id="metal" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#535F5F"/><stop offset=".48" stop-color="#2E3A3E"/><stop offset="1" stop-color="#19292D"/></linearGradient>
+<linearGradient id="screen" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#618BA3"/><stop offset=".43" stop-color="#9BB5AE"/><stop offset=".45" stop-color="#D4DCC4"/><stop offset=".77" stop-color="#B1B99F"/><stop offset="1" stop-color="#EEE2D0"/></linearGradient>
+<linearGradient id="phone" x1=".1" y1="0" x2=".9" y2="1"><stop stop-color="#244E80"/><stop offset=".48" stop-color="#7B9AD5"/><stop offset=".8" stop-color="#AE99C3"/><stop offset="1" stop-color="#DAC8D7"/></linearGradient>
+<filter id="shadow" x="-30%" y="-40%" width="160%" height="200%"><feGaussianBlur stdDeviation="3.5"/></filter>
+</defs><rect width="160" height="120" rx="23" fill="url(#bg)"/><ellipse cx="80" cy="103" rx="42" ry="6" fill="#718A7B" opacity=".15" filter="url(#shadow)"/><rect x="50" y="15" width="60" height="91" rx="14" fill="url(#metal)" stroke="#2C4443" stroke-width="2"/><circle cx="80" cy="49" r="20" fill="#2B3B3D" stroke="#9DB3A9" stroke-width="3"/><circle cx="80" cy="49" r="12" fill="#4F6765"/><circle cx="80" cy="49" r="4.5" fill="#253A39"/><circle cx="80" cy="87" r="7.5" fill="#3D5653" stroke="#AEC7B6" stroke-width="2"/></svg>
