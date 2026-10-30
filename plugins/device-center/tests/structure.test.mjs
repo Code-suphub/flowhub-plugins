@@ -77,3 +77,11 @@ test('online images need deliberate user action and retain local fallback',()=>{
  assert.doesNotMatch(js,/\bfetch\s*\(|\bXMLHttpRequest\b|\bWebSocket\b/);
  assert.doesNotMatch(image,/--location\b/);
 });
+
+test('photo picker has an offline visual screenshot scenario',()=>{
+ const js=read('ui/app.js');
+ const capture=read('scripts/capture.py');
+ assert.match(js,/imageDemo/);
+ assert.match(capture,/device-image-picker\.png/);
+ assert.match(js,/仅供预览 · 不联网/);
+});
