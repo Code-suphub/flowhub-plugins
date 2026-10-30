@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+mod power_telemetry;
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
     io::{BufRead, Read, Write},
@@ -24,6 +25,16 @@ struct Device {
     battery: Option<String>,
     vendor: Option<String>,
     product_id: Option<String>,
+    #[serde(skip_serializing_if="Option::is_none")]
+    display_connection: Option<String>,
+    #[serde(skip_serializing_if="Option::is_none")]
+    pixel_resolution: Option<String>,
+    #[serde(skip_serializing_if="Option::is_none")]
+    logical_resolution: Option<String>,
+    #[serde(skip_serializing_if="Option::is_none")]
+    refresh_rate: Option<String>,
+    #[serde(skip)]
+    native_display_id: Option<u32>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -43,6 +54,8 @@ struct State {
     at: u64,
     error: Option<String>,
     events: VecDeque<Event>,
+    power_sample: Option<Value>,
+    power_checked_at: u64,
 }
 fn now() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as u64
@@ -91,7 +104,8 @@ fn device(category: &str, name: String, detail: String, discriminant: String,
     let kind = if category == "display" { "monitor".into() } else { kind_for(&format!("{name} {detail}")) };
     Device { id: stable_id(category, &name, &discriminant), name: short(&name, 92),
         category: category.into(), kind, detail: short(&detail, 150), status: "connected".into(),
-        battery, vendor, product_id }
+        battery, vendor, product_id, display_connection:None, pixel_resolution:None,
+        logical_resolution:None, refresh_rate:None, native_display_id:None }
 }
 // USB entries may be beneath _items, a host_controller object, or other nested
 // containers depending on macOS version. Walk object containers but only emit nodes
@@ -144,6 +158,35 @@ fn battery_percent(node: &Value) -> Option<String> {
     (percent <= 100).then(|| format!("{percent}%"))
 }
 
+// pmset includes accessory power sources omitted from system_profiler (e.g.
+// third-party headsets). Only supplement uniquely named, connected Bluetooth
+// devices; never expose the system power-source IDs or create devices from it.
+fn supplement_accessory_batteries(devices: &mut [Device], report: &str) {
+    let mut levels: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+    for line in report.lines() {
+        let Some(line) = line.trim().strip_prefix('-') else { continue; };
+        let Some((heading, values)) = line.split_once('\t') else { continue; };
+        let name = heading.rsplit_once(" (id=").map_or(heading, |(name, _)| name).trim();
+        if name.is_empty() || name.starts_with("InternalBattery-")
+            || values.contains("present: false") { continue; }
+        let Some(percent) = values.split(';').next().and_then(|v| v.trim().strip_suffix('%'))
+            .and_then(|v| v.parse::<u8>().ok()).filter(|v| *v <= 100) else { continue; };
+        levels.entry(name.to_lowercase()).or_default().push(percent);
+    }
+    let mut names = BTreeMap::<String, usize>::new();
+    for d in devices.iter().filter(|d| d.category == "bluetooth" && d.status == "connected") {
+        *names.entry(d.name.to_lowercase()).or_default() += 1;
+    }
+    for d in devices.iter_mut().filter(|d| d.category == "bluetooth"
+        && d.status == "connected" && d.battery.is_none()) {
+        let key = d.name.to_lowercase();
+        if names.get(&key) != Some(&1) { continue; }
+        if let Some(values) = levels.get(&key).filter(|v| v.len() == 1) {
+            d.battery = Some(format!("{}%", values[0]));
+        }
+    }
+}
+
 // The current macOS system_profiler format uses a connected-device collection:
 // "device_connected": [ {"AirPods": {"device_minorType": "...", ...}} ].
 // Legacy reports can instead use "devices" with an explicit scalar connected flag.
@@ -185,19 +228,53 @@ fn bluetooth(node: &Value, parent: &str, in_connected_list: bool,
     }
 }
 
+fn resolution_size(value: &str) -> String {
+    short(value.split('@').next().unwrap_or(value),80).replace(" x "," × ")
+}
+fn display_connection(node: &Value) -> Option<String> {
+    let connection = field(node,&["spdisplays_connection_type"]).unwrap_or_default().to_lowercase();
+    let kind = field(node,&["spdisplays_display_type"]).unwrap_or_default().to_lowercase();
+    if connection == "spdisplays_internal" || kind.contains("built-in") { Some("built-in".into()) }
+    else if ["spdisplays_external","spdisplays_hdmi","spdisplays_displayport","spdisplays_thunderbolt"].contains(&connection.as_str()) { Some("external".into()) }
+    else { None }
+}
+#[cfg(target_os="macos")]
+#[link(name="CoreGraphics",kind="framework")]
+extern "C" {
+    fn CGDisplayIsBuiltin(display:u32)->u32;
+    fn CGDisplayIsOnline(display:u32)->u32;
+}
+fn supplement_display_connections(devices:&mut [Device]) {
+    #[cfg(target_os="macos")]
+    for d in devices.iter_mut().filter(|d|d.category=="display" && d.display_connection.is_none()) {
+        if let Some(id)=d.native_display_id {
+            if unsafe{CGDisplayIsOnline(id)}!=0 {
+                d.display_connection=Some(if unsafe{CGDisplayIsBuiltin(id)}!=0 {"built-in"}else{"external"}.into());
+            }
+        }
+    }
+    #[cfg(not(target_os="macos"))]
+    let _=devices;
+}
 fn displays(node: &Value, out: &mut Vec<Device>, depth: usize) {
     if depth > 12 || out.len() >= 32 { return; }
     match node {
         Value::Array(arr) => for v in arr { displays(v, out, depth + 1); },
         Value::Object(obj) => {
-            if field(node, &["spdisplays_resolution", "spdisplays_pixels", "_spdisplays_resolution"]).is_some() {
-                let name = field(node, &["_name", "display_name"]).unwrap_or("外接显示器".into());
-                let pixels = field(node, &["spdisplays_resolution", "spdisplays_pixels", "_spdisplays_resolution"]).unwrap_or_default();
-                let refresh = field(node, &["spdisplays_refresh_rate"]).unwrap_or_default();
-                let detail = [pixels.as_str(), refresh.as_str()].iter().filter(|s| !s.is_empty())
-                    .copied().collect::<Vec<_>>().join(" · ");
-                let display_id = field(node, &["spdisplays_display_id", "spdisplays_uuid"]).unwrap_or_default();
-                out.push(device("display", name, detail, display_id, None, None, None));
+            if field(node, &["_spdisplays_pixels","spdisplays_resolution", "spdisplays_pixels", "_spdisplays_resolution"]).is_some() {
+                let name = field(node, &["_name", "display_name"]).unwrap_or("显示器".into());
+                let mode = field(node,&["_spdisplays_resolution","spdisplays_resolution"]);
+                let pixels = field(node,&["_spdisplays_pixels","spdisplays_pixels"]).map(|s|resolution_size(&s));
+                let logical = mode.as_deref().map(resolution_size);
+                let refresh = field(node,&["spdisplays_refresh_rate"]).or_else(||mode.as_deref().and_then(|s|s.split_once('@').map(|(_,r)|r.trim().to_string())));
+                let size = pixels.clone().or_else(||logical.as_ref().map(|s|format!("显示模式 {s}"))).unwrap_or_default();
+                let detail = [Some(size), refresh.clone()].iter().filter_map(|s|s.as_deref()).filter(|s|!s.is_empty())
+                    .collect::<Vec<_>>().join(" · ");
+                let display_id = field(node, &["_spdisplays_displayID","spdisplays_display_id", "spdisplays_uuid"]).unwrap_or_default();
+                let mut d=device("display", name, detail, display_id.clone(), None, None, None);
+                d.display_connection=display_connection(node);
+                d.pixel_resolution=pixels;d.logical_resolution=logical;d.refresh_rate=refresh;
+                d.native_display_id=display_id.parse().ok();out.push(d);
             }
             for value in obj.values() {
                 if value.is_object() || value.is_array() { displays(value, out, depth + 1); }
@@ -241,23 +318,22 @@ fn parse(raw: &Value) -> Scan {
     devices.sort_by(|a, b| a.category.cmp(&b.category).then(a.name.cmp(&b.name)));
     Scan { devices, power: power(&raw["SPPowerDataType"]) }
 }
-fn profile() -> Result<Scan, String> {
-    if !cfg!(target_os = "macos") { return Err("仅支持 macOS 原生设备检测".into()); }
-    let mut child = Command::new("/usr/sbin/system_profiler")
-        .args(["-json", "SPBluetoothDataType", "SPUSBDataType", "SPDisplaysDataType", "SPPowerDataType"])
+fn read_system_query(program: &str, args: &[&str], timeout: Duration, max_bytes: u64) -> Result<Vec<u8>, String> {
+    let mut child = Command::new(program)
+        .args(args).env("LC_ALL", "C")
         .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null())
         .spawn().map_err(|_| "无法启动 macOS 系统设备查询".to_string())?;
     let reader = child.stdout.take().ok_or("读取系统设备信息失败")?;
     let handle = thread::spawn(move || {
         let mut data = Vec::new();
-        let _ = reader.take(MAX_BYTES + 1).read_to_end(&mut data);
+        let _ = reader.take(max_bytes + 1).read_to_end(&mut data);
         data
     });
     let start = Instant::now();
     let exit = loop {
         match child.try_wait() {
             Ok(Some(status)) => break Ok(status),
-            Ok(None) if start.elapsed() < Duration::from_secs(30) => thread::sleep(Duration::from_millis(60)),
+            Ok(None) if start.elapsed() < timeout => thread::sleep(Duration::from_millis(60)),
             Ok(None) => { let _ = child.kill(); let _ = child.wait(); break Err("设备扫描超时，请重试".to_string()); },
             Err(_) => { let _ = child.kill(); let _ = child.wait(); break Err("设备扫描进程异常".to_string()); }
         }
@@ -265,14 +341,30 @@ fn profile() -> Result<Scan, String> {
     let output = handle.join().map_err(|_| "读取系统设备信息失败")?;
     let status = exit?;
     if !status.success() { return Err("macOS 设备扫描失败或权限受限".into()); }
-    if output.len() as u64 > MAX_BYTES { return Err("设备信息过大，已安全中止读取".into()); }
+    if output.len() as u64 > max_bytes { return Err("设备信息过大，已安全中止读取".into()); }
+    Ok(output)
+}
+fn profile() -> Result<Scan, String> {
+    if !cfg!(target_os = "macos") { return Err("仅支持 macOS 原生设备检测".into()); }
+    let output = read_system_query("/usr/sbin/system_profiler",
+        &["-json", "SPBluetoothDataType", "SPUSBDataType", "SPDisplaysDataType", "SPPowerDataType"],
+        Duration::from_secs(30), MAX_BYTES)?;
     let raw: Value = serde_json::from_slice(&output).map_err(|_| "系统设备信息格式不支持".to_string())?;
-    Ok(parse(&raw))
+    let mut scan = parse(&raw);
+    supplement_display_connections(&mut scan.devices);
+    if scan.devices.iter().any(|d| d.category == "bluetooth" && d.battery.is_none()) {
+        if let Ok(output) = read_system_query("/usr/bin/pmset", &["-g", "accps"], Duration::from_secs(3), 65_536) {
+            if let Ok(report) = std::str::from_utf8(&output) {
+                supplement_accessory_batteries(&mut scan.devices, report);
+            }
+        }
+    }
+    Ok(scan)
 }
 impl State {
     fn new() -> Self {
         Self { scan: Scan { devices: vec![], power: power(&Value::Null) },
-            at: 0, error: None, events: VecDeque::new() }
+            at: 0, error: None, events: VecDeque::new(), power_sample: None, power_checked_at: 0 }
     }
     fn apply(&mut self, result: Result<Scan, String>) {
         match result {
@@ -298,9 +390,13 @@ impl State {
     }
     fn stale(&self) -> bool { self.at == 0 || now().saturating_sub(self.at) > 120_000 || self.error.is_some() }
     fn full(&self) -> Value {
+        let mut power = self.scan.power.clone();
+        if let Some(sample) = self.power_sample.as_ref().and_then(Value::as_object) {
+            for (key, value) in sample { power[key] = value.clone(); }
+        }
         json!({"at":self.at, "stale":self.stale(), "devices":self.scan.devices,
-            "power":self.scan.power, "events":self.events, "error":self.error,
-            "intervalSeconds":45})
+            "power":power, "events":self.events, "error":self.error,
+            "intervalSeconds":45,"powerIntervalSeconds":5})
     }
     fn status(&self) -> Value {
         let rows: Vec<_> = self.scan.devices.iter().take(40).map(|d| {
@@ -318,22 +414,45 @@ impl State {
 fn category_label(category: &str) -> &str {
     match category { "usb" => "USB", "bluetooth" => "蓝牙", "display" => "显示器", _ => "设备" }
 }
+fn power_interval_seconds(params: &Value) -> u64 {
+    params["powerIntervalSeconds"].as_u64().filter(|v| [5,10,30,60].contains(v)).unwrap_or(5)
+}
+fn update_power_sample(state: &Arc<Mutex<State>>, force: bool, interval_seconds: u64) {
+    let due = state.lock().map(|s| now().saturating_sub(s.power_checked_at) >= interval_seconds * 1_000).unwrap_or(false);
+    if !force && !due { return; }
+    let sample = power_telemetry::read().unwrap_or_else(|error| json!({
+        "inputWatts":null,"systemWatts":null,"batterySideWatts":null,"sampledAt":null,
+        "telemetryError":error,"externalConnected":null,"source":null,"charging":null,
+        "note":"当前功率读取失败，适配器规格不代表实时输入功率。"
+    }));
+    if let Ok(mut s) = state.lock() { s.power_sample = Some(sample); s.power_checked_at = now(); }
+}
 fn dispatch(state: &Arc<Mutex<State>>, method: &str, params: &Value) -> Result<Value, String> {
     match method {
         "health" => Ok(json!({"protocol":2,"name":"device-center"})),
         "status_snapshot" => state.lock().map_err(|_| "状态缓存不可用".to_string()).map(|s| s.status()),
-        "snapshot" => state.lock().map_err(|_| "状态缓存不可用".to_string()).map(|s| s.full()),
+        "snapshot" => {
+            update_power_sample(state, false, power_interval_seconds(params));
+            state.lock().map_err(|_| "状态缓存不可用".to_string()).map(|s| {
+                let mut snapshot = s.full();
+                snapshot["powerIntervalSeconds"] = json!(power_interval_seconds(params)); snapshot
+            })
+        },
         "refresh" => {
             let scan = profile();
-            let mut s = state.lock().map_err(|_| "状态缓存不可用")?;
-            s.apply(scan);
-            if let Some(e) = &s.error { Err(e.clone()) } else { Ok(s.full()) }
+            state.lock().map_err(|_| "状态缓存不可用")?.apply(scan);
+            update_power_sample(state, true, power_interval_seconds(params));
+            let s = state.lock().map_err(|_| "状态缓存不可用")?;
+            if let Some(e) = &s.error { Err(e.clone()) } else {
+                let mut snapshot = s.full();
+                snapshot["powerIntervalSeconds"] = json!(power_interval_seconds(params)); Ok(snapshot)
+            }
         },
         "widget_api" => match params["action"].as_str() {
             Some("snapshot") => state.lock().map_err(|_| "状态缓存不可用".to_string()).map(|s| s.status()),
             Some("management") => match params["method"].as_str() {
-                Some("snapshot") => dispatch(state, "snapshot", &Value::Null),
-                Some("refresh") => dispatch(state, "refresh", &Value::Null),
+                Some("snapshot") => dispatch(state, "snapshot", &params["params"]),
+                Some("refresh") => dispatch(state, "refresh", &params["params"]),
                 _ => Err("不支持的组件操作".into()),
             },
             _ => Err("不支持的组件操作".into())
@@ -374,6 +493,44 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn retina_display_keeps_pixels_logical_size_and_connection_separate() {
+        let sample=json!({"SPDisplaysDataType":[{"spdisplays_ndrvs":[{
+            "_name":"Color LCD","_spdisplays_pixels":"3024 x 1964",
+            "_spdisplays_resolution":"1512 x 982 @ 120.00Hz",
+            "spdisplays_connection_type":"spdisplays_internal"
+        },{
+            "_name":"DELL","_spdisplays_pixels":"1920 x 1080",
+            "spdisplays_resolution":"1920 x 1080 @ 60.00Hz",
+            "spdisplays_connection_type":"spdisplays_displayport"
+        }]}]});
+        let devices=parse(&sample).devices;
+        let internal=devices.iter().find(|d|d.name=="Color LCD").unwrap();
+        assert_eq!(internal.pixel_resolution.as_deref(),Some("3024 × 1964"));
+        assert_eq!(internal.logical_resolution.as_deref(),Some("1512 × 982"));
+        assert_eq!(internal.display_connection.as_deref(),Some("built-in"));
+        assert!(internal.detail.starts_with("3024 × 1964"));
+        assert!(!internal.detail.contains("1512"));
+        let external=devices.iter().find(|d|d.name=="DELL").unwrap();
+        assert_eq!(external.display_connection.as_deref(),Some("external"));
+        assert_eq!(external.refresh_rate.as_deref(),Some("60.00Hz"));
+    }
+    #[test]
+    fn unknown_display_type_and_pixel_size_are_not_inferred_from_name_or_mode() {
+        let devices=parse(&json!({"SPDisplaysDataType":[{"spdisplays_ndrvs":[{
+            "_name":"Color LCD","_spdisplays_resolution":"1512 x 982 @ 120Hz"
+        }]}]})).devices;
+        assert!(devices[0].display_connection.is_none());
+        assert!(devices[0].pixel_resolution.is_none());
+        assert!(devices[0].detail.starts_with("显示模式"));
+    }
+    #[test]
+    fn power_interval_validates_configured_sampling_options() {
+        for interval in [5,10,30,60] { assert_eq!(power_interval_seconds(&json!({"powerIntervalSeconds":interval})),interval); }
+        for bad in [json!(0),json!(1),json!(-5),json!(99999),json!("10"),Value::Null] {
+            assert_eq!(power_interval_seconds(&json!({"powerIntervalSeconds":bad})),5);
+        }
+    }
     #[test]
     fn collects_nested_usb_without_identifying_serials() {
         let sample = json!({"SPUSBDataType":[{"_name":"USB 3.0 Bus","_items":[
@@ -448,6 +605,50 @@ mod tests {
                 {"Device":{"device_batteryLevelMain":value}}]}]});
             assert_eq!(parse(&sample).devices[0].battery, None);
         }
+    }
+    #[test]
+    fn accessory_power_fills_missing_headset_battery_without_adding_devices() {
+        let sample = json!({"SPBluetoothDataType":[{"device_connected":[
+            {"Xiaomi Earphones Explore":{"device_minorType":"Headset"}},
+            {"Magic Mouse":{"device_batteryLevelMain":"67%"}}
+        ]}]});
+        let mut scan = parse(&sample);
+        supplement_accessory_batteries(&mut scan.devices,
+            "Now drawing from 'AC Power'\n -InternalBattery-0 (id=1)\t100%; charged; present: true\n -Xiaomi Earphones Explore (id=2)\t70%; \n -Magic Mouse (id=3)\t90%; \n -Old Headset (id=4)\t50%;\n");
+        assert_eq!(scan.devices.len(), 2);
+        assert_eq!(scan.devices.iter().find(|d| d.name.starts_with("Xiaomi")).unwrap().battery.as_deref(), Some("70%"));
+        assert_eq!(scan.devices.iter().find(|d| d.name == "Magic Mouse").unwrap().battery.as_deref(), Some("67%"));
+        let output = serde_json::to_string(&scan.devices).unwrap();
+        assert!(!output.contains("(id="));
+        assert!(!output.contains("Old Headset"));
+    }
+    #[test]
+    fn accessory_power_rejects_invalid_absent_and_ambiguous_readings() {
+        let headset = device("bluetooth", "Headset".into(), String::new(), String::new(), None, None, None);
+        for report in [" -Headset (id=1)\t101%;", " -Headset (id=1)\t-1%;",
+            " -Headset (id=1)\tunknown;", " -Headset (id=1)\t70%; present: false",
+            " -Other Headset (id=1)\t70%;", " -Headset (id=1)\t70%;\n -Headset (id=2)\t30%;"] {
+            let mut devices = vec![headset.clone()];
+            supplement_accessory_batteries(&mut devices, report);
+            assert!(devices[0].battery.is_none(), "{report}");
+        }
+        let mut duplicates = vec![headset.clone(), headset.clone()];
+        supplement_accessory_batteries(&mut duplicates, " -Headset (id=1)\t70%;");
+        assert!(duplicates.iter().all(|d| d.battery.is_none()));
+        let mut disconnected = headset;
+        disconnected.status = "disconnected".into();
+        supplement_accessory_batteries(std::slice::from_mut(&mut disconnected), " -Headset (id=1)\t70%;");
+        assert!(disconnected.battery.is_none());
+    }
+    #[test]
+    fn accessory_power_preserves_zero_and_only_matches_bluetooth() {
+        let mut devices = vec![
+            device("bluetooth", "Headset".into(), String::new(), String::new(), None, None, None),
+            device("usb", "Headset".into(), String::new(), String::new(), None, None, None),
+        ];
+        supplement_accessory_batteries(&mut devices, " -headset (id=1)\t0%;");
+        assert_eq!(devices[0].battery.as_deref(), Some("0%"));
+        assert!(devices[1].battery.is_none());
     }
     #[test]
     fn collects_displays_and_reports_only_adapter_power() {

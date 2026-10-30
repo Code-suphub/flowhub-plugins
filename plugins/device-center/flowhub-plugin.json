@@ -2,7 +2,7 @@
   "schema": 2,
   "id": "device-center",
   "name": "外设中心",
-  "version": "0.2.0",
+  "version": "0.2.4",
   "description": "查看 macOS 蓝牙、USB、显示器及供电信息，提供连接事件与桌面组件",
   "ui": "ui/index.html",
   "executable": "bin/flowhub-device-center",

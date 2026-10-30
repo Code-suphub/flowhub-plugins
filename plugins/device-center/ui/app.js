@@ -10,6 +10,9 @@ if(new URLSearchParams(location.search).has('embedded'))document.body.classList.
 const p=new URLSearchParams(location.search);
 let view=p.get('view')||'overview',search='',chosen=null,loading=false,done=false,widgetContext={},widgetReady=false,widgetSelectedId=null;
 const pending=new Map();
+let poll=null;
+const powerIntervals=[5,10,30,60];
+const powerInterval=()=>powerIntervals.includes(Number(widgetContext?.config?.powerIntervalSeconds))?Number(widgetContext.config.powerIntervalSeconds):5;
 const paths={
   overview:'<rect x="3" y="3" width="18" height="15" rx="3"/><path d="M9 22h6m-3-4v4"/>',
   bluetooth:'<path d="m7 7 10 10-5 4V3l5 4L7 17"/>',
@@ -46,8 +49,8 @@ const demo={
     {id:'h',name:'DELL U2723QE',category:'display',kind:'monitor',detail:'3840 × 2160 · 60 Hz',status:'connected',image:'dell',role:'主显示器'},
     {id:'i',name:'LG UltraFine',category:'display',kind:'monitor',detail:'2560 × 1440 · 60 Hz',status:'connected',image:'lg',role:'竖屏'}
   ],
-  power:{adapterWatts:'96',batterySideWatts:'+31.4',source:'MacBook 供电状态',charging:true,cableLimitWatts:null,
-    note:'功率为估算或系统报告值，并非线缆实测。'},
+  power:{adapterWatts:'96',inputWatts:56.8,systemWatts:25.4,batterySideWatts:31.4,externalConnected:true,source:'MacBook 供电状态',charging:true,cableLimitWatts:null,
+    sampledAt:Date.now(),note:'系统报告的采样值；电池功率按电压×电流估算，并非线缆实测。'},
   events:[
     {at:Date.now()-380000,name:'连接 Pixel 9 Pro',category:'usb',action:'connected'},
     {at:Date.now()-840000,name:'外接显示器 DELL U2723QE 已接入',category:'display',action:'connected'},
@@ -75,12 +78,18 @@ function photo(d,screen=false){
   return `<span class="device-photo${key?'':' fallback'}">${key?`<img src="assets/${key}.png" alt="${alt}" loading="lazy">`:`<img src="assets/${fallback}.svg" alt="${alt}" loading="lazy">`}</span>`;
 }
 function badge(name,style='green'){return `<span class="tag${style==='green'?'':' '+style}">${safe(name)}</span>`;}
-function battery(pct){return `<span class="battery-val">${safe(pct)}</span><span class="battery-indicator" aria-label="电量 ${safe(pct)}"></span>`;}
+function displayType(d){return ({'built-in':'内置','external':'外接'})[d.displayConnection]||'类型未知';}
+function displayBadge(d){return d.category==='display'?`<span class="display-connection">${displayType(d)}</span>`:'';}
+function battery(pct){
+  const level=Number(String(pct).replace(/%$/,''));
+  if(!Number.isFinite(level)||level<0||level>100)return '';
+  return `<span class="battery-val">${level}%</span><span class="battery-indicator${level<=20?' low':''}" style="--battery-level:${level/100}" aria-label="电量 ${level}%"></span>`;
+}
 function row(d,opts={}){
   const badges=Array.isArray(d.badges)?d.badges:(d.category==='usb'?[[d.detail||'USB','gray']]:[['已连接','green']]);
   const status=opts.widget?'':(d.category==='usb'?badges.map(([x,s])=>badge(x,s)).join(''):badge('已连接'));
   const meta=opts.widget?`<span class="device-sub">${safe(d.detail||'已连接')}</span>`:'';
-  return `<button class="device-row" type="button" data-device="${safe(d.id)}">${photo(d)}<span class="device-name-wrap"><span class="device-name">${safe(d.name)}</span>${meta}</span>${status}${d.battery?battery(d.battery):''}${!opts.widget?svg('chevron','row-chevron'):''}</button>`;
+  return `<button class="device-row" type="button" data-device="${safe(d.id)}">${photo(d)}<span class="device-name-wrap"><span class="device-name">${safe(d.name)}${displayBadge(d)}</span>${meta}</span>${status}${d.battery?battery(d.battery):''}${!opts.widget?svg('chevron','row-chevron'):''}</button>`;
 }
 function empty(t){return `<div class="empty">${svg(t==='bluetooth'?'bluetooth':t==='display'?'display':'usb')}<span>当前没有检测到此类设备</span></div>`;}
 function filtered(t){return data.devices.filter(d=>d.category===t&&(!search||(d.name+' '+(d.detail||'')).toLowerCase().includes(search.toLowerCase())));}
@@ -96,15 +105,33 @@ function listPanel(t,all=false){
 function displayPanel(all=false){
   const dev=filtered('display');
   return panel('显示器','display',dev.length?`<div class="screen-grid">${dev.slice(0,all?50:2).map(d=>
-    `<button type="button" class="screen-card" data-device="${safe(d.id)}"><span class="screen-photo"><img src="assets/${imgKey(d)||'monitor'}.${imgKey(d)?'png':'svg'}" alt="显示器示意"></span><span class="screen-name">${safe(d.name)} ${d.role?`<span class="screen-role">${safe(d.role)}</span>`:''}</span><span class="screen-spec">${safe(d.detail||'显示参数未知')}</span></button>`).join('')}</div>`:empty('display'),
+    `<button type="button" class="screen-card" data-device="${safe(d.id)}"><span class="screen-photo"><img src="assets/${imgKey(d)||'monitor'}.${imgKey(d)?'png':'svg'}" alt="显示器示意"></span><span class="screen-name">${safe(d.name)}${displayBadge(d)} ${d.role?`<span class="screen-role">${safe(d.role)}</span>`:''}</span><span class="screen-spec">${safe(d.detail||'显示参数未知')}</span></button>`).join('')}</div>`:empty('display'),
     {cls:'display-panel',count:dev.length,all:!all});
+}
+function powerValues(power){
+  const number=value=>{const n=value===null||value===undefined||value===''?null:Number(value);return n!==null&&Number.isFinite(n)?n:null;};
+  const watt=value=>{const n=number(value);return n!==null&&Number.isFinite(n)?`${Math.abs(n).toFixed(1)}W`:'未提供';};
+  const battery=number(power.batterySideWatts);
+  const batteryLabel=battery===null?'电池功率':battery>0?'电池充电':battery<0?'电池放电':'电池待机';
+  return {input:watt(power.inputWatts),system:watt(power.systemWatts),battery:watt(power.batterySideWatts),batteryLabel};
+}
+function powerFlow(power){
+  const reading=powerValues(power),battery=Number(power.batterySideWatts);
+  if(power.externalConnected===false)return {source:'电池',state:'电池正在放电',detail:''};
+  if(power.externalConnected===true){
+    if(power.batterySideWatts!=null&&Number.isFinite(battery)&&battery<0)return {source:'混合供电',state:`电池补充供电 ${reading.battery}（估算）`,detail:`电池 ${reading.battery}`};
+    if(power.batterySideWatts!=null&&Number.isFinite(battery)&&battery>0)return {source:'外接电源',state:`电池充电 ${reading.battery}（估算）`,detail:`充电 ${reading.battery}`};
+    return {source:'外接电源',state:power.charging===false?'电池未充电':power.charging===true?'电池充电功率未提供':'电池状态未提供',detail:power.charging===false?'未充电':''};
+  }
+  return {source:'未提供',state:'供电状态未提供',detail:''};
 }
 function powerPanel(all=false){
   const power=data.power||{},isCharging=power.charging===true;
+  const reading=powerValues(power),chargingLabel=power.charging===null||power.charging===undefined?'未知':isCharging?'充电中':'未充电';
   const watts=power.adapterWatts==null?'—':String(power.adapterWatts).replace(/[^\d.]/g,'')+'W';
   const src=power.source||'供电设备';
-  const vals=[['适配器功率',watts,false],['电池侧估算功率',power.batterySideWatts?power.batterySideWatts+'W':'未测量',Boolean(power.batterySideWatts)],['充电状态',power.charging===null||power.charging===undefined?'未知':isCharging?'充电中':'未充电',isCharging],['线缆能力',power.cableLimitWatts?power.cableLimitWatts+'W':'未知',false]];
-  return panel('供电状态','power',`<div class="power-main"><div class="power-source">${photo({name:'MacBook',kind:'laptop',category:'display'})}<span class="source-text">${safe(src)}</span>${badge(isCharging?'充电中':'未充电')}</div><div class="power-values">${vals.map(([label,value,good])=>`<div class="power-value"><small>${safe(label)}</small><strong class="${good?'good':''}">${safe(value)}</strong></div>`).join('')}</div><div class="power-note">${svg('info')}${safe(power.note||'系统报告的适配器功率并非实时充电功率；电池侧和线缆功率未测量。')}</div></div>`,{cls:'power-panel',all:!all});
+  const vals=[['当前输入（系统报告）',reading.input,false],['整机功耗（系统报告）',reading.system,false],[reading.batteryLabel+'（估算）',reading.battery,isCharging],['适配器规格',watts,false],['充电状态',chargingLabel,isCharging],['线缆能力',power.cableLimitWatts?power.cableLimitWatts+'W':'未知',false]];
+  return panel('供电状态','power',`<div class="power-main"><div class="power-source">${photo({name:'MacBook',kind:'laptop',category:'display'})}<span class="source-text">${safe(src)}</span>${badge(chargingLabel)}</div><div class="power-values">${vals.map(([label,value,good])=>`<div class="power-value"><small>${safe(label)}</small><strong class="${good?'good':''}">${safe(value)}</strong></div>`).join('')}</div><div class="power-note">${svg('info')}${safe(power.note||'系统未提供当前功率，适配器规格不代表实时输入功率。')}</div></div>`,{cls:'power-panel',all:!all});
 }
 function eventsPanel(all=false){
   const events=data.events||[];
@@ -117,7 +144,10 @@ function statView(){
   return `<section class="stats">${counts.map(([name,n,key,variant])=>`<button type="button" class="stat" data-view="${key==='warning'?'events':key}"><span class="stat-icon ${variant}">${svg(key==='warning'?'warning':key)}</span><span class="stat-text"><span class="stat-label">${safe(name)}</span><span class="stat-val">${n}</span></span>${svg('chevron','stat-arrow')}</button>`).join('')}</section>`;
 }
 function details(d){
-  return `<section class="panel detail-panel"><button class="back-button" data-back="1" type="button">${svg('chevron')} 返回设备列表</button><div class="detail-head">${photo(d)}<div><h2>${safe(d.name)}</h2><p class="description">${safe(d.detail||'系统未提供设备描述')}</p>${badge('已连接')}</div></div><div class="detail-grid">${[['连接类型',label[d.category]||d.category],['设备名称',d.name],['当前电量',d.battery||'未提供'],['系统详情',d.detail||'未提供'],['厂商 ID',d.vendor||'未提供'],['产品 ID',d.productId||'未提供']].map(([name,value])=>`<div class="detail-cell"><small>${safe(name)}</small><strong>${safe(value)}</strong></div>`).join('')}</div></section>`;
+  const fields=d.category==='display'?
+    [['屏幕类型',displayType(d)],['设备名称',d.name],['像素分辨率',d.pixelResolution||'未提供'],['界面逻辑尺寸',d.logicalResolution||'未提供'],['刷新率',d.refreshRate||'未提供']]:
+    [['连接类型',label[d.category]||d.category],['设备名称',d.name],['当前电量',d.battery||'未提供'],['系统详情',d.detail||'未提供'],['厂商 ID',d.vendor||'未提供'],['产品 ID',d.productId||'未提供']];
+  return `<section class="panel detail-panel"><button class="back-button" data-back="1" type="button">${svg('chevron')} 返回设备列表</button><div class="detail-head">${photo(d)}<div><h2>${safe(d.name)}${displayBadge(d)}</h2><p class="description">${safe(d.detail||'系统未提供设备描述')}</p>${badge('已连接')}</div></div><div class="detail-grid">${fields.map(([name,value])=>`<div class="detail-cell"><small>${safe(name)}</small><strong>${safe(value)}</strong></div>`).join('')}</div></section>`;
 }
 function contentView(){
   if(chosen)return details(chosen);
@@ -130,15 +160,20 @@ function contentView(){
 }
 function mainView(){
   const menus=[['overview','概览'],['bluetooth','蓝牙设备'],['usb','USB 与移动设备'],['display','显示器'],['power','供电'],['events','历史事件'],['settings','设置']];
-  return `<div class="app-layout"><aside class="sidebar"><div class="window-dots" aria-hidden="true"><i></i><i></i><i></i></div><div class="brand"><span class="brand-mark">${svg('overview')}</span>FlowHub</div><nav class="navigation" aria-label="设备分类">${menus.map(([key,title])=>`<button class="nav-item ${view===key?'selected':''}" type="button" data-view="${key}">${svg(key)} ${title}</button>`).join('')}</nav><div class="nav-bottom">${svg('settings')}<span>外设中心<br>v0.2.0 视觉预览</span></div></aside><main class="content"><header class="main-header"><div class="main-identity"><span class="header-mark">${svg('overview')}</span><div><h1>${chosen?'设备详情':view==='overview'?'外设中心':label[view]}</h1><p class="description">查看当前连接的蓝牙、USB、显示器与供电状态</p></div></div><div class="top-controls"><label class="search-control">${svg('search')}<input id="search" type="search" placeholder="搜索设备…" value="${safe(search)}" aria-label="搜索设备"></label><button class="icon-control" id="refresh" aria-label="刷新设备">${svg('refresh')}</button><button class="icon-control" aria-label="更多选项" data-view="settings">${svg('dots')}</button></div></header>${!preview&&data.error?`<div class="warning-message">设备读取失败：${safe(data.error)}</div>`:''}${statView()}${contentView()}</main></div>${preview?'<span class="preview-tag">演示数据 · 仅供视觉验收</span>':''}`;
+  return `<div class="app-layout"><aside class="sidebar"><div class="window-dots" aria-hidden="true"><i></i><i></i><i></i></div><div class="brand"><span class="brand-mark">${svg('overview')}</span>FlowHub</div><nav class="navigation" aria-label="设备分类">${menus.map(([key,title])=>`<button class="nav-item ${view===key?'selected':''}" type="button" data-view="${key}">${svg(key)} ${title}</button>`).join('')}</nav><div class="nav-bottom">${svg('settings')}<span>外设中心<br>v0.2.4</span></div></aside><main class="content"><header class="main-header"><div class="main-identity"><span class="header-mark">${svg('overview')}</span><div><h1>${chosen?'设备详情':view==='overview'?'外设中心':label[view]}</h1><p class="description">查看当前连接的蓝牙、USB、显示器与供电状态</p></div></div><div class="top-controls"><label class="search-control">${svg('search')}<input id="search" type="search" placeholder="搜索设备…" value="${safe(search)}" aria-label="搜索设备"></label><button class="icon-control" id="refresh" aria-label="刷新设备">${svg('refresh')}</button><button class="icon-control" aria-label="更多选项" data-view="settings">${svg('dots')}</button></div></header>${!preview&&data.error?`<div class="warning-message">设备读取失败：${safe(data.error)}</div>`:''}${statView()}${contentView()}</main></div>${preview?'<span class="preview-tag">演示数据 · 仅供视觉验收</span>':''}`;
 }
 function widgetView(){
-  const chosen=['bluetooth','usb','display'].map(t=>data.devices.find(d=>d.category===t)).filter(Boolean);
-  const s=[...chosen,...data.devices.filter(d=>!chosen.some(p=>p.id===d.id))].slice(0,3),w=data.power||{};
-  const watts=w.adapterWatts?`${safe(w.adapterWatts)}W`:'未知';
-  return `<main class="widget"><header class="widget-head"><span class="brand-mark">${svg('overview')}</span><strong>外设中心</strong><button class="icon-control more" id="widgetOpen" type="button" aria-label="打开外设中心">${svg('dots')}</button></header><div class="widget-counts">${[['全部',data.devices.length,'overview'],['蓝牙',count('bluetooth'),'bluetooth'],['USB',count('usb'),'usb'],['显示器',count('display'),'display']].map(([title,value,key])=>`<div class="widget-metric">${svg(key)}<span>${safe(title)}</span><strong>${value}</strong></div>`).join('')}</div><div class="widget-power">${svg('power')} <strong>适配器 ${watts}</strong><span>· 非实时充电功率</span></div><p class="widget-section">常用设备</p>${s.map(d=>row(d,{widget:true})).join('')}</main>${preview?'<span class="preview-tag">演示数据</span>':''}`;
+  const config=widgetContext?.config||{},limit=[3,5,8].includes(Number(config.limit))?Number(config.limit):3;
+  const devices=data.devices.filter(d=>d.status==='connected'),s=devices.slice(0,limit),w=data.power||{};
+  const title=String(config.title||'外设中心').slice(0,40),stale=data.stale||Boolean(data.error);
+  const status=!preview&&stale?`<p class="warning-message" role="status">${data.error?'设备读取失败：'+safe(data.error):'设备状态已过期'}，以下为上次采集结果。</p>`:'';
+  const heading=stale?'上次连接设备':'当前连接设备';
+  const shown=s.length<devices.length?` · 显示 ${s.length}/${devices.length}`:'';
+  const reading=powerValues(w),flow=powerFlow(w);
+  const powerError=w.telemetryError?`<p class="warning-message" role="status">当前功率读取失败：${safe(w.telemetryError)}</p>`:'';
+  return `<main class="widget"><header class="widget-head"><span class="brand-mark">${svg('overview')}</span><strong>${safe(title)}</strong><button class="icon-control more" id="widgetOpen" type="button" aria-label="打开外设中心">${svg('dots')}</button></header>${status}<div class="widget-counts">${[['全部',devices.length,'overview'],['蓝牙',devices.filter(d=>d.category==='bluetooth').length,'bluetooth'],['USB',devices.filter(d=>d.category==='usb').length,'usb'],['显示器',devices.filter(d=>d.category==='display').length,'display']].map(([title,value,key])=>`<div class="widget-metric">${svg(key)}<span>${safe(title)}</span><strong>${value}</strong></div>`).join('')}</div><button type="button" class="widget-power" id="widgetPower" aria-label="查看供电详情" title="${safe(w.note||'查看输入功率、电池充放电与适配器详情')}"><span class="widget-power-metric"><span>整机耗电</span><strong>${reading.system}</strong></span><span class="widget-power-metric"><span>供电来源</span><span class="widget-source-value" title="${safe(flow.state)}"><strong>${flow.source}</strong>${flow.detail?`<small>${safe(flow.detail)}</small>`:''}</span></span></button>${powerError}<p class="widget-section">${heading}${shown}</p>${s.length?s.map(d=>row(d,{widget:true})).join(''):'<p class="empty">当前没有检测到已连接设备</p>'}</main>${preview?'<span class="preview-tag">演示数据</span>':''}`;
 }
-function editorView(){const conf=widgetContext?.config||{};return `<main class="editor"><h1>桌面组件</h1><label>组件名称<input id="widget-title" maxlength="40" value="${safe(conf.title||'外设中心')}"></label><label>显示数量<select id="widget-limit">${[3,5,8].map(n=>`<option value="${n}" ${Number(conf.limit||3)===n?'selected':''}>${n} 个</option>`).join('')}</select></label></main>`;}
+function editorView(){const conf=widgetContext?.config||{};return `<main class="editor"><h1>桌面组件</h1><label>组件名称<input id="widget-title" maxlength="40" value="${safe(conf.title||'外设中心')}"></label><label>显示数量<select id="widget-limit">${[3,5,8].map(n=>`<option value="${n}" ${Number(conf.limit||3)===n?'selected':''}>${n} 个</option>`).join('')}</select></label><label>功率采样间隔<select id="widget-interval">${powerIntervals.map(n=>`<option value="${n}" ${powerInterval()===n?'selected':''}>${n} 秒</option>`).join('')}</select></label></main>`;}
 function redraw(){
   if(done)return;
   node.innerHTML=surface==='editor'?editorView():surface==='card'?widgetView():mainView();
@@ -152,6 +187,7 @@ function redraw(){
   node.querySelector('#refresh')?.addEventListener('click',()=>void refresh(true));
   node.querySelector('#search')?.addEventListener('input',e=>{search=e.target.value;const sel=e.target.selectionStart;redraw();const field=node.querySelector('#search');field?.focus();field?.setSelectionRange(sel,sel);});
   node.querySelector('#widgetOpen')?.addEventListener('click',()=>{if(!preview&&widgetToken)window.parent.postMessage({type:'flowhub:widget-navigate',token:widgetToken,action:'detail',selection:{}},'*');});
+  node.querySelector('#widgetPower')?.addEventListener('click',()=>{if(!preview&&widgetToken)window.parent.postMessage({type:'flowhub:widget-navigate',token:widgetToken,action:'detail',selection:{view:'power'}},'*');});
   for(const img of node.querySelectorAll('img'))img.addEventListener('error',()=>{img.replaceWith(document.createTextNode('◇'));},{once:true});
   if(isWidget&&widgetToken&&widgetReady){window.parent.postMessage({type:'flowhub:widget-size',token:widgetToken,height:Math.ceil(document.documentElement.scrollHeight)},'*');}
 }
@@ -161,7 +197,8 @@ function rpc(method){
   return new Promise((resolve,reject)=>{
     const timer=setTimeout(()=>{pending.delete(id);reject(new Error('设备响应超时'));},44000);
     pending.set(id,{resolve,reject,timer});
-    const msg=isWidget?{type:'flowhub:widget-rpc',id,token:widgetToken,params:{action:'management',method,params:{}}}:{type:'flowhub:request',id,method,params:{}};
+    const params={powerIntervalSeconds:powerInterval()};
+    const msg=isWidget?{type:'flowhub:widget-rpc',id,token:widgetToken,params:{action:'management',method,params}}:{type:'flowhub:request',id,method,params};
     window.parent.postMessage(msg,'*');
   });
 }
@@ -172,17 +209,23 @@ async function refresh(force=false){
   catch(err){if(!done){data={...data,error:String(err),stale:true};redraw();}}
   finally{loading=false;}
 }
+function startPolling(){
+  clearInterval(poll);
+  if(surface==='editor'||preview)return;
+  poll=setInterval(()=>{if(!document.hidden&&(!isWidget||widgetReady))void refresh();},powerInterval()*1000);
+}
 function receive(event){
   if(done||event.source!==window.parent)return;
   const msg=event.data;
   if(!msg||typeof msg!=='object'||isWidget&&widgetToken&&msg.token!==widgetToken)return;
   if(isWidget&&msg.type==='flowhub:widget-init'){
     widgetReady=true;widgetContext=msg.context||{};
-    if(surface==='detail'){widgetSelectedId=widgetContext.selection?.deviceId||widgetContext.config?.selection?.deviceId||null;view='overview';}
-    redraw();if(surface!=='editor')void refresh();return;
+    if(surface==='detail'){widgetSelectedId=widgetContext.selection?.deviceId||widgetContext.config?.selection?.deviceId||null;view=widgetContext.selection?.view==='power'?'power':'overview';}
+    redraw();startPolling();if(surface!=='editor')void refresh();return;
   }
   if(isWidget&&msg.type==='flowhub:widget-save'){
-    const config={title:String(node.querySelector('#widget-title')?.value||'外设中心').slice(0,40),limit:Number(node.querySelector('#widget-limit')?.value||3)};
+    const interval=Number(node.querySelector('#widget-interval')?.value||5);
+    const config={title:String(node.querySelector('#widget-title')?.value||'外设中心').slice(0,40),limit:Number(node.querySelector('#widget-limit')?.value||3),powerIntervalSeconds:powerIntervals.includes(interval)?interval:5};
     window.parent.postMessage({type:'flowhub:widget-config',id:msg.id,token:widgetToken,config},'*');return;
   }
   if(msg.type===(isWidget?'flowhub:widget-result':'flowhub:response')){
@@ -196,6 +239,6 @@ window.addEventListener('keydown',e=>{if(e.key==='Escape'&&chosen){chosen=null;r
 redraw();
 if(isWidget&&hostWindow&&widgetToken)window.parent.postMessage({type:'flowhub:widget-ready',token:widgetToken},'*');
 else if(!preview)void refresh();
-const poll=setInterval(()=>{if(!document.hidden&&!preview&&(!isWidget||widgetReady))void refresh();},45000);
+if(!isWidget)startPolling();
 window.addEventListener('pagehide',()=>{done=true;clearInterval(poll);window.removeEventListener('message',receive);for(const entry of pending.values()){clearTimeout(entry.timer);entry.reject(Error('页面已关闭'));}pending.clear();},{once:true});
 })();
