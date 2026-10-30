@@ -20,7 +20,7 @@ const IMAGE_ROOT: &str = "https://upload.wikimedia.org/wikipedia/commons/";
 const MAX_API: usize = 320 * 1024;
 const MAX_IMAGE: usize = 120 * 1024;
 const MAX_SAVED: usize = 60;
-const MAX_CANDIDATES: usize = 4;
+const MAX_CANDIDATES: usize = 3;
 const SEARCH_VALID_SECS: u64 = 300;
 const USER_AGENT: &str = "FlowHub-DeviceCenter/0.3 (on-demand device imagery; https://github.com/Code-suphub/flowhub-plugins)";
 
@@ -74,6 +74,24 @@ fn plain_html(s: &str) -> String {
         if !in_tag && !c.is_control() { out.push(c); }
     }
     safe_text(&out.replace("&amp;", "&").replace("&quot;", "\"").replace("&#39;", "'"), 150)
+}
+// Explicit network lookup never transmits USB/BT identifiers. Refuse to send
+// custom device names containing obvious address, serial or account patterns.
+fn search_model(name: &str) -> Result<String, String> {
+    let model=safe_text(name,72);
+    if model.chars().count()<3 || model.matches(':').count()>=4 ||
+        model.contains('@') || model.to_ascii_lowercase().contains("serial") {
+        return Err("设备名称可能包含私人标识，请先重命名设备再搜索".into());
+    }
+    for token in model.split_whitespace() {
+        let token=token.trim_matches(|c:char| !c.is_ascii_alphanumeric());
+        let digits=token.bytes().filter(|b|b.is_ascii_digit()).count();
+        if token.len()>=10 && (digits>=8 ||
+            token.bytes().all(|b|b.is_ascii_hexdigit())) {
+            return Err("设备名称可能包含设备序列号，已阻止联网搜索".into());
+        }
+    }
+    Ok(model)
 }
 fn url_encode(s: &str) -> String {
     let mut out = String::new();
@@ -176,7 +194,7 @@ fn json_catalog(raw: &Value) -> Vec<(SavedImage,String)> {
         if !title.starts_with("File:") {continue}
         let Some(info)=page.pointer("/imageinfo/0") else {continue};
         let license=meta(info,"LicenseShortName");
-        if !allowed_license(&license) || meta(info,"NonFree")=="true" {continue}
+        if !allowed_license(&license) || meta(info,"NonFree").eq_ignore_ascii_case("true") {continue}
         let author=meta(info,"Artist");
         // Required attribution must not be dropped.
         if author.is_empty() && license.to_uppercase().starts_with("CC BY") {continue}
@@ -259,10 +277,7 @@ impl ImageStore {
     }
     pub(crate) fn search(&mut self, device:&Device) -> Result<Value,String> {
         self.directory()?;
-        let model=safe_text(&device.name,72);
-        if model.chars().count()<3 || model.matches(':').count()>=4 {
-            return Err("设备名称不适合发送给公共图片检索服务".into());
-        }
+        let model=search_model(&device.name)?;
         // Only an explicit button click invokes this method. The device name
         // is the only device-derived field transmitted to Wikimedia Commons.
         let query=format!("{} product",model);
@@ -389,6 +404,39 @@ mod tests {
         assert!(sniff_image(b"<svg onload='evil'>").is_none());
         assert!(sniff_image(b"GIF89a").is_none());
         assert!(sniff_image(&[0xff,0xd8,0xff,0x00,0xff,0xd9]).is_some());
+    }
+    #[test]
+    fn device_model_search_rejects_likely_identifiers() {
+        for name in ["ABCDEF1234567890", "Serial SN 12345678901",
+            "Jeff@Home", "AA:BB:CC:DD:EE:FF"] {
+            assert!(search_model(name).is_err(),"{name}");
+        }
+        for name in ["DELL P2419H", "AirPods Pro 2", "Xiaomi Earphones Explore"] {
+            assert!(search_model(name).is_ok(),"{name}");
+        }
+    }
+    #[test]
+    fn cache_data_url_reads_only_selected_png_and_keeps_attribution() {
+        let folder=std::env::temp_dir().join(format!("flowhub-device-image-test-{}-{}",std::process::id(),now()));
+        fs::create_dir_all(&folder).unwrap();
+        let d=device_named("AirPods Pro 2");
+        let k=key(&d);
+        let filename=format!("{k}.png");
+        let png=b"\x89PNG\r\n\x1a\nmock_thumbnail_data";
+        fs::write(folder.join(&filename),png).unwrap();
+        let record=SavedImage{file:filename,title:"Sample image".into(),author:"Alice".into(),
+            license:"CC BY-SA 4.0".into(),source_url:"https://commons.wikimedia.org/wiki/File:Sample.png".into(),
+            mime:"image/png".into()};
+        let mut store=ImageStore{dir:Some(folder.clone()), saved:BTreeMap::new(), sessions:HashMap::new()};
+        let mut entries=BTreeMap::new();
+        entries.insert(k,record);
+        store.persist(&entries).unwrap();
+        store.saved=entries;
+        let output=store.get(&d).unwrap();
+        assert!(output["dataUrl"].as_str().unwrap().starts_with("data:image/png;base64,"));
+        assert_eq!(output["author"],"Alice");
+        assert!(fs::read(folder.join("mapping.json")).unwrap().len()>20);
+        let _=fs::remove_dir_all(folder);
     }
     #[test]
     fn photo_key_follows_model_not_usb_port_id() {
