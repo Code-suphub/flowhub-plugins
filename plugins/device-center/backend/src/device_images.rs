@@ -280,7 +280,7 @@ impl ImageStore {
         let model=search_model(&device.name)?;
         // Only an explicit button click invokes this method. The device name
         // is the only device-derived field transmitted to Wikimedia Commons.
-        let query=format!("{} product",model);
+        let query=model.clone();
         let url=format!("{API_ROOT}action=query&format=json&formatversion=2&generator=search&gsrnamespace=6&gsrlimit=12&gsrsearch={}&prop=imageinfo&iiprop=url%7Cmime%7Cthumbmime%7Cextmetadata&iiurlwidth=160&iiextmetadatafilter=LicenseShortName%7CArtist%7CNonFree",url_encode(&query));
         let raw=curl(&url,MAX_API,10)?;
         let parsed:Value=serde_json::from_slice(&raw).map_err(|_| "图片服务返回了无法识别的格式")?;
