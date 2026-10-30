@@ -1,40 +1,56 @@
 # 外设中心 · Device Center
 
-FlowHub 的独立 macOS schema 2 设备监控插件。
+独立的 FlowHub macOS schema 2 原生设备插件，按最初的 1536 × 1024 视觉原型重建页面和组件。本分支只重做 **UI 和可视化验收能力**，延用已经通过 Rust 测试的设备检测后端。
 
-## 功能
-- 每 45 秒从系统报告扫描一次已连接的蓝牙设备、USB 设备、显示器与供电状态，支持手动刷新。
-- 分类浏览、搜索设备、最近 60 条连接/断开事件（仅进程内存）。
-- 通过系统报告显示有据可查的电量、速度和显示参数，缺少的字段标为未知。
-- 电源只显示系统报告的适配器功率及充电状态，不把额定功率当成实时功率，不伪造线缆功率。
-- 状态缓存、桌面组件、组件配置页和详情入口。
-- USB 序列号、蓝牙 MAC、手机调试标识不输出；不联网爬取产品图，不在磁盘记录连接事件。
-- 系统命令仅使用 /usr/sbin/system_profiler，限制输出 2 MiB 和执行时间 30 秒；无写操作。
+## 视觉预览
 
-## 本地构建
-macOS + Node.js 22+ + Rust stable。
+入口 `plugins/device-center/ui/index.html`，支持概览、蓝牙、USB、显示器、供电、历史事件与设备详情。卡片位于 `widget-card.html`，另有 `widget-editor.html` 和 `widget-detail.html`。在 FlowHub 宿主中，使用真实设备数据；单独浏览器预览使用明确标注的模拟数据，避免误认为实际连接状态。
 
-在 plugins/device-center 目录执行：
+在 `plugins/device-center/` 执行：
 
-    npm ci
-    npm test
-    npm run build
+```sh
+npm ci
+npm run dev
+# 浏览器打开 http://127.0.0.1:5188/index.html
+```
 
-完成后，在 FlowHub「插件市场 → 安装开发目录」中选择 plugins/device-center/build。
+按指定视图访问 `?view=bluetooth`、`?view=usb`、`?view=display`、`?view=power`、`?view=events`。`?embedded=1` 用于观察宿主嵌入时的布局，且预览不会运行设备操作。
 
-运行 npm run dev，在 http://127.0.0.1:5188 预览演示数据，浏览器模式不扫描真实设备。
+### 真实浏览器截图验收
 
-## 已知限制
-- 蓝牙经典设备、显示器刷新率、电池百分比等部分信息未必由系统返回。
-- 不包括 Android ADB 授权状态、iPhone 信任状态、USB PD 协商、线缆 E-marker、实时功率测量。
-- 显示器数据可能包括内建显示器；不保证全部都是外接屏。
-- 连接事件是两次采样的差异，45 秒内短暂插拔可能遗漏；身份为本地哈希，重复型号可能合并。
-- 应在 Intel/Apple Silicon 真机、MacBook/Mac mini 及不同外设上继续验收。
+本仓库提供可选的 Playwright 浏览器截图工具，不是生成式效果图：
 
-## V0.1.1 视觉与适配
+```sh
+python3 -m pip install playwright Pillow
+python3 -m playwright install chromium
+python3 scripts/capture.py --url http://127.0.0.1:5188 --out screenshots --strict
+```
 
-- 去除重复的插件侧栏，改为顶部分类导航；在 FlowHub 实际工作区宽度中概览保留双列分组、紧凑统计和单独的设备详情。
-- 图片资源为插件自带的原创类别插画（`ui/assets/*.svg`），根据设备名称、系统类型与类别匹配；没有授权的产品实物图不会冒充真实型号，也不会联网爬取。
-- 桌面组件使用后台状态缓存的类别数量与设备类型，设备详情不展示个人序列号或蓝牙地址。
-- 供电信息将适配器报告值与充电状态分开显示；无法测量的电池侧功率与线缆能力仍明确标注为未知。
+将生成概览（1168/800/520 宽）、五个分类页面、组件卡片、设备详情截图和 `report.json`，浏览器控制台/资源错误在 `--strict` 模式下导致失败。
 
+**本机不允许浏览器请求 localhost 时**可以使用 `--inline` 作为视觉检查的兜底：它将同样的 HTML、CSS、JS 和图片内联进浏览器供渲染，但不能证明最终资源路径、网络或宿主 CSP 行为，因此仍须在 FlowHub 中验收。
+
+原型还原检查见 `docs/visual-acceptance.md`。截图不能由 `npm test` 的编译通过替代。
+
+## 图片策略
+
+当前 9 张小型 PNG 来源于用户确认的最初 AI 原型图裁剪，用作已知演示型号的**原型视觉素材**，非官方授权商品摄影；真实运行时只有确认的名称才命中素材，其余使用包内类别 SVG。原生资源加载由 FlowHub 宿主白名单控制：**`png` / `svg`**，所以不要求主程序放开 WebP MIME 类型或网络图片 CSP。
+
+## 设备数据与安全边界
+
+- Rust 每 45 秒只读运行系统 `system_profiler -json`，解析蓝牙连接列表、USB 拓扑、显示器和电源状态。
+- 不回传蓝牙地址、序列号或手机调试唯一标识；连接事件只保存在进程内存。
+- 供电模块只能显示系统报告的适配器功率与部分充电状态，不能把适配器额定功率当作实时输入功率。
+- ADB 授权状态、iPhone 信任状态、USB PD 线缆功率和电池侧实时功率尚未实现；图中的这些字段仅属于演示数据。
+
+## 构建与安装
+
+macOS + Node.js 22+ + Rust stable：
+
+```sh
+npm ci
+npm test
+npm run build
+```
+
+FlowHub 的「插件市场 → 安装开发目录」选择 `plugins/device-center/build/`，不要选择源码目录。运行前先检查本地安装来源是否更新到了新的开发分支。保持 Draft PR，待真实 FlowHub 页面视觉与数据双重验收后再合并。

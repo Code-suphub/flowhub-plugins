@@ -2,72 +2,61 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import {spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
-const json=p=>JSON.parse(fs.readFileSync(path.join(root,p),'utf8'));
-test('manifest and versions match',()=>{
- const m=json('flowhub-plugin.json'),p=json('package.json');
+const read=file=>fs.readFileSync(path.join(root,file),'utf8');
+const json=file=>JSON.parse(read(file));
+
+test('manifest schema and three versions remain aligned',()=>{
+ const m=json('flowhub-plugin.json'),p=json('package.json'),lock=json('package-lock.json');
  assert.equal(m.schema,2);assert.equal(m.id,'device-center');assert.equal(m.version,p.version);
- const version=json('flowhub-plugin.json').version;
- assert.ok(fs.readFileSync(path.join(root,'backend/Cargo.toml'),'utf8').includes('version = "'+version+'"'));
+ assert.equal(lock.version,m.version);assert.equal(lock.packages[''].version,m.version);
+ assert.match(read('backend/Cargo.toml'),new RegExp(`version = "${m.version.replace(/\./g,'\\.')}"`));
  assert.equal(m.statusSurface,true);
 });
-test('page files and external assets are present',()=>{
+test('every UI entry is host-CSP compatible and self-contained',()=>{
  const m=json('flowhub-plugin.json');
- for(const name of [m.ui,...Object.values(m.widget).filter(v=>typeof v==='string').map(v=>'ui/'+v)]){
-  const html=fs.readFileSync(path.join(root,name),'utf8');
-  assert.match(html,/app\.js/);assert.match(html,/style\.css/);
-  assert.doesNotMatch(html,/<script(?![^>]*src=)/i);
+ const pages=[m.ui,...Object.values(m.widget).filter(v=>typeof v==='string').map(v=>'ui/'+v)];
+ for(const page of pages){
+  const html=read(page);
+  assert.match(html,/href="style\.css"/);assert.match(html,/src="app\.js"/);
+  assert.doesNotMatch(html,/http-equiv="Content-Security-Policy"|<script(?![^>]*src=)/i);
+  assert.match(html,/正在打开外设中心/);
  }
 });
-test('no remote scripts or image scraper in UI',()=>{
- const text=fs.readFileSync(path.join(root,'ui/app.js'),'utf8');
- assert.doesNotMatch(text,/\bfetch\s*\(|\bXMLHttpRequest\b|\bWebSocket\b/);assert.match(text,/演示预览/);
-});
-
-test('plugin HTML defers CSP to the sandboxed FlowHub host origin',()=>{
- const manifest=json('flowhub-plugin.json');
- for(const page of [manifest.ui,...Object.values(manifest.widget)
-    .filter(value=>typeof value==='string').map(value=>'ui/'+value)]){
-  const html=fs.readFileSync(path.join(root,page),'utf8');
-  assert.doesNotMatch(html,/<meta\b[^>]*http-equiv\s*=\s*["']Content-Security-Policy["']/i,
-    page+' must not override the host flowhub-plugin:// CSP with self');
-  assert.match(html,/<script\s+src="app\.js"><\/script>/);
-  assert.match(html,/<link\s+rel="stylesheet"\s+href="style\.css">/);
-  assert.match(html,/正在加载外设中心/);
+test('JavaScript and preview server pass syntax checks',()=>{
+ for(const file of ['ui/app.js','scripts/preview.mjs']){
+  const r=spawnSync(process.execPath,['--check',path.join(root,file)],{encoding:'utf8'});
+  assert.equal(r.status,0,`${file}: ${r.stderr}`);
  }
 });
-import {spawnSync} from 'node:child_process';
-
-test('new dashboard JavaScript parses under Node.js without DOM execution',()=>{
-  const result=spawnSync(process.execPath,['--check',path.join(root,'ui/app.js')],{encoding:'utf8'});
-  assert.equal(result.status,0,result.stderr);
+test('nine locally packaged device images and SVG fallbacks exist',()=>{
+ for(const image of ['airpods','mouse','keyboard','pixel','iphone','ssd','reader','dell','lg']){
+  const file=path.join(root,'ui/assets',image+'.png');
+  assert.ok(fs.statSync(file).isFile(),image);
+  const contents=fs.readFileSync(file);
+  assert.deepEqual([...contents.subarray(0,8)],[137,80,78,71,13,10,26,10]);
+ }
+ for(const kind of ['device','headphones','mouse','keyboard','phone','drive','hub','monitor','laptop']){
+  const svg=read('ui/assets/'+kind+'.svg');
+  assert.match(svg,/<svg\b/);assert.doesNotMatch(svg,/<script\b|<foreignObject\b|\bonload\s*=/i);
+ }
 });
-test('device imagery uses only packaged original SVG fallback assets',()=>{
-  const entries=['earbuds','headphones','mouse','keyboard','phone','drive','hub','monitor','laptop','speaker','device'];
-  for(const entry of entries){
-    const file=path.join(root,'ui/assets',entry+'.svg');
-    assert.ok(fs.statSync(file).isFile(),file+' must be available');
-    const svg=fs.readFileSync(file,'utf8');
-    assert.match(svg,/<svg\b/);
-    assert.doesNotMatch(svg,/<script\b|<foreignObject\b|\bonload\s*=|\bonerror\s*=/i);
-  }
-  const code=fs.readFileSync(path.join(root,'ui/app.js'),'utf8');
-  for(const entry of entries)assert.ok(code.includes(entry+'.svg'),'missing mapping '+entry);
-  assert.doesNotMatch(code,/\bfetch\s*\(/);
+test('visual implementation retains source layout landmarks',()=>{
+ const css=read('ui/style.css'),js=read('ui/app.js');
+ assert.match(css,/\.app-layout\{display:grid;grid-template-columns:207px/);
+ assert.match(css,/\.stats\{display:grid;grid-template-columns:repeat\(5,/);
+ assert.match(css,/\.card-grid\{display:grid;grid-template-columns:minmax\(0,1fr\)/);
+ assert.match(css,/@media\(max-width:800px\)/);
+ assert.match(css,/@media\(max-width:530px\)/);
+ for(const key of ['bluetooth','usb','display','power','events'])assert.ok(js.includes(key));
+ assert.doesNotMatch(js,/\bfetch\s*\(|\bXMLHttpRequest\b|\bWebSocket\b/);
 });
-test('new layout uses responsive two-column device dashboard and no redundant side menu',()=>{
-  const css=fs.readFileSync(path.join(root,'ui/style.css'),'utf8');
-  const js=fs.readFileSync(path.join(root,'ui/app.js'),'utf8');
-  assert.match(css,/\.main-grid\s*\{display:grid;grid-template-columns:repeat\(2,/);
-  assert.match(css,/@media\(max-width:650px\)/);
-  assert.match(js,/class="tabs"/);
-  assert.doesNotMatch(js,/class="layout"/);
+test('mock data is clearly labeled and real data is read through plugin RPC',()=>{
+ const js=read('ui/app.js');
+ assert.match(js,/演示数据/);assert.match(js,/flowhub:request/);
+ assert.match(js,/flowhub:widget-rpc/);assert.match(js,/flowhub:widget-ready/);
+ assert.match(js,/flowhub:widget-size/);
+ assert.doesNotMatch(js,/serial_num|device_address/);
 });
-test('compact widget uses category counts and no private serial numbers',()=>{
-  const source=fs.readFileSync(path.join(root,'backend/src/main.rs'),'utf8');
-  assert.match(source,/"counts":\{"bluetooth"/);
-  assert.match(source,/"category":d.category/);
-  assert.doesNotMatch(fs.readFileSync(path.join(root,'ui/app.js'),'utf8'),/serial_num/);
-});
-
