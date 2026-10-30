@@ -85,3 +85,11 @@ test('photo picker has an offline visual screenshot scenario',()=>{
  assert.match(capture,/device-image-picker\.png/);
  assert.match(js,/仅供预览 · 不联网/);
 });
+
+test('remote image failures retain a recognizable packaged-device fallback',()=>{
+ const app=read('ui/app.js');
+ assert.match(app,/data-fallback-image/);
+ assert.match(app,/assets\/device\.svg/);
+ assert.match(app,/createContextualFragment\(svg\('device'\)\)/);
+ assert.doesNotMatch(app,/createTextNode\('◇'\)/);
+});

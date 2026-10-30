@@ -78,9 +78,10 @@ function imgKey(d){
 }
 function photo(d,screen=false){
   const key=imgKey(d);
-  const fallback=d.category==='display'?'monitor':d.kind==='headphones'?'headphones':d.kind||'device';
+  const categoryFallback=d.category==='display'?'monitor':d.kind==='headphones'?'headphones':d.kind||'device';
+  const fallback=['device','headphones','mouse','keyboard','phone','drive','hub','monitor','laptop','speaker'].includes(categoryFallback)?categoryFallback:'device';
   const alt=screen?'显示器示意':'设备示意';
-  return `<span class="device-photo${key?'':' fallback'}">${key?`<img data-device-image="${safe(d.id||'')}" src="assets/${key}.png" alt="${alt}" loading="lazy">`:`<img data-device-image="${safe(d.id||'')}" src="assets/${fallback}.svg" alt="${alt}" loading="lazy">`}</span>`;
+  return `<span class="device-photo${key?'':' fallback'}">${key?`<img data-device-image="${safe(d.id||'')}" data-fallback-image="assets/${fallback}.svg" src="assets/${key}.png" alt="${alt}" loading="lazy">`:`<img data-device-image="${safe(d.id||'')}" data-fallback-image="assets/device.svg" src="assets/${fallback}.svg" alt="${alt}" loading="lazy">`}</span>`;
 }
 function badge(name,style='green'){return `<span class="tag${style==='green'?'':' '+style}">${safe(name)}</span>`;}
 function displayType(d){return ({'built-in':'内置','external':'外接'})[d.displayConnection]||'类型未知';}
@@ -250,9 +251,21 @@ function redraw(){
   node.querySelector('#widgetOpen')?.addEventListener('click',()=>{if(!preview&&widgetToken)window.parent.postMessage({type:'flowhub:widget-navigate',token:widgetToken,action:'detail',selection:{view:widgetCategory}},'*');});
   node.querySelector('#widgetPower')?.addEventListener('click',()=>{if(!preview&&widgetToken)window.parent.postMessage({type:'flowhub:widget-navigate',token:widgetToken,action:'detail',selection:{view:'power'}},'*');});
   for(const img of node.querySelectorAll('img'))img.addEventListener('error',()=>{
-    if(img.dataset.deviceImage){imageData.delete(img.dataset.deviceImage);}
-    img.replaceWith(document.createTextNode('◇'));
-  },{once:true});
+    if(img.dataset.deviceImage){
+      imageData.delete(img.dataset.deviceImage);
+      imageInfo.delete(img.dataset.deviceImage);
+    }
+    // A failed remote or packaged product thumbnail must not leave the ugly
+    // diamond placeholder. Use the package-local SVG and then a native icon.
+    const fallback=img.dataset.fallbackImage ||
+      (img.closest('.screen-photo')?'assets/monitor.svg':'assets/device.svg');
+    if(img.dataset.fallbackAttempted==='yes'){
+      img.replaceWith(document.createRange().createContextualFragment(svg('device')));
+      return;
+    }
+    img.dataset.fallbackAttempted='yes';
+    img.src=fallback;
+  });
   applySelectedImages();
   node.querySelector('[data-image-search]')?.addEventListener('click',()=>void searchDevicePhoto(chosen));
   node.querySelector('[data-image-clear]')?.addEventListener('click',()=>void clearDevicePhoto(chosen));

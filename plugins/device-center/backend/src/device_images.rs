@@ -119,9 +119,16 @@ fn allowed_source(url: &str) -> bool {
         && url.len() < 1500 && !url.chars().any(|c|c.is_control())
 }
 fn allowed_license(value: &str) -> bool {
+    // License metadata is untrusted. Prefix checks accidentally accept
+    // restricted variants such as "CC BY NC 4.0"; allow only known free
+    // variants with exact version suffixes.
     let l = value.trim().to_ascii_uppercase().replace('_', " ");
-    l == "CC0" || l.starts_with("CC0 ") || l.starts_with("CC BY ") ||
-        l.starts_with("CC BY-SA ") || l == "PUBLIC DOMAIN" || l == "PD"
+    matches!(l.as_str(),
+        "CC0" | "CC0 1.0" | "PUBLIC DOMAIN" | "PD" |
+        "CC BY 1.0" | "CC BY 2.0" | "CC BY 2.5" |
+        "CC BY 3.0" | "CC BY 4.0" |
+        "CC BY-SA 1.0" | "CC BY-SA 2.0" | "CC BY-SA 2.5" |
+        "CC BY-SA 3.0" | "CC BY-SA 4.0")
 }
 fn meta(info: &Value, field: &str) -> String {
     info.get("extmetadata")
@@ -155,9 +162,13 @@ fn data_url(bytes: &[u8]) -> Option<String> {
     Some(format!("data:{mime};base64,{}",base64(bytes)))
 }
 fn curl(url: &str, cap: usize, seconds: u64) -> Result<Vec<u8>, String> {
-    if !url.starts_with("https://") { return Err("只支持 HTTPS 图片服务".into()); }
+    if !(url.starts_with(API_ROOT) || allowed_url(url)) {
+        return Err("只能访问预先批准的 Wikimedia 图片服务".into());
+    }
+    // -q MUST be curl's first argument: ignore ~/.curlrc, which could otherwise
+    // silently disable TLS checks or re-enable redirects.
     let mut child = Command::new("/usr/bin/curl").args([
-        "--silent", "--fail", "--show-error", "--proto", "=https",
+        "-q", "--silent", "--fail", "--show-error", "--proto", "=https",
         "--max-redirs", "0", "--compressed", "--connect-timeout", "3",
         "--user-agent", USER_AGENT,
         "--max-time", &seconds.to_string(),
@@ -370,6 +381,24 @@ mod tests {
             "https://upload.wikimedia.org/wikipedia/commons/%2fetc",
             "https://127.0.0.1/image.jpg"]
         {assert!(!allowed_url(s),"{s}");}
+    }
+    #[test]
+    fn restrictive_license_variants_and_unapproved_downloads_are_rejected() {
+        for license in [
+            "CC BY NC 4.0", "CC BY-SA NC 4.0", "CC BY-SA 4.0 ND",
+            "CC BY-NC 4.0", "CC BY-ND 3.0", "CC0 - noncommercial",
+            "CC BY 5.0", "CC BY-SA 4.0; all rights reserved"
+        ] {
+            assert!(!allowed_license(license), "{license}");
+        }
+        for url in [
+            "https://other.example.test/image.jpg",
+            "http://commons.wikimedia.org/w/api.php",
+            "https://upload.wikimedia.org.evil.test/wikipedia/commons/a.jpg",
+            "https://127.0.0.1/a.png"
+        ] {
+            assert!(curl(url, MAX_IMAGE, 1).is_err(), "{url}");
+        }
     }
     #[test]
     fn unknown_or_nonfree_licenses_are_rejected() {
