@@ -1,0 +1,10 @@
+{
+  "name": "flowhub-device-center-plugin",
+  "version": "0.2.4",
+  "private": true,
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "cargo test --manifest-path backend/Cargo.toml && node --test tests/*.test.mjs",
+    "dev": "node scripts/preview.mjs"
+  }
+}
