@@ -8,7 +8,7 @@ const widgetToken=new URLSearchParams(location.hash.slice(1)).get('flowhubWidget
 const preview=!hostWindow||(isWidget&&!widgetToken)||new URLSearchParams(location.search).has('preview');
 if(new URLSearchParams(location.search).has('embedded'))document.body.classList.add('embedded');
 const p=new URLSearchParams(location.search);
-let view=p.get('view')||'overview',search='',chosen=null,loading=false,done=false,widgetContext={},widgetReady=false;
+let view=p.get('view')||'overview',search='',chosen=null,loading=false,done=false,widgetContext={},widgetReady=false,widgetSelectedId=null;
 const pending=new Map();
 const paths={
   overview:'<rect x="3" y="3" width="18" height="15" rx="3"/><path d="M9 22h6m-3-4v4"/>',
@@ -168,7 +168,7 @@ function rpc(method){
 async function refresh(force=false){
   if(done||loading)return;
   loading=true;
-  try{const next=await rpc(force?'refresh':'snapshot');if(!done&&Array.isArray(next.devices)){data=next;redraw();}}
+  try{const next=await rpc(force?'refresh':'snapshot');if(!done&&Array.isArray(next.devices)){data=next;if(surface==='detail'&&widgetSelectedId)chosen=data.devices.find(d=>d.id===widgetSelectedId)||null;redraw();}}
   catch(err){if(!done){data={...data,error:String(err),stale:true};redraw();}}
   finally{loading=false;}
 }
@@ -178,7 +178,7 @@ function receive(event){
   if(!msg||typeof msg!=='object'||isWidget&&widgetToken&&msg.token!==widgetToken)return;
   if(isWidget&&msg.type==='flowhub:widget-init'){
     widgetReady=true;widgetContext=msg.context||{};
-    if(surface==='detail'&&widgetContext.selection?.deviceId)view='overview';
+    if(surface==='detail'){widgetSelectedId=widgetContext.selection?.deviceId||widgetContext.config?.selection?.deviceId||null;view='overview';}
     redraw();if(surface!=='editor')void refresh();return;
   }
   if(isWidget&&msg.type==='flowhub:widget-save'){
