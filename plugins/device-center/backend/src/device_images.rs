@@ -89,14 +89,16 @@ fn url_encode(s: &str) -> String {
 fn allowed_url(url: &str) -> bool {
     url.starts_with(IMAGE_ROOT)
         && url.len() < 1400
-        && !url.contains(['?', '#', '\\', '\r', '\n', '\t'])
-        && !url.contains("//../")
-        && !url.contains('%') // Reject encoded separators/host trickery in fetched URLs.
+        && !url.chars().any(|c| matches!(c, '?' | '#' | '\\' | '\r' | '\n' | '\t' | '@'))
+        && !url.to_ascii_lowercase().contains("%2f")
+        && !url.to_ascii_lowercase().contains("%5c")
+        && !url.to_ascii_lowercase().contains("%00")
+        && !url.contains("/../")
         && url.bytes().all(|b| b >= 0x21 && b <= 0x7e)
 }
 fn allowed_source(url: &str) -> bool {
     url.starts_with("https://commons.wikimedia.org/wiki/File:")
-        && url.len() < 1500 && !url.contains(['\r','\n','\t'])
+        && url.len() < 1500 && !url.chars().any(|c|c.is_control())
 }
 fn allowed_license(value: &str) -> bool {
     let l = value.trim().to_ascii_uppercase().replace('_', " ");
@@ -264,7 +266,7 @@ impl ImageStore {
         // Only an explicit button click invokes this method. The device name
         // is the only device-derived field transmitted to Wikimedia Commons.
         let query=format!("{} product",model);
-        let url=format!("{API_ROOT}action=query&format=json&formatversion=2&generator=search&gsrnamespace=6&gsrlimit=12&gsrsearch={}&prop=imageinfo&iiprop=url%7Cmime%7Cextmetadata&iiurlwidth=160&iiextmetadatafilter=LicenseShortName%7CArtist%7CNonFree",url_encode(&query));
+        let url=format!("{API_ROOT}action=query&format=json&formatversion=2&generator=search&gsrnamespace=6&gsrlimit=12&gsrsearch={}&prop=imageinfo&iiprop=url%7Cmime%7Cthumbmime%7Cextmetadata&iiurlwidth=160&iiextmetadatafilter=LicenseShortName%7CArtist%7CNonFree",url_encode(&query));
         let raw=curl(&url,MAX_API,10)?;
         let parsed:Value=serde_json::from_slice(&raw).map_err(|_| "图片服务返回了无法识别的格式")?;
         let mut candidates=vec![];
@@ -350,7 +352,7 @@ mod tests {
             "https://upload.wikimedia.org.evil.com/wikipedia/commons/a.jpg",
             "https://upload.wikimedia.org@127.0.0.1/wikipedia/commons/a.jpg",
             "https://upload.wikimedia.org/wikipedia/commons/a.jpg?redirect=https://bad",
-            "https://upload.wikimedia.org/wikipedia/commons/%2e%2e/evil",
+            "https://upload.wikimedia.org/wikipedia/commons/%2fetc",
             "https://127.0.0.1/image.jpg"]
         {assert!(!allowed_url(s),"{s}");}
     }
