@@ -3,6 +3,7 @@ use serde_json::{json, Value};
 mod power_telemetry;
 mod power_source;
 mod smc_power;
+mod device_images;
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
     io::{BufRead, Read, Write},
@@ -431,9 +432,38 @@ fn update_power_sample(state: &Arc<Mutex<State>>, force: bool, interval_seconds:
     smc_power::fill_missing(&mut sample);
     if let Ok(mut s) = state.lock() { s.power_sample = Some(sample); s.power_checked_at = now(); }
 }
-fn dispatch(state: &Arc<Mutex<State>>, method: &str, params: &Value) -> Result<Value, String> {
+fn dispatch(state: &Arc<Mutex<State>>, images: &Arc<Mutex<device_images::ImageStore>>, method: &str, params: &Value) -> Result<Value, String> {
     match method {
         "health" => Ok(json!({"protocol":2,"name":"device-center"})),
+        "image_list" => {
+            let devices=state.lock().map_err(|_|"设备状态不可用")?.scan.devices.clone();
+            let store=images.lock().map_err(|_|"图片缓存不可用")?;
+            Ok(store.list(&devices))
+        },
+        "image_get" | "image_search" | "image_choose" | "image_remove" => {
+            let id=params["deviceId"].as_str().filter(|v|v.len()<=100)
+                .ok_or("缺少已连接设备 ID")?;
+            let device={
+                let snapshot=state.lock().map_err(|_|"设备状态不可用")?;
+                if method=="image_search" && snapshot.stale() {
+                    return Err("设备扫描尚未完成，请先刷新后再搜索图片".into());
+                }
+                snapshot.scan.devices.iter().find(|d|d.id==id).cloned()
+                    .ok_or("当前未检测到该设备，请刷新设备列表")?
+            };
+            let mut store=images.lock().map_err(|_|"图片缓存不可用")?;
+            match method {
+                "image_get" => store.get(&device),
+                "image_search" => store.search(&device),
+                "image_choose" => {
+                    let candidate=params["candidateId"].as_str().filter(|s|s.len()==16)
+                        .ok_or("未选择有效候选图片")?;
+                    store.choose(&device,candidate)
+                },
+                "image_remove" => store.remove(&device),
+                _ => unreachable!()
+            }
+        },
         "status_snapshot" => state.lock().map_err(|_| "状态缓存不可用".to_string()).map(|s| s.status()),
         "snapshot" => {
             update_power_sample(state, false, power_interval_seconds(params));
@@ -455,8 +485,10 @@ fn dispatch(state: &Arc<Mutex<State>>, method: &str, params: &Value) -> Result<V
         "widget_api" => match params["action"].as_str() {
             Some("snapshot") => state.lock().map_err(|_| "状态缓存不可用".to_string()).map(|s| s.status()),
             Some("management") => match params["method"].as_str() {
-                Some("snapshot") => dispatch(state, "snapshot", &params["params"]),
-                Some("refresh") => dispatch(state, "refresh", &params["params"]),
+                Some("snapshot") => dispatch(state, images, "snapshot", &params["params"]),
+                Some("refresh") => dispatch(state, images, "refresh", &params["params"]),
+                Some(method @ ("image_list" | "image_get" | "image_search" | "image_choose" | "image_remove")) =>
+                    dispatch(state, images, method, &params["params"]),
                 _ => Err("不支持的组件操作".into()),
             },
             _ => Err("不支持的组件操作".into())
@@ -466,6 +498,7 @@ fn dispatch(state: &Arc<Mutex<State>>, method: &str, params: &Value) -> Result<V
 }
 fn main() {
     let state = Arc::new(Mutex::new(State::new()));
+    let images = Arc::new(Mutex::new(device_images::ImageStore::new()));
     let worker = Arc::clone(&state);
     thread::spawn(move || {
         loop {
@@ -485,7 +518,7 @@ fn main() {
         }
         if line.len() > 65_536 { break; }
         let Ok(req) = serde_json::from_str::<Value>(&line) else { continue; };
-        let result = dispatch(&state, req["method"].as_str().unwrap_or(""), &req["params"]);
+        let result = dispatch(&state, &images, req["method"].as_str().unwrap_or(""), &req["params"]);
         let message = match result {
             Ok(v) => json!({"id":req["id"],"result":v}),
             Err(e) => json!({"id":req["id"],"error":e})
