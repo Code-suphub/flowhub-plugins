@@ -164,7 +164,14 @@ function statView(){
   return `<section class="stats">${counts.map(([name,n,key,variant])=>`<button type="button" class="stat" data-view="${key==='warning'?'events':key}"><span class="stat-icon ${variant}">${svg(key==='warning'?'warning':key)}</span><span class="stat-text"><span class="stat-label">${safe(name)}</span><span class="stat-val">${n}</span></span>${svg('chevron','stat-arrow')}</button>`).join('')}</section>`;
 }
 function selectedPhotoPanel(d){
-  if(preview)return '<div class="photo-settings"><strong>设备图片</strong><p class="description">演示模式使用本地原型素材。在线图片仅在 FlowHub 正式安装并由用户点击搜索时查询。</p></div>';
+  if(preview){
+    if(!p.has('imageDemo'))return '<div class="photo-settings"><strong>设备图片</strong><p class="description">演示模式使用本地原型素材。在线图片仅在 FlowHub 正式安装并由用户点击搜索时查询。</p></div>';
+    return '<div class="photo-settings"><div class="photo-settings-heading"><strong>图片选择器 · 视觉演示</strong><span class="tag gray">仅供预览 · 不联网</span></div>'+
+      '<p class="image-privacy">真实使用时由你点击搜索，候选图会显示图片名称、作者、许可证，再确认保存。以下仅展示本地原型素材的布局。</p>'+
+      '<div class="image-candidates"><div class="image-candidate">'+photo(d)+
+      '<span class="image-candidate-text"><strong>设备图片示例（非在线结果）</strong><small>本地原型素材 · 演示来源与许可信息的位置</small></span>'+
+      '<button type="button" class="image-button" disabled>使用这张</button></div></div></div>';
+  }
   const item=imageInfo.get(d.id);
   const metadata=item?'<p class="photo-attribution">来源：Wikimedia Commons · '+safe(item.title||'图片')+
     ' · '+safe(item.license||'许可未知')+' · 作者：'+safe(item.author||'未提供')+'</p>'+
