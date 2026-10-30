@@ -60,3 +60,36 @@ test('mock data is clearly labeled and real data is read through plugin RPC',()=
  assert.match(js,/flowhub:widget-size/);
  assert.doesNotMatch(js,/serial_num|device_address/);
 });
+
+test('online images need deliberate user action and retain local fallback',()=>{
+ const js=read('ui/app.js'),rust=read('backend/src/main.rs'),image=read('backend/src/device_images.rs');
+ assert.match(js,/data-image-search/);
+ assert.match(js,/image_choose/);
+ assert.match(js,/image_remove/);
+ assert.match(js,/syncSavedPhotos/);
+ assert.match(js,/^function photo\(/m);
+ assert.ok(js.includes('data:image') && js.includes('base64'), 'base64 image mime validation missing');
+ assert.match(rust,/\"image_search\"/);
+ assert.match(rust,/\"image_get\"/);
+ assert.match(image,/FLOWHUB_PLUGIN_DATA/);
+ assert.match(image,/commons.wikimedia.org/);
+ assert.match(image,/upload.wikimedia.org/);
+ assert.doesNotMatch(js,/\bfetch\s*\(|\bXMLHttpRequest\b|\bWebSocket\b/);
+ assert.doesNotMatch(image,/--location\b/);
+});
+
+test('photo picker has an offline visual screenshot scenario',()=>{
+ const js=read('ui/app.js');
+ const capture=read('scripts/capture.py');
+ assert.match(js,/imageDemo/);
+ assert.match(capture,/device-image-picker\.png/);
+ assert.match(js,/仅供预览 · 不联网/);
+});
+
+test('remote image failures retain a recognizable packaged-device fallback',()=>{
+ const app=read('ui/app.js');
+ assert.match(app,/data-fallback-image/);
+ assert.match(app,/assets\/device\.svg/);
+ assert.match(app,/createContextualFragment\(svg\('device'\)\)/);
+ assert.doesNotMatch(app,/createTextNode\('◇'\)/);
+});
