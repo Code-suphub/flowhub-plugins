@@ -10,6 +10,8 @@ if(new URLSearchParams(location.search).has('embedded'))document.body.classList.
 const p=new URLSearchParams(location.search);
 let view=p.get('view')||'overview',search='',chosen=null,loading=false,done=false,widgetContext={},widgetReady=false,widgetSelectedId=null;
 const pending=new Map();
+const imageData=new Map(),imageInfo=new Map();
+let imageSyncBusy=false,lastImageIds='',imageSearchResult=null,imageError='',imageBusy=false;
 let poll=null;
 let widgetCategory='overview';
 const widgetScroll={};
@@ -78,7 +80,7 @@ function photo(d,screen=false){
   const key=imgKey(d);
   const fallback=d.category==='display'?'monitor':d.kind==='headphones'?'headphones':d.kind||'device';
   const alt=screen?'显示器示意':'设备示意';
-  return `<span class="device-photo${key?'':' fallback'}">${key?`<img src="assets/${key}.png" alt="${alt}" loading="lazy">`:`<img src="assets/${fallback}.svg" alt="${alt}" loading="lazy">`}</span>`;
+  return `<span class="device-photo${key?'':' fallback'}">${key?`<img data-device-image="${safe(d.id||'')}" src="assets/${key}.png" alt="${alt}" loading="lazy">`:`<img data-device-image="${safe(d.id||'')}" src="assets/${fallback}.svg" alt="${alt}" loading="lazy">`}</span>`;
 }
 function badge(name,style='green'){return `<span class="tag${style==='green'?'':' '+style}">${safe(name)}</span>`;}
 function displayType(d){return ({'built-in':'内置','external':'外接'})[d.displayConnection]||'类型未知';}
@@ -119,7 +121,7 @@ function listPanel(t,all=false){
 function displayPanel(all=false){
   const dev=filtered('display');
   return panel('显示器','display',dev.length?`<div class="screen-grid">${dev.slice(0,all?50:2).map(d=>
-    `<button type="button" class="screen-card" data-device="${safe(d.id)}"><span class="screen-photo"><img src="assets/${imgKey(d)||'monitor'}.${imgKey(d)?'png':'svg'}" alt="显示器示意"></span><span class="screen-name">${safe(d.name)}${displayBadge(d)} ${d.role?`<span class="screen-role">${safe(d.role)}</span>`:''}</span><span class="screen-spec" title="${safe(d.detail||'')}">${safe(displaySpec(d)||'显示参数未知')}</span></button>`).join('')}</div>`:empty('display'),
+    `<button type="button" class="screen-card" data-device="${safe(d.id)}"><span class="screen-photo"><img data-device-image="${safe(d.id)}" src="assets/${imgKey(d)||'monitor'}.${imgKey(d)?'png':'svg'}" alt="显示器示意"></span><span class="screen-name">${safe(d.name)}${displayBadge(d)} ${d.role?`<span class="screen-role">${safe(d.role)}</span>`:''}</span><span class="screen-spec" title="${safe(d.detail||'')}">${safe(displaySpec(d)||'显示参数未知')}</span></button>`).join('')}</div>`:empty('display'),
     {cls:'display-panel',count:dev.length,all:!all});
 }
 function powerValues(power){
@@ -161,11 +163,37 @@ function statView(){
   const counts=[['全部设备',data.devices.length,'overview',''],['蓝牙设备',count('bluetooth'),'bluetooth','bt'],['USB 设备',count('usb'),'usb','usb'],['显示器',count('display'),'display','display'],['异常设备',data.previewAnomalies||0,'warning','warning']];
   return `<section class="stats">${counts.map(([name,n,key,variant])=>`<button type="button" class="stat" data-view="${key==='warning'?'events':key}"><span class="stat-icon ${variant}">${svg(key==='warning'?'warning':key)}</span><span class="stat-text"><span class="stat-label">${safe(name)}</span><span class="stat-val">${n}</span></span>${svg('chevron','stat-arrow')}</button>`).join('')}</section>`;
 }
+function selectedPhotoPanel(d){
+  if(preview)return '<div class="photo-settings"><strong>设备图片</strong><p class="description">演示模式使用本地原型素材。在线图片仅在 FlowHub 正式安装并由用户点击搜索时查询。</p></div>';
+  const item=imageInfo.get(d.id);
+  const metadata=item?'<p class="photo-attribution">来源：Wikimedia Commons · '+safe(item.title||'图片')+
+    ' · '+safe(item.license||'许可未知')+' · 作者：'+safe(item.author||'未提供')+'</p>'+
+    '<p class="photo-source" title="'+safe(item.sourceUrl||'')+'">'+safe(item.sourceUrl||'')+'</p>':
+    '<p class="description">当前显示本地设备示意图。默认不进行网络搜索。</p>';
+  const clear=item?'<button type="button" class="image-button secondary" data-image-clear="'+safe(d.id)+'">恢复默认图片</button>':'';
+  let choices='';
+  if(imageSearchResult?.deviceId===d.id){
+    const found=Array.isArray(imageSearchResult.candidates)?imageSearchResult.candidates:[];
+    choices='<div class="image-candidates"><p class="description">搜索结果需要手动核对型号；图片授权信息会在本地保留。</p>'+
+      (found.length?found.filter(c=>/^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(c.dataUrl||'')).map(c=>
+      '<div class="image-candidate"><img src="'+safe(c.dataUrl)+'" alt="在线候选图片">'+
+      '<span class="image-candidate-text"><strong>'+safe(c.title)+'</strong>'+
+      '<small>'+safe(c.license)+' · '+safe(c.author||'未提供署名')+'</small></span>'+
+      '<button type="button" class="image-button" data-image-choose="'+safe(c.id)+'" '+(imageBusy?'disabled':'')+'>使用这张</button></div>'
+      ).join(''):'<p class="description">没有找到许可明确的 PNG/JPEG 候选图。可以继续使用本地图标。</p>')+'</div>';
+  }
+  return '<div class="photo-settings"><div class="photo-settings-heading"><strong>设备图片</strong><span class="tag gray">联网需主动操作</span></div>'+
+    metadata+'<p class="image-privacy">点击搜索后，只会把当前设备的名称发送给 Wikimedia Commons；不会发送 USB 序列号、蓝牙地址或其他设备数据。选择图片后缓存到本机。</p>'+
+    '<div class="image-actions"><button type="button" class="image-button" data-image-search="'+safe(d.id)+'" '+(imageBusy?'disabled':'')+'>'+
+    (imageBusy?'正在获取图片…':'搜索在线图片')+'</button>'+clear+'</div>'+
+    (imageError?'<p class="warning-message" role="status">'+safe(imageError)+'</p>':'')+
+    choices+'</div>';
+}
 function details(d){
   const fields=d.category==='display'?
     [['屏幕类型',displayType(d)],['设备名称',d.name],['像素分辨率',d.pixelResolution||'未提供'],['界面逻辑尺寸',d.logicalResolution||'未提供'],['刷新率',d.refreshRate||'未提供']]:
     [['连接类型',label[d.category]||d.category],['设备名称',d.name],['当前电量',d.battery||'未提供'],['系统详情',d.detail||'未提供'],['厂商 ID',d.vendor||'未提供'],['产品 ID',d.productId||'未提供']];
-  return `<section class="panel detail-panel"><button class="back-button" data-back="1" type="button">${svg('chevron')} 返回设备列表</button><div class="detail-head">${photo(d)}<div><h2>${safe(d.name)}${displayBadge(d)}</h2><p class="description">${safe(displaySpec(d)||'系统未提供设备描述')}</p>${badge('已连接')}</div></div><div class="detail-grid">${fields.map(([name,value])=>`<div class="detail-cell"><small>${safe(name)}</small><strong>${safe(value)}</strong></div>`).join('')}</div></section>`;
+  return `<section class="panel detail-panel"><button class="back-button" data-back="1" type="button">${svg('chevron')} 返回设备列表</button><div class="detail-head">${photo(d)}<div><h2>${safe(d.name)}${displayBadge(d)}</h2><p class="description">${safe(displaySpec(d)||'系统未提供设备描述')}</p>${badge('已连接')}</div></div><div class="detail-grid">${fields.map(([name,value])=>`<div class="detail-cell"><small>${safe(name)}</small><strong>${safe(value)}</strong></div>`).join('')}</div>${selectedPhotoPanel(d)}</section>`;
 }
 function contentView(){
   if(chosen)return details(chosen);
@@ -174,7 +202,7 @@ function contentView(){
   if(view==='display')return `<div class="card-grid">${displayPanel(true)}</div>`;
   if(view==='power')return `<div class="card-grid">${powerPanel(true)}</div>`;
   if(view==='events')return `<div class="card-grid">${eventsPanel(true)}</div>`;
-  return `<section class="panel"><p class="description">显示设置和图片匹配选项将在这里提供。</p></section>`;
+  return `<section class="panel image-policy"><h2>图片来源与隐私</h2><p>外设中心默认只显示已内置的设备示意图，不自动发送外设清单到网络。</p><p>在设备详情中点击「搜索在线图片」，会将该设备名称发送给 Wikimedia Commons，并展示许可明确的候选图。只有你选择图片后才保存到 FlowHub 专属本地缓存，断网后仍然可用。</p><p>你可以随时在设备详情中恢复默认图片。图片的原作者、许可证和来源会显示在设备详情中。</p></section>`;
 }
 function mainView(){
   const menus=[['overview','概览'],['bluetooth','蓝牙设备'],['usb','USB 与移动设备'],['display','显示器'],['power','供电'],['events','历史事件'],['settings','设置']];
@@ -207,23 +235,93 @@ function redraw(){
   node.querySelectorAll('[data-device]').forEach(btn=>btn.addEventListener('click',()=>{
     const d=data.devices.find(x=>x.id===btn.dataset.device);if(!d)return;
     if(isWidget){if(!preview&&widgetToken)window.parent.postMessage({type:'flowhub:widget-navigate',token:widgetToken,action:'detail',selection:{deviceId:d.id}},'*');}
-    else{chosen=d;redraw();}
+    else{chosen=d;imageSearchResult=null;imageError='';redraw();}
   }));
-  node.querySelector('[data-back]')?.addEventListener('click',()=>{chosen=null;redraw();});
+  node.querySelector('[data-back]')?.addEventListener('click',()=>{chosen=null;imageSearchResult=null;imageError='';redraw();});
   node.querySelector('#refresh')?.addEventListener('click',()=>void refresh(true));
   node.querySelector('#search')?.addEventListener('input',e=>{search=e.target.value;const sel=e.target.selectionStart;redraw();const field=node.querySelector('#search');field?.focus();field?.setSelectionRange(sel,sel);});
   node.querySelector('#widgetOpen')?.addEventListener('click',()=>{if(!preview&&widgetToken)window.parent.postMessage({type:'flowhub:widget-navigate',token:widgetToken,action:'detail',selection:{view:widgetCategory}},'*');});
   node.querySelector('#widgetPower')?.addEventListener('click',()=>{if(!preview&&widgetToken)window.parent.postMessage({type:'flowhub:widget-navigate',token:widgetToken,action:'detail',selection:{view:'power'}},'*');});
-  for(const img of node.querySelectorAll('img'))img.addEventListener('error',()=>{img.replaceWith(document.createTextNode('◇'));},{once:true});
+  for(const img of node.querySelectorAll('img'))img.addEventListener('error',()=>{
+    if(img.dataset.deviceImage){imageData.delete(img.dataset.deviceImage);}
+    img.replaceWith(document.createTextNode('◇'));
+  },{once:true});
+  applySelectedImages();
+  node.querySelector('[data-image-search]')?.addEventListener('click',()=>void searchDevicePhoto(chosen));
+  node.querySelector('[data-image-clear]')?.addEventListener('click',()=>void clearDevicePhoto(chosen));
+  node.querySelectorAll('[data-image-choose]').forEach(button=>button.addEventListener('click',()=>void chooseDevicePhoto(chosen,button.dataset.imageChoose)));
   if(isWidget&&widgetToken&&widgetReady){window.parent.postMessage({type:'flowhub:widget-size',token:widgetToken,height:Math.ceil(document.documentElement.scrollHeight)},'*');}
 }
-function rpc(method){
+function applySelectedImages(){
+  for(const img of node.querySelectorAll('img[data-device-image]')){
+    const url=imageData.get(img.dataset.deviceImage);
+    if(url && /^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(url))img.src=url;
+  }
+}
+async function syncSavedPhotos(){
+  if(done||preview||imageSyncBusy)return;
+  const ids=(data.devices||[]).map(d=>d.id).sort().join('|');
+  if(ids===lastImageIds)return;
+  imageSyncBusy=true;
+  try{
+    const inventory=await rpc('image_list');
+    const known=Array.isArray(inventory.selected)?inventory.selected:[];
+    const present=new Set((data.devices||[]).map(d=>d.id));
+    for(const id of [...imageData.keys()])if(!present.has(id)){imageData.delete(id);imageInfo.delete(id);}
+    for(const entry of known.slice(0,60)){
+      if(!present.has(entry.deviceId)||imageData.has(entry.deviceId))continue;
+      try{
+        const image=await rpc('image_get',{deviceId:entry.deviceId});
+        if(/^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(image?.dataUrl||'')){
+          imageData.set(entry.deviceId,image.dataUrl);
+          imageInfo.set(entry.deviceId,image);
+        }
+      }catch{ /* A missing local cache leaves the default package image. */ }
+    }
+    lastImageIds=ids;
+    applySelectedImages();
+  }catch{ /* Network image service is optional, system device list must remain usable. */ }
+  finally{imageSyncBusy=false;}
+}
+async function searchDevicePhoto(device){
+  if(!device||preview||imageBusy)return;
+  imageBusy=true;imageError='';imageSearchResult=null;redraw();
+  try{
+    const response=await rpc('image_search',{deviceId:device.id});
+    if(!done){imageSearchResult={...response,deviceId:device.id};}
+  }catch(error){if(!done)imageError=String(error);}
+  finally{imageBusy=false;if(!done)redraw();}
+}
+async function chooseDevicePhoto(device,candidateId){
+  if(!device||preview||imageBusy||!candidateId)return;
+  imageBusy=true;imageError='';redraw();
+  try{
+    const result=await rpc('image_choose',{deviceId:device.id,candidateId});
+    if(/^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(result?.dataUrl||'')){
+      imageData.set(device.id,result.dataUrl);
+      imageInfo.set(device.id,result);
+    }
+    imageSearchResult=null;lastImageIds=''; 
+  }catch(error){imageError=String(error);}
+  finally{imageBusy=false;if(!done)redraw();}
+}
+async function clearDevicePhoto(device){
+  if(!device||preview||imageBusy)return;
+  imageBusy=true;imageError='';redraw();
+  try{
+    await rpc('image_remove',{deviceId:device.id});
+    imageData.delete(device.id);imageInfo.delete(device.id);
+    imageSearchResult=null;lastImageIds='';
+  }catch(error){imageError=String(error);}
+  finally{imageBusy=false;if(!done)redraw();}
+}
+function rpc(method,extra={}) {
   if(preview)return Promise.resolve(demo);
   const id='dc-preview-'+Date.now()+'-'+Math.random().toString(16).slice(2);
   return new Promise((resolve,reject)=>{
     const timer=setTimeout(()=>{pending.delete(id);reject(new Error('设备响应超时'));},44000);
     pending.set(id,{resolve,reject,timer});
-    const params={powerIntervalSeconds:powerInterval()};
+    const params={powerIntervalSeconds:powerInterval(),...extra};
     const msg=isWidget?{type:'flowhub:widget-rpc',id,token:widgetToken,params:{action:'management',method,params}}:{type:'flowhub:request',id,method,params};
     window.parent.postMessage(msg,'*');
   });
@@ -231,7 +329,7 @@ function rpc(method){
 async function refresh(force=false){
   if(done||loading)return;
   loading=true;
-  try{const next=await rpc(force?'refresh':'snapshot');if(!done&&Array.isArray(next.devices)){data=next;if(surface==='detail'&&widgetSelectedId)chosen=data.devices.find(d=>d.id===widgetSelectedId)||null;redraw();}}
+  try{const next=await rpc(force?'refresh':'snapshot');if(!done&&Array.isArray(next.devices)){data=next;if(surface==='detail'&&widgetSelectedId)chosen=data.devices.find(d=>d.id===widgetSelectedId)||null;redraw();void syncSavedPhotos();}}
   catch(err){if(!done){data={...data,error:String(err),stale:true};redraw();}}
   finally{loading=false;}
 }
