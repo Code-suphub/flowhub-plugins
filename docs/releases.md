@@ -26,4 +26,29 @@ gh run list --workflow plugins.yml
 
 FlowHub 来源地址使用具体插件 Release 的 `catalog.json`，不能使用全仓库的 `releases/latest`。索引包含该次发布所配置架构的完整清单，尚未提供自动合并所有插件最新版的统一索引。
 
-本仓库是私有仓库：Actions 和 Releases 可以正常使用，但 FlowHub 目前的 HTTPS 来源不支持 GitHub 私有仓库鉴权。可以用 `gh release download` 下载包，或另行将签名产物托管至可访问的 HTTPS 来源；工作流不会自动改变仓库可见性。
+当前仓库公开，FlowHub 可直接使用 Release 的 HTTPS 索引。如果以后改为私有仓库，FlowHub 目前的 HTTPS 来源不支持 GitHub 私有仓库鉴权；届时需另行提供可访问的签名产物来源。
+
+## 本机构建并手动发布
+
+Actions 不可用时，可以在对应架构的 Mac 上完成相同的测试、打包和签名，再上传 Release；无需更换已有签名密钥。以下以外设中心为例：
+
+```sh
+npm --prefix plugins/device-center test
+npm --prefix plugins/device-center run build
+export PLUGIN_SIGNING_KEY_FILE=/path/to/existing-plugin-signing.key
+export GITHUB_REPOSITORY=Code-suphub/flowhub-plugins
+export GITHUB_REF_NAME=device-center-v0.2.7
+node scripts/release.mjs bundle device-center macos-aarch64
+node scripts/release.mjs catalog
+```
+
+按前述规则提交版本和推送新标签。手动发布的提交可加 `[skip ci]`，避免同时触发 Actions；本地测试和验签仍须通过。不要覆盖既有公开版本。
+
+```sh
+gh release create "$GITHUB_REF_NAME" --verify-tag --draft --latest=false \
+  --title "$GITHUB_REF_NAME" --notes-file /path/to/release-notes.md release-output/*
+# 核对草稿中的完整产物、校验值和签名后公开。
+gh release edit "$GITHUB_REF_NAME" --draft=false --latest=false
+```
+
+外设中心 0.2.7 的来源索引为 `https://github.com/Code-suphub/flowhub-plugins/releases/download/device-center-v0.2.7/catalog.json`，来源公钥使用仓库的 `release-key.pub`。索引指向具体版本，后续发布需更新来源地址；目前没有插件自动升级机制。
