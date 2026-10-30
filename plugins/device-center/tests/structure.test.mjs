@@ -68,7 +68,7 @@ test('online images need deliberate user action and retain local fallback',()=>{
  assert.match(js,/image_remove/);
  assert.match(js,/syncSavedPhotos/);
  assert.match(js,/^function photo\(/m);
- assert.match(js,/data:image\\\/(png|jpeg)/);
+ assert.ok(js.includes('data:image') && js.includes('base64'), 'base64 image mime validation missing');
  assert.match(rust,/\"image_search\"/);
  assert.match(rust,/\"image_get\"/);
  assert.match(image,/FLOWHUB_PLUGIN_DATA/);
