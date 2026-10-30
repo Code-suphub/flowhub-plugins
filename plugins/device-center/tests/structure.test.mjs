@@ -60,3 +60,20 @@ test('mock data is clearly labeled and real data is read through plugin RPC',()=
  assert.match(js,/flowhub:widget-size/);
  assert.doesNotMatch(js,/serial_num|device_address/);
 });
+
+test('online images need deliberate user action and retain local fallback',()=>{
+ const js=read('ui/app.js'),rust=read('backend/src/main.rs'),image=read('backend/src/device_images.rs');
+ assert.match(js,/data-image-search/);
+ assert.match(js,/image_choose/);
+ assert.match(js,/image_remove/);
+ assert.match(js,/syncSavedPhotos/);
+ assert.match(js,/^function photo\(/m);
+ assert.match(js,/data:image\/(png|jpeg)/);
+ assert.match(rust,/\"image_search\"/);
+ assert.match(rust,/\"image_get\"/);
+ assert.match(image,/FLOWHUB_PLUGIN_DATA/);
+ assert.match(image,/commons.wikimedia.org/);
+ assert.match(image,/upload.wikimedia.org/);
+ assert.doesNotMatch(js,/\bfetch\s*\(|\bXMLHttpRequest\b|\bWebSocket\b/);
+ assert.doesNotMatch(image,/--location\b/);
+});
