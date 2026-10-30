@@ -439,6 +439,33 @@ mod tests {
         let _=fs::remove_dir_all(folder);
     }
     #[test]
+    fn choosing_and_removing_a_photo_works_offline_end_to_end() {
+        let folder=std::env::temp_dir().join(format!("flowhub-image-choice-{}-{}",std::process::id(),now()));
+        fs::create_dir_all(&folder).unwrap();
+        let d=device_named("Magic Mouse");
+        let chosen=Candidate {
+            id:"0123456789abcdef".into(),
+            saved:SavedImage{file:String::new(),title:"Magic Mouse.jpg".into(),
+                author:"Alice".into(),license:"CC BY 4.0".into(),
+                source_url:"https://commons.wikimedia.org/wiki/File:Magic_Mouse.jpg".into(),
+                mime:"image/png".into()},
+            bytes:b"\x89PNG\r\n\x1a\nmock_uploaded_image".to_vec()
+        };
+        let mut store=ImageStore {dir:Some(folder.clone()),
+            saved:BTreeMap::new(), sessions:HashMap::new()};
+        store.sessions.insert(d.id.clone(),SearchSession {
+            started:Instant::now(),device_key:key(&d),items:vec![chosen]
+        });
+        let selected=store.choose(&d,"0123456789abcdef").unwrap();
+        assert!(selected["dataUrl"].as_str().unwrap().starts_with("data:image/png;base64,"));
+        assert_eq!(selected["license"],"CC BY 4.0");
+        assert_eq!(store.list(&[d.clone()])["selected"].as_array().unwrap().len(),1);
+        store.remove(&d).unwrap();
+        assert!(store.get(&d).unwrap()["dataUrl"].is_null());
+        assert!(store.list(&[d])["selected"].as_array().unwrap().is_empty());
+        let _=fs::remove_dir_all(folder);
+    }
+    #[test]
     fn photo_key_follows_model_not_usb_port_id() {
         let mut a=device_named("AirPods Pro 2");
         let mut b=a.clone();
