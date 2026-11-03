@@ -4,8 +4,93 @@ use serde_json::{json, Value};
 use std::{
     collections::HashSet,
     ffi::CStr,
+    io::{Read, Write},
     mem::{size_of, zeroed},
+    os::unix::net::UnixStream,
+    time::Duration,
 };
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PrivilegedProcess {
+    pid: i32,
+    uid: u32,
+    started: u64,
+    executable: String,
+    ppid: i32,
+    memory: Option<u64>,
+    footprint: Option<u64>,
+    cpu_time: u64,
+}
+
+fn privileged_processes() -> Option<Vec<PrivilegedProcess>> {
+    let mut stream = UnixStream::connect("/var/run/cn.ac.camellia.flowhub.resource-monitor.sock").ok()?;
+    stream.set_read_timeout(Some(Duration::from_secs(2))).ok()?;
+    stream.set_write_timeout(Some(Duration::from_secs(2))).ok()?;
+    stream.write_all(b"{\"method\":\"snapshot\"}\n").ok()?;
+    let mut response = String::new();
+    stream
+        .take(4 * 1024 * 1024)
+        .read_to_string(&mut response)
+        .ok()?;
+    let value: serde_json::Value = serde_json::from_str(&response).ok()?;
+    serde_json::from_value(value.get("processes")?.clone()).ok()
+}
+
+fn merge_privileged(result: &mut Vec<Process>, own_uid: u32) {
+    let Some(records) = privileged_processes() else {
+        return;
+    };
+    for record in records {
+        if record.pid <= 0 || record.executable.is_empty() || record.started == 0 {
+            continue;
+        }
+        if let Some(process) = result.iter_mut().find(|process| process.identity.pid == record.pid) {
+            if process.identity.executable != record.executable
+                || (process.identity.started != 0 && process.identity.started != record.started)
+            {
+                continue;
+            }
+            process.identity.uid = record.uid;
+            process.identity.started = record.started;
+            process.ppid = record.ppid;
+            process.memory = record.memory;
+            process.footprint = record.footprint;
+            process.cpu_time = record.cpu_time;
+            process.role = "进程".into();
+            process.attribution = "特权采集 · 可执行路径校验".into();
+            if record.uid != own_uid {
+                process.protected = true;
+                process.protection = "其他用户或系统账户".into();
+            }
+        } else if record.uid != own_uid && pid_path(record.pid).as_deref() == Some(&record.executable) {
+            // Include inaccessible other-user processes only after the root sampler and
+            // this process both report the same executable for the PID.
+            result.push(Process {
+                identity: Identity {
+                    pid: record.pid,
+                    started: record.started,
+                    executable: record.executable.clone(),
+                    uid: record.uid,
+                },
+                ppid: record.ppid,
+                name: record.executable.rsplit('/').next().unwrap_or(&record.executable).into(),
+                memory: record.memory,
+                footprint: record.footprint,
+                cpu: None,
+                cwd: String::new(),
+                role: "进程".into(),
+                avd: String::new(),
+                protected: true,
+                protection: "其他用户或系统账户".into(),
+                parent_name: String::new(),
+                group_id: String::new(),
+                attribution: "特权采集 · 可执行路径校验".into(),
+                cpu_time: record.cpu_time,
+            });
+        }
+    }
+}
 
 pub fn uid() -> u32 {
     unsafe { libc::geteuid() }
@@ -37,18 +122,19 @@ fn info<T>(pid: i32, flavor: i32) -> Option<T> {
 
 pub fn identity(pid: i32) -> Option<Identity> {
     let bsd: libc::proc_bsdinfo = info(pid, libc::PROC_PIDTBSDINFO)?;
-    let mut path = [0_i8; 4096];
-    let length = unsafe { libc::proc_pidpath(pid, path.as_mut_ptr().cast(), path.len() as u32) };
+    let executable = pid_path(pid).unwrap_or_default();
     Some(Identity {
         pid,
         uid: bsd.pbi_uid,
         started: bsd.pbi_start_tvsec.saturating_mul(1_000_000) + bsd.pbi_start_tvusec,
-        executable: if length > 0 {
-            text(&path)
-        } else {
-            String::new()
-        },
+        executable,
     })
+}
+
+fn pid_path(pid: i32) -> Option<String> {
+    let mut path = [0_i8; 4096];
+    let length = unsafe { libc::proc_pidpath(pid, path.as_mut_ptr().cast(), path.len() as u32) };
+    (length > 0).then(|| text(&path))
 }
 
 fn cwd(pid: i32) -> String {
@@ -247,6 +333,38 @@ pub fn collect() -> Result<Vec<Process>, String> {
             continue;
         }
         let Some(bsd) = info::<libc::proc_bsdinfo>(pid, libc::PROC_PIDTBSDINFO) else {
+            // A non-privileged process may still be allowed to read proc_pidpath for a
+            // root-owned process even when BSD identity and resource details are denied.
+            // Keep a protected, metrics-unavailable row instead of silently dropping it.
+            let Some(executable) = pid_path(pid).filter(|path| !path.is_empty()) else {
+                continue;
+            };
+            let name = executable.rsplit('/').next().unwrap_or(&executable).to_string();
+            result.push(Process {
+                identity: Identity {
+                    pid,
+                    started: 0,
+                    executable,
+                    // Unknown is deliberately distinct from the current UID. This keeps
+                    // the group in the system section and prevents identity validation
+                    // from authorizing termination.
+                    uid: u32::MAX,
+                },
+                ppid: 0,
+                name,
+                memory: None,
+                footprint: None,
+                cpu: None,
+                cwd: String::new(),
+                role: "权限受限".into(),
+                avd: String::new(),
+                protected: true,
+                protection: "当前用户权限不足：仅可读取名称和路径，资源指标不可读取".into(),
+                parent_name: "不可读取".into(),
+                group_id: String::new(),
+                attribution: "权限受限进程路径".into(),
+                cpu_time: 0,
+            });
             continue;
         };
         let Some(identity) = identity(pid) else {
@@ -323,6 +441,7 @@ pub fn collect() -> Result<Vec<Process>, String> {
             cpu_time,
         });
     }
+    merge_privileged(&mut result, own_uid);
     if result.is_empty() {
         Err("未读取到有效进程，保留上次数据".into())
     } else {
