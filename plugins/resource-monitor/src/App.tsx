@@ -19,6 +19,8 @@ export function Theme({children}:{children:React.ReactNode}) {
 const sortOptions=[{value:'footprint' as const,label:'按内存足迹'},{value:'memory' as const,label:'按 RSS'},{value:'cpu' as const,label:'按 CPU'}];
 const searchStyle={width:'min(330px,100%)',minHeight:30};
 const identity=(p:Process)=>({pid:p.pid,started:p.started,executable:p.executable,uid:p.uid});
+const permissionLimited=(p:Process)=>p.protection.startsWith('当前用户权限不足');
+type PrivilegedStatus={ok:boolean;status:string;message:string};
 
 export function App({api,context}:{api:Api;context:Context}) {
   const [data,setData]=useState<Snapshot>();
@@ -34,8 +36,11 @@ export function App({api,context}:{api:Api;context:Context}) {
   const [plan,setPlan]=useState<Plan>();const [force,setForce]=useState(false);
   const [expires,setExpires]=useState(0);const [remaining,setRemaining]=useState(0);
   const [busy,setBusy]=useState(false);const [refreshing,setRefreshing]=useState(false);
+  const [privilegedStatus,setPrivilegedStatus]=useState<PrivilegedStatus>();const [privilegedBusy,setPrivilegedBusy]=useState(false);
   const alive=useRef(true);const operation=useRef(false);const reading=useRef(false);
   const openedSelection=useRef('');const selected=context.config?.selection?.groupId;
+  const hasOtherUserProcesses=!!data?.groups.some(g=>g.processes.some(p=>p.protection==='其他用户或系统账户'||permissionLimited(p)));
+  const helperNeedsInstall=privilegedStatus?.status==='notFound'||privilegedStatus?.status==='unsupported';
 
   function openDetail(group:Group){
     contextGeneration.current++;setLinksBusy(false);setDetail({...group,processes:[...group.processes]});
@@ -45,7 +50,44 @@ export function App({api,context}:{api:Api;context:Context}) {
   function closeDetail(){contextGeneration.current++;setDetail(undefined);setSource(undefined);setContextDetail(undefined);setLinksBusy(false);}
   useEffect(()=>{if(selected&&selected!==openedSelection.current){const group=data?.groups.find(g=>g.id===selected);if(group){openedSelection.current=selected;openDetail(group);}}},[selected,data]);
   useEffect(()=>{if(data)setDetail(previous=>previous?updateDetail(previous,data.groups.find(g=>g.id===previous.id)):previous);},[data]);
+  useEffect(()=>{
+    if(api.preview||!hasOtherUserProcesses)return;
+    let current=true;
+    api.invoke<PrivilegedStatus>('privileged_status').then(value=>{if(current)setPrivilegedStatus(value);}).catch(error=>{if(current)setPrivilegedStatus({ok:false,status:'unavailable',message:String(error)});});
+    return()=>{current=false;};
+  },[api,hasOtherUserProcesses]);
+  useEffect(()=>{
+    if(api.preview||privilegedStatus?.status!=='requiresApproval')return;
+    let current=true;
+    const timer=setInterval(()=>{
+      api.invoke<PrivilegedStatus>('privileged_status').then(value=>{
+        if(!current)return;
+        setPrivilegedStatus(value);
+        if(value.status==='enabled')void refresh(true);
+      }).catch(()=>{});
+    },3000);
+    return()=>{current=false;clearInterval(timer);};
+  },[api,privilegedStatus?.status]);
   function accept(next:Snapshot){setData(previous=>!previous||next.at>=previous.at?next:previous);}
+  async function managePrivileged(action:'enable'|'disable'){
+    setPrivilegedBusy(true);setError('');setNotice('');
+    try{
+      const value=await api.invoke<PrivilegedStatus>(`privileged_${action}`);
+      if(!alive.current)return;
+      setPrivilegedStatus(value);setNotice(value.message);
+      if(action==='enable'&&value.status==='enabled')await refresh(true);
+      if(action==='disable')await refresh(true);
+    }catch(error){if(alive.current)setError(String(error));}
+    finally{if(alive.current)setPrivilegedBusy(false);}
+  }
+  function confirmPrivileged(action:'enable'|'disable'){
+    Modal.confirm({
+      title:action==='enable'?'启用完整系统进程监控？':'停用完整系统进程监控？',
+      content:action==='enable'?'FlowHub 将注册一个经系统批准后以 root 身份运行的只读采集服务。它读取进程 PID、名称、可执行路径、UID、父进程、RSS、内存足迹和 CPU 时间；不读取命令行或环境变量，也不提供结束进程能力。当前登录用户可读取返回的快照。':'停用后，FlowHub 将注销该系统服务，并退回到当前用户权限可读取的进程数据。',
+      okText:action==='enable'?'继续并打开系统设置':'停用授权',cancelText:'取消',
+      onOk:()=>managePrivileged(action)
+    });
+  }
   async function refresh(manual=false){
     if(reading.current)return;reading.current=true;if(manual)setRefreshing(true);
     try{const next=await api.invoke<Snapshot>(manual?'refresh':'snapshot');if(alive.current){accept(next);setError(next.error??'');}}
@@ -115,14 +157,14 @@ export function App({api,context}:{api:Api;context:Context}) {
     {title:'应用 / 工具',key:'name',render:(_,g)=><div className="app-identity"><span className="app-mark" aria-hidden="true">{g.name.slice(0,1).toUpperCase()}</span><div className="min-w-0"><button className="name-link" aria-label={`查看 ${g.name} 进程`} onClick={()=>openDetail(g)}>{g.name}</button><div className="muted text-xs mt-1">{g.processes.length} 个进程 · {g.source}</div></div></div>},
     {title:'内存足迹',key:'footprint',width:125,align:'right',render:(_,g)=><div className="memory-cell"><strong>{bytes(g.footprint)}</strong><div className="meter" aria-hidden="true"><i style={{width:`${(g.footprint??0)/maxMemory*100}%`}}/></div>{g.footprintIncomplete?<span className="muted text-xs">部分不可读取</span>:null}</div>},
     {title:'RSS',key:'rss',width:100,align:'right',render:(_,g)=><span className="numeric">{bytes(g.memory)}{g.incomplete?' *':''}</span>},
-    {title:'CPU',key:'cpu',width:75,align:'right',render:(_,g)=><span className="numeric">{cpu(g.cpu)}</span>},
+    {title:'CPU',key:'cpu',width:75,align:'right',render:(_,g)=><span className="numeric">{g.processes.length>0&&g.processes.every(permissionLimited)?'—':cpu(g.cpu)}</span>},
     {title:'操作',key:'actions',width:75,render:(_,g)=><Button size="sm" className="compact-button" disabled={api.preview||busy||!!plan||!g.canTerminate} onClick={()=>void prepare(g)}>结束</Button>}
   ];
   const processColumns:TableColumnsType<Process>=[
-    {title:'进程 / 来源',key:'name',render:(_,p)=><div className={p.exited?'exited':''}><button className="name-link" onClick={()=>setSource(p)}>{p.name}</button><div className="muted text-xs mt-1">PID {p.pid} ← {p.ppid} · {p.parentName}{p.exited?' · 已退出':''}</div><div className="muted text-xs mt-1">{p.role} · {p.attribution}</div>{processLabels.has(processKey(p))?<div className="context-label text-xs mt-1">{(processLabels.get(processKey(p))?.length??0)>1?'共享：':'关联：'}{processLabels.get(processKey(p))?.join('、')}</div>:contexts?<div className="muted text-xs mt-1">未关联到页面或对话</div>:null}</div>},
+    {title:'进程 / 来源',key:'name',render:(_,p)=><div className={p.exited?'exited':''}><button className="name-link" onClick={()=>setSource(p)}>{p.name}</button><div className="muted text-xs mt-1">PID {p.pid}{p.ppid>0?` ← ${p.ppid} · ${p.parentName}`:' · 父进程不可读取'}{p.exited?' · 已退出':''}</div><div className="muted text-xs mt-1">{p.role} · {p.attribution}</div>{permissionLimited(p)?<div className="warning text-xs mt-1">资源指标不可读取</div>:null}{processLabels.has(processKey(p))?<div className="context-label text-xs mt-1">{(processLabels.get(processKey(p))?.length??0)>1?'共享：':'关联：'}{processLabels.get(processKey(p))?.join('、')}</div>:contexts?<div className="muted text-xs mt-1">未关联到页面或对话</div>:null}</div>},
     {title:'内存足迹',key:'footprint',width:110,align:'right',render:(_,p)=>bytes(p.footprint)},
     {title:'RSS',key:'memory',width:100,align:'right',render:(_,p)=>bytes(p.memory)},
-    {title:'CPU',key:'cpu',width:75,align:'right',render:(_,p)=>p.exited?'—':cpu(p.cpu)},
+    {title:'CPU',key:'cpu',width:75,align:'right',render:(_,p)=>p.exited||permissionLimited(p)?'—':cpu(p.cpu)},
     {title:'操作',key:'action',width:75,render:(_,p)=><Button size="sm" className="compact-button" disabled={api.preview||busy||!!plan||p.protected||p.exited} onClick={()=>void prepare(p)}>结束</Button>}
   ];
   const contextColumns:TableColumnsType<ContextRow>=[
@@ -146,6 +188,7 @@ export function App({api,context}:{api:Api;context:Context}) {
       <div><span className="muted">内存压力</span><strong className={pressure==='critical'?'danger':pressure==='warning'?'warning':''}>{pressureLabel}</strong></div>
       <div><span className="muted">已用交换空间</span><strong>{bytes(data?.system.swapUsed)}</strong></div>
     </div>
+    {hasOtherUserProcesses?<Alert type={privilegedStatus?.status==='enabled'?'success':'warning'} showIcon className="mb-3" title={privilegedStatus?.message??'部分系统进程的资源数据受当前用户权限限制。'} action={privilegedStatus?.status==='enabled'?<Button size="sm" className="compact-button" disabled={privilegedBusy} onClick={()=>confirmPrivileged('disable')}>停用授权</Button>:<Button size="sm" className="compact-button" disabled={api.preview||privilegedBusy||helperNeedsInstall} onClick={()=>confirmPrivileged('enable')}>{helperNeedsInstall?'需要正式版 FlowHub':privilegedBusy?'处理中…':privilegedStatus?.status==='requiresApproval'?'重新打开系统设置':'授权完整监控'}</Button>}/>:null}
     {api.preview?<Alert type="info" showIcon title="只读模拟数据，结束与应用跳转已禁用。" className="mb-3"/>:null}
     {error?<Alert type="error" showIcon title={error} className="mb-3"/>:null}
     {notice?<Alert type="success" showIcon title={notice} className="mb-3"/>:null}
@@ -161,7 +204,8 @@ export function App({api,context}:{api:Api;context:Context}) {
 
     <Modal title={detail?`${detail.name} · 进程详情`:''} open={!!detail} onCancel={closeDetail} footer={null} width={1000} className="detail-modal" styles={{body:{height:'min(620px,calc(100dvh - 160px))',overflow:'auto'}}}>
       {detail?<>
-        <div className="flex flex-wrap items-center gap-3 mb-3"><span className="numeric">足迹 {bytes(detail.footprint)}{detail.footprintIncomplete?'（部分）':''} · RSS {bytes(detail.memory)} · CPU {cpu(detail.cpu)}</span><Button size="sm" className="compact-button ml-auto" disabled={api.preview||!detail.appPath||linksBusy||!!plan} onClick={()=>void openApp(detail)}>打开应用 ↗</Button></div>
+        <div className="flex flex-wrap items-center gap-3 mb-3"><span className="numeric">足迹 {bytes(detail.footprint)}{detail.footprintIncomplete?'（部分）':''} · RSS {bytes(detail.memory)} · CPU {detail.processes.length>0&&detail.processes.every(permissionLimited)?'—':cpu(detail.cpu)}</span><Button size="sm" className="compact-button ml-auto" disabled={api.preview||!detail.appPath||linksBusy||!!plan} onClick={()=>void openApp(detail)}>打开应用 ↗</Button></div>
+        {detail.processes.some(permissionLimited)?<Alert type="warning" showIcon title="部分进程受系统权限限制：可查看名称与路径，内存和 CPU 数据不可读取，也不能结束进程。" className="mb-3"/>:null}
         <Tabs activeKey={tab} onChange={setTab} items={[{key:'processes',label:'进程'},{key:'pages',label:'页面与对话'}]}/>
         {tab==='processes'?<>
           <div className="flex flex-wrap items-center gap-2 mb-3"><Input className="search-input" style={searchStyle} aria-label="搜索详情进程" placeholder="筛选进程名、PID、路径" value={processQuery} onChange={e=>setProcessQuery(e.target.value)}/><span className="muted text-xs">顺序固定，刷新只更新数值；新进程追加到末尾</span></div>
@@ -197,10 +241,10 @@ export function App({api,context}:{api:Api;context:Context}) {
         {key:'role',label:'类型 / 归属',children:`${source.role} · ${source.attribution}`},
         {key:'path',label:'可执行文件',children:<span className="path">{source.executable||'不可读取'}</span>},
         {key:'cwd',label:'工作目录',children:<span className="path">{source.cwd||'不可读取'}</span>},
-        {key:'parent',label:'当前父进程',children:`${source.parentName} · PID ${source.ppid}`},
+        {key:'parent',label:'当前父进程',children:source.ppid>0?`${source.parentName} · PID ${source.ppid}`:'不可读取'},
         {key:'avd',label:'虚拟设备',children:source.avd||'—'},
-        {key:'start',label:'启动时间',children:new Date(source.started/1000).toLocaleString()},
-        {key:'usage',label:'本次占用',children:`足迹 ${bytes(source.footprint)} · RSS ${bytes(source.memory)} · CPU ${cpu(source.cpu)}`}
+        {key:'start',label:'启动时间',children:source.started?new Date(source.started/1000).toLocaleString():'不可读取'},
+        {key:'usage',label:'本次占用',children:`足迹 ${bytes(source.footprint)} · RSS ${bytes(source.memory)} · CPU ${permissionLimited(source)?'—':cpu(source.cpu)}`}
       ]}/><p className="muted text-xs mt-3 mb-3">{processLabels.get(processKey(source))?`已读取的关联：${processLabels.get(processKey(source))?.join('、')}`:'当前父进程与工作目录只是来源线索，尚未取得可靠的页面或对话映射。'}</p><div className="flex flex-wrap gap-2"><Button className="compact-button" disabled={!detail?.appPath} onClick={()=>{setSource(undefined);setContextDetail(undefined);setTab('pages');}}>页面与对话</Button>{detail?.appPath?<Button className="compact-button" disabled={api.preview||linksBusy||!!plan} onClick={()=>void openApp(detail)}>打开应用 ↗</Button>:null}<Button className="compact-button" disabled={api.preview||busy||!!plan||source.exited||source.protected} onClick={()=>void prepare(source)}>结束</Button></div>{source.protected?<p className="muted text-xs mt-3">{source.protection}</p>:null}</>:null}
     </Modal>
 
