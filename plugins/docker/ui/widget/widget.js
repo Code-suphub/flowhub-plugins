@@ -1,7 +1,7 @@
 (() => {
   const $=s=>document.querySelector(s),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const active=r=>['running','restarting','paused'].includes(r.state);
-  let context,busy=false,operating=false,pending=null;
+  let context,busy=false,operating=false,pending=null,stopResult=null;
   const collapsed=new Set();let filterType=null;
   const navigate=selection=>FlowHubWidget.navigate('detail',{...selection,context:context?.snapshot?.context});
   const confirm=document.createElement('section');confirm.id='confirm';confirm.hidden=true;confirm.setAttribute('role','dialog');confirm.setAttribute('aria-modal','true');confirm.setAttribute('aria-label','确认停止容器');document.body.append(confirm);
@@ -19,6 +19,7 @@
   }
   function render(snapshot){
     if(pending||operating)return;
+    renderStopResult(snapshot);
     const v=DockerWidgetModel.view(snapshot,{...context.config,type:filterType??context.config?.type});
     document.querySelectorAll('[data-type]').forEach(b=>{const selected=b.dataset.type===(filterType??context.config?.type??'all');b.classList.toggle('selected',selected);b.setAttribute('aria-pressed',selected);});
     $('#title').textContent=context.title||(v.project==='*'?'Docker 容器':v.project||'独立容器');
@@ -33,23 +34,31 @@
     const html=`<div class="overview"><strong>${v.running}<small> / ${v.rows.length} 运行</small></strong><span class="${v.issues?'alert':''}">● ${v.issues} 异常</span></div><div class="rows">${rows||`<p class="empty">${v.rows.length?'当前没有异常容器':'此范围暂无容器'}</p>`}</div>`;
     if($('#content').innerHTML!==html)$('#content').innerHTML=html;
   }
+  function renderStopResult(snapshot){
+    if(!stopResult)return;
+    stopResult=DockerWidgetModel.reconcileStopResult(stopResult,snapshot);
+    if(!stopResult){result.textContent='';return;}
+    const failures=stopResult.results.filter(row=>!row.stopped),success=stopResult.results.length-failures.length;
+    result.dataset.state=failures.length?'warning':'success';
+    result.innerHTML=`<strong>${success} 个已停止${failures.length?'，'+failures.length+' 个未确认停止':''}</strong>${failures.length?`<ul>${failures.map(row=>`<li>${esc(row.name)}：${esc(row.error)}</li>`).join('')}</ul>`:''}`;
+  }
   async function refresh(){if(!context||context.preview||busy||pending||operating)return;busy=true;try{context.snapshot=await FlowHubWidget.invoke({action:'snapshot'});render(context.snapshot);}catch(e){render({...context.snapshot,error:e.message});}finally{busy=false;}}
   function dismiss(){pending=null;confirm.hidden=true;$('#content').inert=false;render(context.snapshot);}
   async function prepare(request){
-    if(context.preview||busy||pending||operating)return;busy=true;result.textContent='正在核对停止目标…';
+    if(context.preview||busy||pending||operating)return;busy=true;stopResult=null;result.dataset.state='pending';result.textContent='正在核对停止目标…';
     try{const plan=await FlowHubWidget.invoke({action:'stop_preview',context:context.snapshot.context,...request});
-      if(!plan.targets?.length){result.textContent='目标已停止，无需重复操作。';return;}
+      if(plan.snapshot){context.snapshot=plan.snapshot;render(context.snapshot);}
+      if(!plan.targets?.length){result.dataset.state='success';result.textContent='目标已停止，无需重复操作。';return;}
       pending={...request,context:plan.context,ids:plan.targets.map(r=>r.id)};result.textContent='';$('#content').inert=true;confirm.hidden=false;
       confirm.innerHTML=`<h2>${request.scope==='project'?'停止整个项目？':'停止容器？'}</h2><p>${esc(plan.context)} · ${plan.targets.length} 个容器<br>保留容器、网络和数据卷。</p><ul>${plan.targets.map(r=>`<li>${esc(r.name)}</li>`).join('')}</ul><div class="confirm-actions"><button id="cancel">取消</button><button id="execute" class="danger">确认停止</button></div>`;
       $('#cancel').onclick=dismiss;$('#execute').onclick=execute;$('#cancel').focus();
-    }catch(e){result.textContent=e.message;}finally{busy=false;}
+    }catch(e){result.dataset.state='warning';result.textContent=e.message;}finally{busy=false;}
   }
   async function execute(){
     if(!pending||operating)return;const request=pending;operating=true;$('#execute').disabled=true;$('#cancel').disabled=true;$('#execute').textContent='停止中…';
     try{const response=await FlowHubWidget.invoke({action:'stop_confirm',...request,confirmed:true});context.snapshot=response.snapshot;
-      const failures=response.results.filter(r=>!r.stopped),success=response.results.length-failures.length;
-      result.innerHTML=`<strong>${success} 个已停止${failures.length?'，'+failures.length+' 个未确认停止':''}</strong>${failures.length?`<ul>${failures.map(r=>`<li>${esc(r.name)}：${esc(r.error)}</li>`).join('')}</ul>`:''}`;
-    }catch(e){result.textContent=e.message;}finally{operating=false;dismiss();await refresh();}
+      stopResult={context:request.context,at:response.snapshot.at,results:response.results};
+    }catch(e){result.dataset.state='warning';result.textContent=e.message;}finally{operating=false;dismiss();await refresh();}
   }
   $('#content').onclick=e=>{const b=e.target.closest('button');if(!b||b.disabled||busy||pending||operating)return;if(b.dataset.stop)prepare({scope:'container',id:b.dataset.stop});else if(b.dataset.project)prepare({scope:'project',project:b.dataset.project});else if(b.dataset.openContainer)navigate({kind:'container',id:b.dataset.openContainer});else if(b.dataset.openProject)navigate({kind:'project',project:b.dataset.openProject});else if(b.dataset.fold){collapsed.has(b.dataset.fold)?collapsed.delete(b.dataset.fold):collapsed.add(b.dataset.fold);render(context.snapshot);}};
   addEventListener('keydown',e=>{if(e.key==='Escape'&&pending&&!operating){e.preventDefault();dismiss();}});

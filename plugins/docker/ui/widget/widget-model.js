@@ -8,6 +8,13 @@
       issues:rows.filter(r=>r.status==='error').length,
       visible:config.onlyIssues?rows.filter(r=>r.status==='error'):rows};
   }
-  globalThis.DockerWidgetModel={view};
-  if(typeof module!=='undefined')module.exports={view};
+  function reconcileStopResult(operation,snapshot){
+    if(!operation||!snapshot)return operation;
+    if(snapshot.context&&snapshot.context!==operation.context)return null;
+    if(snapshot.context!==operation.context||snapshot.error||snapshot.pending||!Array.isArray(snapshot.rows)||typeof snapshot.at!=='number'||snapshot.at<operation.at)return operation;
+    const rows=new Map(snapshot.rows.map(row=>[row.id,row]));
+    return {...operation,results:operation.results.map(row=>!row.stopped&&['exited','created'].includes(rows.get(row.id)?.state)?{...row,state:rows.get(row.id).state,stopped:true,error:null}:row)};
+  }
+  globalThis.DockerWidgetModel={view,reconcileStopResult};
+  if(typeof module!=='undefined')module.exports={view,reconcileStopResult};
 })();

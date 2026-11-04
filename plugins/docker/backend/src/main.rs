@@ -174,7 +174,37 @@ fn lines(raw: &str) -> Result<Vec<Value>, String> {
 async fn list_in_context(context: &str) -> Result<Value, String> {
     let format = r#"{"id":{{json .ID}},"name":{{json .Names}},"image":{{json .Image}},"state":{{json .State}},"status":{{json .Status}},"ports":{{json .Ports}},"project":{{json (.Label "com.docker.compose.project")}},"service":{{json (.Label "com.docker.compose.service")}}}"#;
     let raw = docker(context, &["ps", "-a", "--no-trunc", "--format", format]).await?;
-    Ok(json!({"context":context,"containers":lines(&raw)?}))
+    let mut containers = lines(&raw)?;
+    // The daemon's ps summary can lag behind the individual container state.
+    // Inspect only allowlisted fields; never collect Config.Env or raw labels.
+    for batch in containers.chunks_mut(128) {
+        let format = r#"{"id":{{json .Id}},"state":{{json .State.Status}},"health":{{if (index .State "Health")}}{{json (index .State "Health" "Status")}}{{else}}null{{end}}}"#;
+        let mut args = vec!["inspect", "--type", "container", "--format", format];
+        for container in batch.iter() {
+            args.push(id(container)?);
+        }
+        let inspected = lines(&docker(context, &args).await?)?;
+        apply_container_states(batch, &inspected)?;
+    }
+    Ok(json!({"context":context,"containers":containers}))
+}
+
+fn apply_container_states(containers: &mut [Value], inspected: &[Value]) -> Result<(), String> {
+    let states: std::collections::HashMap<_, _> = inspected.iter()
+        .filter_map(|row| row["id"].as_str().map(|id| (id, row))).collect();
+    for container in containers {
+        let current = states.get(container["id"].as_str().unwrap_or(""))
+            .ok_or("容器状态详情不完整，请刷新列表后重试")?;
+        let state = current["state"].as_str().filter(|state|
+            matches!(*state, "running" | "exited" | "created" | "paused" | "restarting" | "dead" | "removing"))
+            .ok_or("Docker 返回了无法识别的容器状态")?;
+        container["state"] = json!(state);
+        container["status"] = json!(match current["health"].as_str() {
+            Some(health) if state == "running" => format!("{state} ({health})"),
+            _ => state.to_string(),
+        });
+    }
+    Ok(())
 }
 fn stop_targets(list: &Value, p: &Value) -> Result<Vec<Value>, String> {
     let scope = p["scope"].as_str().unwrap_or("");
@@ -233,7 +263,9 @@ async fn widget_stop(p: &Value) -> Result<Value, String> {
     let list = list_in_context(&context).await?;
     let targets = stop_targets(&list, p)?;
     if !execute {
-        return Ok(json!({"context":context,"targets":targets}));
+        let state = status_data(&list, now());
+        *cache().write().unwrap() = state.clone();
+        return Ok(json!({"context":context,"targets":targets,"snapshot":state}));
     }
     if !same_targets(&targets, &p["ids"]) {
         return Err("目标容器列表或状态已变化，请重新确认".into());
@@ -253,7 +285,7 @@ async fn widget_stop(p: &Value) -> Result<Value, String> {
             let results:Vec<Value>=targets.iter().map(|t|{
                 let state=rows.iter().find(|r|r["id"]==t["id"]).and_then(|r|r["state"].as_str()).unwrap_or("removed");
                 let stopped=matches!(state,"exited"|"created");
-                json!({"id":t["id"],"name":t["name"],"state":state,"stopped":stopped,"error":if stopped{None}else{Some(execution_error.as_deref().unwrap_or("未确认已停止，请刷新核实"))}})
+                json!({"id":t["id"],"name":t["name"],"state":state,"stopped":stopped,"error":if stopped{None}else{Some(execution_error.clone().unwrap_or_else(||format!("停止后容器状态为 {state}，尚未确认停止。")))}})
             }).collect();
             (results,status_data(&after,now()))
         },
@@ -315,7 +347,7 @@ async fn manage(method: &str, p: &Value) -> Result<Value, String> {
         "detail" => {
             let cid = id(p)?;
             // Deliberately exclude Config.Env and arbitrary labels (may contain secrets).
-            let format = r#"{"state":{{json .State.Status}},"health":{{if .State.Health}}{{json .State.Health.Status}}{{else}}null{{end}},"exitCode":{{json .State.ExitCode}},"started":{{json .State.StartedAt}},"restarts":{{json .RestartCount}},"mounts":{{json .Mounts}},"ports":{{json .NetworkSettings.Ports}}}"#;
+            let format = r#"{"state":{{json .State.Status}},"health":{{if (index .State "Health")}}{{json (index .State "Health" "Status")}}{{else}}null{{end}},"exitCode":{{json .State.ExitCode}},"started":{{json .State.StartedAt}},"restarts":{{json .RestartCount}},"mounts":{{json .Mounts}},"ports":{{json .NetworkSettings.Ports}}}"#;
             let raw = docker(
                 &context,
                 &["inspect", "--type", "container", "--format", format, cid],
@@ -391,6 +423,28 @@ async fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn inspected_state_overrides_stale_ps_without_copying_private_details() {
+        let mut rows = vec![json!({"id":"a","name":"redis","state":"running","status":"Up 8 days","project":"demo"}),
+            json!({"id":"b","name":"api","state":"running","status":"Up (unhealthy)"})];
+        let inspected = vec![json!({"id":"a","state":"exited","health":null,"Config":{"Env":["PRIVATE_SECRET"]}}),
+            json!({"id":"b","state":"running","health":"healthy"})];
+        apply_container_states(&mut rows, &inspected).unwrap();
+        assert_eq!(rows[0]["state"], "exited");
+        assert_eq!(rows[0]["name"], "redis");
+        assert_eq!(rows[0]["project"], "demo");
+        assert!(!rows[1]["status"].as_str().unwrap().contains("unhealthy"));
+        let snapshot = status_data(&json!({"context":"colima","containers":rows}), now());
+        assert_eq!(snapshot["rows"][0]["summary"], "已停止");
+        assert_eq!(snapshot["rows"][1]["status"], "healthy");
+        assert!(!snapshot.to_string().contains("PRIVATE_SECRET"));
+    }
+    #[test]
+    fn incomplete_or_unknown_inspect_response_does_not_confirm_list_state() {
+        let mut rows = vec![json!({"id":"a","state":"running"})];
+        assert!(apply_container_states(&mut rows, &[]).is_err());
+        assert!(apply_container_states(&mut rows, &[json!({"id":"a","state":"invalid"})]).is_err());
+    }
     #[test]
     fn project_stop_is_exact_and_rejects_changed_or_duplicate_targets() {
         let list = json!({"containers":[{"id":"a","project":"app","state":"running"},{"id":"b","project":"app-extra","state":"running"},{"id":"c","project":"app","state":"exited"},{"id":"d","project":"app","state":"paused"}]});
