@@ -20,6 +20,8 @@
   .search-input {width:min(330px,100%);min-height:30px;font-size:12px}
   .app-identity {display:flex;align-items:center;gap:12px;min-width:0}
   .app-mark {display:grid;place-items:center;flex-shrink:0;width:26px;height:26px;border:1px solid var(--fh-border);border-radius:7px;color:var(--fh-accent);background:var(--fh-surface-soft);font-size:12px}
+  .app-mark.has-icon {border-color:transparent;background:transparent}
+  .app-mark img {display:block;width:100%;height:100%;object-fit:contain}
   .memory-cell strong {font-size:12px;font-weight:600}
   .meter {margin-top:7px;margin-left:auto;max-width:100px;height:3px;background:var(--fh-surface-soft);border-radius:2px;overflow:hidden}
   .meter i {display:block;height:100%;background:var(--fh-accent);border-radius:2px}
@@ -37,6 +39,10 @@
   .confirm-targets {max-height:300px;overflow-y:auto}
   .confirm-target {display:grid;gap:5px;padding:10px 0;border-bottom:1px solid var(--fh-border)}
   .widget {min-width:0;background:var(--fh-surface)}
+  .widget--card {display:flex;flex-direction:column;height:100dvh;overflow:hidden}
+  .widget--card> :not(.widget-list) {flex-shrink:0}
+  .widget-list {flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable}
+  .widget-list:focus-visible {outline:2px solid var(--fh-accent);outline-offset:2px}
   .widget-row {display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;padding:10px 0;border:0;border-bottom:1px solid var(--fh-border);background:transparent;text-align:left;color:var(--fh-text);font-size:12px}
   .widget-row:disabled {cursor:default;opacity:1}
   .widget-row:hover:not(:disabled) {background:var(--fh-surface-soft)}

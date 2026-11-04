@@ -1,6 +1,9 @@
 mod accessibility;
 mod attribution;
+mod applications;
 mod model;
+mod projects;
+mod instances;
 #[cfg(target_os = "macos")]
 mod native;
 mod surfaces;
@@ -35,12 +38,12 @@ impl Snapshot {
         json!({"at":self.at,"groups":self.groups,"system":self.system,"error":self.error,"memoryMetric":"footprint","interval":5})
     }
     fn status(&self) -> Value {
-        // Status cache intentionally excludes paths, argv, working directories and individual PIDs.
+        // Status includes app bundle paths for icons, but no process paths, argv, cwd or PIDs.
         let stale = now().saturating_sub(self.at) > 20_000;
         let rows: Vec<_> = self.groups.iter().filter(|g| !g.system).map(|g| {
-            json!({"id":g.id,"name":g.name,"at":self.at,"status":if self.at == 0 {"unknown"} else if stale || self.error.is_some() {"stale"} else {"healthy"},
+            json!({"id":g.id,"name":g.name,"appPath":g.app_path,"iconKey":g.icon_key,"at":self.at,"status":if self.at == 0 {"unknown"} else if stale || self.error.is_some() {"stale"} else {"healthy"},
                 "summary":format!("{} · CPU {} · {} 个进程",g.footprint.map(|v|format!("{:.0} MiB 足迹{}",v as f64/1048576.,if g.footprint_incomplete {"（部分）"} else {""})).unwrap_or("足迹未知".into()),g.cpu.map(|v|format!("{v:.1}%")).unwrap_or("采样中".into()),g.processes.len()),
-                "values":{"memory":g.memory,"footprint":g.footprint,"rss":g.memory,"cpu":g.cpu},"count":g.processes.len(),"incomplete":g.footprint_incomplete})
+                "values":{"memory":g.memory,"footprint":g.footprint,"rss":g.memory,"cpu":g.cpu},"count":g.processes.len(),"instanceCount":g.instances.len(),"incomplete":g.footprint_incomplete})
         }).collect();
         json!({"title":"应用资源","monitoring":true,"at":self.at,"rows":rows,"system":self.system,"error":self.error,"memoryMetric":"footprint"})
     }
@@ -52,6 +55,7 @@ struct Plan {
     created: Instant,
     targets: Vec<Identity>,
     group: Option<String>,
+    instance: Option<String>,
     force: bool,
 }
 struct Monitor {
@@ -60,6 +64,7 @@ struct Monitor {
     sampled: Option<Instant>,
     plans: HashMap<String, Plan>,
     links: surfaces::Links,
+    quitter: applications::Quitter,
 }
 impl Monitor {
     fn new() -> Self {
@@ -74,6 +79,7 @@ impl Monitor {
             sampled: None,
             plans: HashMap::new(),
             links: surfaces::Links::default(),
+            quitter: applications::Quitter::default(),
         }
     }
     fn refresh(&mut self) -> Result<(), String> {
@@ -102,6 +108,8 @@ impl Monitor {
             .map(|p| (p.identity.pid, (p.identity.clone(), p.cpu_time)))
             .collect();
         self.sampled = Some(at);
+        applications::resolve_bundle_paths(&mut processes);
+        projects::resolve(&mut processes, native::uid(), native::node_entry);
         self.snapshot = Snapshot {
             at: now(),
             groups: model::group_processes(processes, native::uid()),
@@ -120,15 +128,18 @@ impl Monitor {
             .get("groupId")
             .and_then(Value::as_str)
             .map(String::from);
+        let mut instance = None;
+        let mut scope = json!({"kind":"process"});
         let members: Vec<&Process> = if let Some(id) = &group {
-            self.snapshot
+            let selected_group = self.snapshot
                 .groups
                 .iter()
                 .find(|g| &g.id == id)
-                .ok_or("应用已退出，请刷新")?
-                .processes
-                .iter()
-                .collect()
+                .ok_or("应用已退出，请刷新")?;
+            let (selected,members)=instances::members(selected_group,params["instanceId"].as_str())?;
+            instance=Some(selected.id.clone());
+            scope=json!({"kind":"instance","name":selected_group.name,"instanceId":selected.id,"root":selected.root});
+            members
         } else {
             let target: Identity =
                 serde_json::from_value(params["identity"].clone()).map_err(|_| "进程身份无效")?;
@@ -148,7 +159,7 @@ impl Monitor {
         }
         let targets = members.iter().map(|p| p.identity.clone()).collect();
         let token = uuid::Uuid::new_v4().to_string();
-        let result = json!({"token":token,"force":force,"expiresIn":30,"targets":members,"memoryMetric":"rss"});
+        let result = json!({"token":token,"force":force,"expiresIn":30,"targets":members,"scope":scope,"memoryMetric":"rss"});
         self.plans
             .retain(|_, p| p.created.elapsed() < Duration::from_secs(30));
         if self.plans.len() >= 16 {
@@ -161,6 +172,7 @@ impl Monitor {
                 created: Instant::now(),
                 targets,
                 group,
+                instance,
                 force,
             },
         );
@@ -186,7 +198,7 @@ impl Monitor {
                 .groups
                 .iter()
                 .find(|g| &g.id == group)
-                .map(|g| g.processes.iter().collect())
+                .and_then(|g| instances::members(g,plan.instance.as_deref()).ok().map(|(_,members)|members))
                 .unwrap_or_default()
         } else {
             self.snapshot
@@ -209,8 +221,11 @@ impl Monitor {
         }
         let mut results = Vec::new();
         for target in &plan.targets {
-            let error = native::signal(target, force).err();
-            results.push(json!({"pid":target.pid,"sent":error.is_none(),"error":error}));
+            // A root's graceful shutdown may already have stopped a child.
+            // An exited PID needs no signal; a reused live PID still fails identity validation.
+            let gone = native::exited(target);
+            let error = if gone {None} else {native::signal(target, force).err()};
+            results.push(json!({"pid":target.pid,"sent":!gone&&error.is_none(),"error":error}));
         }
         // SIGTERM may be handled asynchronously. Report observed exit separately from signal delivery.
         std::thread::sleep(Duration::from_millis(250));
@@ -232,6 +247,21 @@ impl Monitor {
             }
             "terminate_preview" => self.preview(params),
             "terminate_confirm" => self.execute(params),
+            "application_state" | "quit_preview" => {
+                if method=="quit_preview" {self.refresh()?;}
+                let id=params["groupId"].as_str().ok_or("应用标识无效")?;
+                let group=self.snapshot.groups.iter().find(|group|group.id==id);
+                if method=="application_state" {Ok(group.map(applications::Quitter::state).unwrap_or_else(||json!({"canQuit":false,"message":"应用已退出。"})))}
+                else{self.quitter.preview(group.ok_or("应用已退出，请刷新")?,params["instanceId"].as_str())}
+            }
+            "quit_confirm" => {
+                self.quitter.validate(params)?;
+                self.refresh()?;
+                let mut result=self.quitter.execute(params,&self.snapshot.groups)?;
+                let refresh_error=self.refresh().err();
+                result["snapshot"]=self.snapshot.full();result["refreshError"]=json!(refresh_error);
+                Ok(result)
+            }
             "contexts" | "arc_tasks" | "focus_app" | "open_context" => {
                 self.refresh()?;
                 let id = params["groupId"].as_str().ok_or("应用标识无效")?;
@@ -264,6 +294,9 @@ impl Monitor {
                         "refresh",
                         "terminate_preview",
                         "terminate_confirm",
+                        "application_state",
+                        "quit_preview",
+                        "quit_confirm",
                         "contexts",
                         "arc_tasks",
                         "accessibility_settings",
@@ -345,6 +378,7 @@ mod tests {
             created: Instant::now() - Duration::from_secs(31),
             targets: vec![],
             group: None,
+            instance: None,
             force: false,
         };
         m.plans.insert(plan.token.clone(), plan);

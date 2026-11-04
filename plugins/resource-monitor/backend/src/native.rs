@@ -6,6 +6,7 @@ use std::{
     ffi::CStr,
     io::{Read, Write},
     mem::{size_of, zeroed},
+    sync::OnceLock,
     os::{fd::AsRawFd, unix::net::UnixStream},
     time::Duration,
 };
@@ -79,6 +80,9 @@ fn merge_privileged(result: &mut Vec<Process>, own_uid: u32) {
                     uid: record.uid,
                 },
                 ppid: record.ppid,
+                responsible: None,
+                registered_app_path: None,
+                runtime_project: None,
                 name: record.executable.rsplit('/').next().unwrap_or(&record.executable).into(),
                 memory: record.memory,
                 footprint: record.footprint,
@@ -90,6 +94,7 @@ fn merge_privileged(result: &mut Vec<Process>, own_uid: u32) {
                 protection: "其他用户或系统账户".into(),
                 parent_name: String::new(),
                 group_id: String::new(),
+                instance_id: String::new(),
                 attribution: "特权采集 · 可执行路径校验".into(),
                 cpu_time: record.cpu_time,
             });
@@ -99,6 +104,32 @@ fn merge_privileged(result: &mut Vec<Process>, own_uid: u32) {
 
 pub fn uid() -> u32 {
     unsafe { libc::geteuid() }
+}
+
+fn webkit_responsibility(processes: &mut [Process], own_uid: u32) {
+    type ResponsiblePid = unsafe extern "C" fn(i32) -> i32;
+    static LOOKUP: OnceLock<Option<ResponsiblePid>> = OnceLock::new();
+    let Some(lookup) = *LOOKUP.get_or_init(|| unsafe {
+        // Optional macOS SPI also used by Chromium. Missing support leaves the
+        // process unattributed; it must never prevent sampling on another OS version.
+        let symbol = libc::dlsym(libc::RTLD_DEFAULT, b"responsibility_get_pid_responsible_for_pid\0".as_ptr().cast());
+        (!symbol.is_null()).then(|| std::mem::transmute::<*mut libc::c_void, ResponsiblePid>(symbol))
+    }) else { return; };
+    let identities: std::collections::HashMap<_, _> = processes.iter().map(|p| (p.identity.pid, p.identity.clone())).collect();
+    for process in processes {
+        if process.identity.uid != own_uid || !process.identity.executable.contains("/WebKit.framework/")
+            || !process.name.starts_with("com.apple.WebKit.") { continue; }
+        let pid = unsafe { lookup(process.identity.pid) };
+        let Some(owner) = identities.get(&pid).filter(|owner| owner.pid != process.identity.pid && owner.uid == own_uid
+            && crate::model::app_bundle(&owner.executable).is_some()) else { continue; };
+        // Both identities and the responsibility link must still agree after lookup.
+        if identity(process.identity.pid).as_ref() != Some(&process.identity)
+            || identity(pid).as_ref() != Some(owner) || unsafe { lookup(process.identity.pid) } != pid { continue; }
+        process.responsible = Some(owner.clone());
+        process.role = if process.name.ends_with("WebContent") { "网页渲染" }
+            else if process.name.ends_with("Networking") { "网页网络服务" }
+            else if process.name.ends_with("GPU") { "网页图形服务" } else { "WebKit 辅助进程" }.into();
+    }
 }
 
 fn text(chars: &[libc::c_char]) -> String {
@@ -134,6 +165,12 @@ pub fn identity(pid: i32) -> Option<Identity> {
         started: bsd.pbi_start_tvsec.saturating_mul(1_000_000) + bsd.pbi_start_tvusec,
         executable,
     })
+}
+
+pub fn exited(target: &Identity) -> bool {
+    info::<libc::proc_bsdinfo>(target.pid, libc::PROC_PIDTBSDINFO).is_none_or(|bsd|
+        bsd.pbi_status == libc::SZOMB || bsd.pbi_uid != target.uid
+        || bsd.pbi_start_tvsec.saturating_mul(1_000_000)+bsd.pbi_start_tvusec != target.started)
 }
 
 fn pid_path(pid: i32) -> Option<String> {
@@ -231,6 +268,43 @@ pub fn codex_thread(target: &Identity) -> Result<Option<String>, ()> {
     Ok(thread)
 }
 
+fn node_entry_argument(arguments: &[&[u8]]) -> Option<String> {
+    let mut index = 1;
+    while index < arguments.len() {
+        let value = std::str::from_utf8(arguments[index]).ok()?;
+        if matches!(value, "-e" | "--eval" | "-p" | "--print")
+            || value.starts_with("--eval=") || value.starts_with("--print=") {
+            return None; // Inline source is never retained or interpreted.
+        }
+        if matches!(value, "-r" | "--require" | "--import" | "--loader" | "--experimental-loader" | "--conditions" | "--title" | "--env-file" | "--inspect-port") {
+            index += 2;
+            continue;
+        }
+        if value == "--" { index += 1; break; }
+        if value.starts_with('-') {
+            if value.contains('=') || matches!(value, "--no-warnings" | "--no-deprecation" | "--trace-warnings" | "--enable-source-maps" | "--inspect" | "--inspect-brk" | "--experimental-strip-types" | "--experimental-vm-modules") {
+                index += 1; continue;
+            }
+            return None; // Unknown flags may consume a value; do not guess.
+        }
+        break;
+    }
+    let entry = std::str::from_utf8(*arguments.get(index)?).ok()?;
+    let entry = entry.strip_prefix("file://").unwrap_or(entry);
+    if entry.is_empty() || entry.len() > 4096 || entry.starts_with('-') || entry.chars().any(char::is_control) { return None; }
+    Some(entry.into())
+}
+
+/// Keep only the first Node entry path, never later script arguments or environment.
+pub fn node_entry(target: &Identity) -> Option<String> {
+    if target.uid != uid() || identity(target.pid).as_ref() != Some(target) { return None; }
+    let mut data = process_arguments(target.pid)?;
+    let entry = argument_sections(&data).and_then(|(args, _)| node_entry_argument(&args));
+    data.fill(0);
+    if identity(target.pid).as_ref() != Some(target) { return None; }
+    entry
+}
+
 /// Routine sampling keeps only two allowlisted argv options; it never reads environment fields.
 fn metadata(pid: i32, exe: &str) -> (String, String) {
     if !(exe.contains("/emulator/") || exe.contains(".app/")) {
@@ -283,6 +357,16 @@ mod argument_tests {
         result.extend_from_slice(b"/usr/bin/tool\0\0\0tool\0--flag\0");
         result.extend_from_slice(env);
         result
+    }
+    #[test]
+    fn node_entry_is_one_positional_script_and_never_inline_code_or_later_arguments() {
+        assert_eq!(node_entry_argument(&[b"node", b"/project/index.js", b"--token", b"secret"]),Some("/project/index.js".into()));
+        assert_eq!(node_entry_argument(&[b"node", b"--require", b"/setup.js", b"--no-warnings", b"/project/index.js"]),Some("/project/index.js".into()));
+        assert_eq!(node_entry_argument(&[b"node", b"--no-warnings", b"--no-deprecation", b"/tool/happy/dist/index.mjs"]),Some("/tool/happy/dist/index.mjs".into()));
+        assert_eq!(node_entry_argument(&[b"node", b"--", b"file:///project/index.mjs"]),Some("/project/index.mjs".into()));
+        for args in [vec![b"node".as_slice(),b"-e",b"private source",b"/fake/index.js"], vec![b"node".as_slice(),b"--unknown",b"secret",b"/fake/index.js"], vec![b"node".as_slice(),b"--eval=private source"], vec![b"node".as_slice(),b"--require",b"/setup.js"]] {
+            assert!(node_entry_argument(&args).is_none());
+        }
     }
     #[test]
     fn only_an_unambiguous_uuid_environment_marker_is_retained() {
@@ -356,6 +440,9 @@ pub fn collect() -> Result<Vec<Process>, String> {
                     uid: u32::MAX,
                 },
                 ppid: 0,
+                responsible: None,
+                registered_app_path: None,
+                runtime_project: None,
                 name,
                 memory: None,
                 footprint: None,
@@ -367,6 +454,7 @@ pub fn collect() -> Result<Vec<Process>, String> {
                 protection: "当前用户权限不足：仅可读取名称和路径，资源指标不可读取".into(),
                 parent_name: "不可读取".into(),
                 group_id: String::new(),
+                instance_id: String::new(),
                 attribution: "权限受限进程路径".into(),
                 cpu_time: 0,
             });
@@ -431,6 +519,9 @@ pub fn collect() -> Result<Vec<Process>, String> {
         result.push(Process {
             identity,
             ppid: bsd.pbi_ppid as i32,
+            responsible: None,
+            registered_app_path: None,
+            runtime_project: None,
             name,
             memory,
             footprint,
@@ -442,11 +533,13 @@ pub fn collect() -> Result<Vec<Process>, String> {
             protection: protection.into(),
             parent_name: String::new(),
             group_id: String::new(),
+            instance_id: String::new(),
             attribution: String::new(),
             cpu_time,
         });
     }
     merge_privileged(&mut result, own_uid);
+    webkit_responsibility(&mut result, own_uid);
     if result.is_empty() {
         Err("未读取到有效进程，保留上次数据".into())
     } else {

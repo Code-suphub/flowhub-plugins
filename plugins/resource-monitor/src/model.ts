@@ -1,4 +1,11 @@
-import type {ContextEntry,Group,Identity,PageContexts,Process,Snapshot,StatusSnapshot,Sort} from './types';
+import type {Config,ContextEntry,Group,Identity,PageContexts,Process,Snapshot,StatusSnapshot,Sort} from './types';
+export function widgetRows(snapshot:StatusSnapshot|undefined,config:Config={}) {
+  const sort=config.sort==='cpu'?'cpu':config.sort==='memory'?'rss':'footprint';
+  const rows=[...(snapshot?.rows??[])].filter(row=>!config.groupId||row.id===config.groupId)
+    .sort((a,b)=>(b.values[sort]??-1)-(a.values[sort]??-1)||a.id.localeCompare(b.id));
+  const limit=typeof config.limit==='number'&&Number.isFinite(config.limit)?Math.max(3,Math.min(10,Math.floor(config.limit))):5;
+  return config.display==='top'?rows.slice(0,limit):rows;
+}
 export const processKey=(p:Identity)=>`${p.pid}:${p.started}:${p.uid}:${p.executable}`;
 export function contextRows(contexts:PageContexts,snapshot:Snapshot|undefined,now=Date.now()) {
   const current=new Map((snapshot?.groups??[]).flatMap(g=>g.processes).map(p=>[processKey(p),p]));
@@ -24,7 +31,7 @@ export const bytes = (value:number|null|undefined) => {
 };
 export const cpu = (value:number|null|undefined) => value == null || !Number.isFinite(value) ? '采样中' : `${value.toFixed(1)}%`;
 export function matchesProcess(p:Process,q:string) {
-  return [p.name,p.executable,p.cwd,p.parentName,String(p.pid),String(p.ppid),p.avd].some(s=>s.toLocaleLowerCase().includes(q));
+  return [p.name,p.executable,p.cwd,p.parentName,String(p.pid),String(p.ppid),p.avd,p.runtimeProject?.name??'',p.runtimeProject?.root??'',p.runtimeProject?.entry??''].some(s=>s.toLocaleLowerCase().includes(q));
 }
 export function filterGroups(groups:Group[],query:string,system:boolean,sort:Sort,order:'ascend'|'descend'='descend') {
   const q=query.trim().toLocaleLowerCase();
@@ -39,10 +46,10 @@ export function updateDetail(previous:Group,latest:Group|undefined):Group {
   const key=(p:Process)=>`${p.pid}:${p.started}`;
   const fresh=new Map((latest?.processes??[]).map(p=>[key(p),p]));
   const processes=previous.processes.map(p=>{const current=fresh.get(key(p));fresh.delete(key(p));return current?{...current,exited:false}:{...p,exited:true,memory:null,footprint:null,cpu:null};});
-  return {...(latest??previous),memory:latest?.memory??null,footprint:latest?.footprint??null,cpu:latest?.cpu??null,canTerminate:latest?.canTerminate??false,processes:[...processes,...fresh.values()]};
+  return {...(latest??previous),memory:latest?.memory??null,footprint:latest?.footprint??null,cpu:latest?.cpu??null,canTerminate:latest?.canTerminate??false,instances:latest?.instances??[],processes:[...processes,...fresh.values()]};
 }
 export function statusFrom(snapshot:Snapshot):StatusSnapshot {
-  return {at:snapshot.at,system:snapshot.system,error:snapshot.error,rows:snapshot.groups.filter(g=>!g.system).map(g=>({id:g.id,name:g.name,at:snapshot.at,status:'healthy',summary:`${bytes(g.footprint)} 足迹 · CPU ${cpu(g.cpu)}`,values:{memory:g.memory,footprint:g.footprint,rss:g.memory,cpu:g.cpu},count:g.processes.length,incomplete:g.footprintIncomplete}))};
+  return {at:snapshot.at,system:snapshot.system,error:snapshot.error,rows:snapshot.groups.filter(g=>!g.system).map(g=>({id:g.id,name:g.name,appPath:g.appPath,iconKey:g.iconKey,at:snapshot.at,status:'healthy',summary:`${bytes(g.footprint)} 足迹 · CPU ${cpu(g.cpu)}`,values:{memory:g.memory,footprint:g.footprint,rss:g.memory,cpu:g.cpu},count:g.processes.length,instanceCount:g.instances?.length,incomplete:g.footprintIncomplete}))};
 }
 export function sampleSnapshot():Snapshot {
   const appPath=(processes:Process[])=>{const exe=processes.find(p=>p.executable.includes('.app/'))?.executable;return exe?exe.split('.app/')[0]+'.app':null;};

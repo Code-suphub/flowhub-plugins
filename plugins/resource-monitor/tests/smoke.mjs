@@ -24,7 +24,7 @@ try{
   assert.ok(all.find(p=>p.pid===backend.pid)?.protected);
   assert.ok(all.find(p=>p.pid===backend.pid)?.footprint>0);
   const status=await rpc('status_snapshot');assert.ok(status.rows.length);
-  assert.equal(JSON.stringify(status).includes('/Users/'),false);
+  assert.ok(status.rows.every(row=>!('processes' in row)&&!('pid' in row)&&!('executable' in row)&&!('cwd' in row)));
   const codex=snapshot.groups.find(g=>g.appPath?.endsWith('/Codex.app')||(g.appPath?.endsWith('/ChatGPT.app')&&g.processes.some(p=>p.executable.toLowerCase().includes('codex'))));
   if(codex){
     const marker='d57ca944-ef25-48d8-9464-2ef7f3037345';
