@@ -30,8 +30,9 @@ export const bytes = (value:number|null|undefined) => {
   return value >= 1073741824 ? `${(value/1073741824).toFixed(2)} GiB` : `${(value/1048576).toFixed(0)} MiB`;
 };
 export const cpu = (value:number|null|undefined) => value == null || !Number.isFinite(value) ? '采样中' : `${value.toFixed(1)}%`;
+export const processName = (p:Process) => p.displayName || p.name;
 export function matchesProcess(p:Process,q:string) {
-  return [p.name,p.executable,p.cwd,p.parentName,String(p.pid),String(p.ppid),p.avd,p.runtimeProject?.name??'',p.runtimeProject?.root??'',p.runtimeProject?.entry??''].some(s=>s.toLocaleLowerCase().includes(q));
+  return [p.name,p.displayName??'',p.executable,p.cwd,p.parentName,String(p.pid),String(p.ppid),p.avd,p.runtimeProject?.name??'',p.runtimeProject?.root??'',p.runtimeProject?.entry??''].some(s=>s.toLocaleLowerCase().includes(q));
 }
 export function filterGroups(groups:Group[],query:string,system:boolean,sort:Sort,order:'ascend'|'descend'='descend') {
   const q=query.trim().toLocaleLowerCase();

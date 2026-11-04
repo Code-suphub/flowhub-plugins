@@ -34,6 +34,8 @@ pub struct Process {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runtime_project: Option<RuntimeProject>,
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
     pub memory: Option<u64>,
     pub footprint: Option<u64>,
     pub cpu: Option<f64>,
@@ -265,7 +267,7 @@ pub fn group_processes(mut processes: Vec<Process>, own_uid: u32) -> Vec<Group> 
     }
     let names: HashMap<i32, String> = processes
         .iter()
-        .map(|p| (p.identity.pid, p.name.clone()))
+        .map(|p| (p.identity.pid, p.display_name.as_ref().unwrap_or(&p.name).clone()))
         .collect();
     let mut result: Vec<_> = groups.into_values().collect();
     for g in &mut result {
@@ -303,6 +305,7 @@ pub(crate) mod tests {
             registered_app_path: None,
             runtime_project: None,
             name: exe.rsplit('/').next().unwrap().into(),
+            display_name: None,
             memory: Some(100),
             footprint: Some(150),
             cpu: None,
@@ -328,6 +331,20 @@ pub(crate) mod tests {
         assert!(runtime_icon("").is_none());
         let mut fake=process(30,1,"/bin/sleep");fake.name="python3.12".into();
         assert!(group_processes(vec![fake],501)[0].icon_key.is_none());
+    }
+    #[test]
+    fn display_labels_do_not_change_group_instance_or_target_identity() {
+        let root=process(10,1,"/Applications/Zen.app/Contents/MacOS/zen");
+        let child=process(20,10,"/Applications/Zen.app/Contents/MacOS/plugin-container.app/Contents/MacOS/plugin-container");
+        let before=group_processes(vec![root.clone(),child.clone()],501).remove(0);
+        let mut labeled=child;
+        labeled.display_name=Some("ZenCP WebExtensions".into());
+        let after=group_processes(vec![root,labeled],501).remove(0);
+        assert_eq!(before.id,after.id);
+        assert_eq!(before.instances[0].id,after.instances[0].id);
+        assert!(same_targets(&before.processes.iter().map(|p|p.identity.clone()).collect::<Vec<_>>(),
+            &after.processes.iter().map(|p|p.identity.clone()).collect::<Vec<_>>()));
+        assert_eq!(after.processes.iter().find(|p|p.identity.pid==20).unwrap().name,"plugin-container");
     }
     #[test]
     fn registered_background_helper_keeps_its_unreadable_path_protection() {

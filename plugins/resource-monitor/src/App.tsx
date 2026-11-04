@@ -4,7 +4,7 @@ import type {TableColumnsType,TableProps} from 'antd';
 import {StyleProvider} from '@ant-design/cssinjs';
 import {createCommonAntdTheme} from '@local/common-components/react/antd';
 import {Button,HelpPopover,Input} from '@flowhub/plugin-common/react';
-import {bytes,contextRows,cpu,filterGroups,matchesProcess,processKey,updateDetail} from './model';
+import {bytes,contextRows,cpu,filterGroups,matchesProcess,processKey,processName,updateDetail} from './model';
 import {AppMark,applicationIdentity,useApplications} from './applications';
 import type {ContextRow} from './model';
 import type {Api,ApplicationState,Context,Group,Instance,PageContexts,Plan,Process,QuitPlan,Snapshot,Sort,SortOrder,TerminateResult} from './types';
@@ -47,9 +47,10 @@ export function App({api,context}:{api:Api;context:Context}) {
   const actionNotice=notice===privilegedStatus?.message?'':notice;
   const applications=useApplications(api,data?.groups??[]);
 
-  function openDetail(group:Group){
+  function openDetail(group:Group,search=''){
+    const processSearch=search.trim()&&group.processes.some(p=>matchesProcess(p,search.trim().toLocaleLowerCase()))?search:'';
     contextGeneration.current++;setLinksBusy(false);setDetail({...group,processes:[...group.processes]});
-    setProcessQuery('');setContexts(undefined);setContextError('');setTab((group.instances?.length??0)>1?'instances':'processes');setSelectedInstance(undefined);setSource(undefined);setApplicationState(undefined);
+    setProcessQuery(processSearch);setContexts(undefined);setContextError('');setTab(processSearch?'processes':(group.instances?.length??0)>1?'instances':'processes');setSelectedInstance(undefined);setSource(undefined);setApplicationState(undefined);
     setContextQuery('');setLinkedOnly(false);setContextDetail(undefined);setUnmappedOnly(false);
   }
   function closeDetail(){contextGeneration.current++;setDetail(undefined);setSource(undefined);setContextDetail(undefined);setLinksBusy(false);}
@@ -197,7 +198,7 @@ export function App({api,context}:{api:Api;context:Context}) {
   const canQuitSelection=selectedInstance?!!applicationState?.quitInstances?.includes(selectedInstance):!!applicationState?.canQuit||multipleQuitInstances;
   const maxMemory=Math.max(1,...groups.map(g=>g.footprint??0));
   const columns:TableColumnsType<Group>=[
-    {title:'应用 / 工具',key:'name',render:(_,g)=><div className="app-identity"><AppMark name={applicationIdentity(g,applications).name} iconKey={g.iconKey} application={g.appPath?applications[g.appPath]:undefined}/><div className="min-w-0"><button className="name-link" aria-label={`查看 ${applicationIdentity(g,applications).name} 进程`} onClick={()=>openDetail(g)}>{applicationIdentity(g,applications).name}</button><div className="muted text-xs mt-1">{g.processes.length} 个进程{(g.instances?.length??0)>1?` · ${g.instances!.length} 个实例`:''} · {g.source}</div></div></div>},
+    {title:'应用 / 工具',key:'name',render:(_,g)=><div className="app-identity"><AppMark name={applicationIdentity(g,applications).name} iconKey={g.iconKey} application={g.appPath?applications[g.appPath]:undefined}/><div className="min-w-0"><button className="name-link" aria-label={`查看 ${applicationIdentity(g,applications).name} 进程`} onClick={()=>openDetail(g,query)}>{applicationIdentity(g,applications).name}</button><div className="muted text-xs mt-1">{g.processes.length} 个进程{(g.instances?.length??0)>1?` · ${g.instances!.length} 个实例`:''} · {g.source}</div></div></div>},
     {title:'内存足迹',key:'footprint',...sortable('footprint'),width:125,align:'right',render:(_,g)=><div className="memory-cell"><strong>{bytes(g.footprint)}</strong><div className="meter" aria-hidden="true"><i style={{width:`${(g.footprint??0)/maxMemory*100}%`}}/></div>{g.footprintIncomplete?<span className="muted text-xs">部分不可读取</span>:null}</div>},
     {title:'RSS',key:'memory',...sortable('memory'),width:100,align:'right',render:(_,g)=><span className="numeric">{bytes(g.memory)}{g.incomplete?' *':''}</span>},
     {title:'CPU',key:'cpu',...sortable('cpu'),width:75,align:'right',render:(_,g)=><span className="numeric">{g.processes.length>0&&g.processes.every(permissionLimited)?'—':cpu(g.cpu)}</span>},
@@ -211,7 +212,7 @@ export function App({api,context}:{api:Api;context:Context}) {
     {title:'操作',key:'actions',width:190,render:(_,instance)=><div className="flex flex-wrap gap-1"><Button size="sm" className="compact-button" onClick={()=>{setSelectedInstance(instance.id);setTab('processes');}}>查看进程</Button>{applicationState?.quitInstances?.includes(instance.id)?<Button size="sm" className="compact-button" disabled={api.preview||busy||!!plan||!!quitPlan} onClick={()=>void prepareQuit(instance.id)}>正常退出</Button>:null}<Button size="sm" className="compact-button" disabled={api.preview||busy||!!plan||!!quitPlan||!instance.canTerminate} title={!instance.canTerminate?'此实例含受保护进程，可查看后逐个处理允许的进程':undefined} onClick={()=>detail&&void prepare(detail,instance.id)}>结束实例</Button></div>}
   ];
   const processColumns:TableColumnsType<Process>=[
-    {title:'进程 / 来源',key:'name',render:(_,p)=><div className={p.exited?'exited':''}><button className="name-link" onClick={()=>setSource(p)}>{p.name}</button><div className="muted text-xs mt-1">PID {p.pid}{p.ppid>0?` ← ${p.ppid} · ${p.parentName}`:' · 父进程不可读取'}{p.exited?' · 已退出':''}</div><div className="muted text-xs mt-1">{p.role} · {p.attribution}</div>{permissionLimited(p)?<div className="warning text-xs mt-1">资源指标不可读取</div>:null}{processLabels.has(processKey(p))?<div className="context-label text-xs mt-1">{(processLabels.get(processKey(p))?.length??0)>1?'共享：':'关联：'}{processLabels.get(processKey(p))?.join('、')}</div>:contexts?<div className="muted text-xs mt-1">未关联到页面或对话</div>:null}</div>},
+    {title:'进程 / 来源',key:'name',render:(_,p)=><div className={p.exited?'exited':''}><button className="name-link" onClick={()=>setSource(p)}>{processName(p)}</button>{p.displayName?<div className="muted text-xs mt-1">可执行文件名：{p.name}</div>:null}<div className="muted text-xs mt-1">PID {p.pid}{p.ppid>0?` ← ${p.ppid} · ${p.parentName}`:' · 父进程不可读取'}{p.exited?' · 已退出':''}</div><div className="muted text-xs mt-1">{p.role} · {p.attribution}</div>{permissionLimited(p)?<div className="warning text-xs mt-1">资源指标不可读取</div>:null}{processLabels.has(processKey(p))?<div className="context-label text-xs mt-1">{(processLabels.get(processKey(p))?.length??0)>1?'共享：':'关联：'}{processLabels.get(processKey(p))?.join('、')}</div>:contexts?<div className="muted text-xs mt-1">未关联到页面或对话</div>:null}</div>},
     {title:'内存足迹',key:'footprint',width:110,align:'right',render:(_,p)=>bytes(p.footprint)},
     {title:'RSS',key:'memory',width:100,align:'right',render:(_,p)=>bytes(p.memory)},
     {title:'CPU',key:'cpu',width:75,align:'right',render:(_,p)=>p.exited||permissionLimited(p)?'—':cpu(p.cpu)},
@@ -292,7 +293,8 @@ export function App({api,context}:{api:Api;context:Context}) {
 
     <Modal title="进程来源" open={!!source} onCancel={()=>setSource(undefined)} footer={null} width={580} zIndex={1200} styles={{body:{maxHeight:'65dvh',overflow:'auto'}}}>
       {source?<><Descriptions column={1} size="small" items={[
-        {key:'name',label:'进程',children:`${source.name} · PID ${source.pid}${source.exited?' · 已退出':''}`},
+        {key:'name',label:'进程',children:`${processName(source)} · PID ${source.pid}${source.exited?' · 已退出':''}`},
+        ...(source.displayName?[{key:'binaryName',label:'可执行文件名',children:source.name}]:[]),
         {key:'role',label:'类型 / 归属',children:`${source.role} · ${source.attribution}`},
         {key:'path',label:'可执行文件',children:<span className="path">{source.executable||'不可读取'}</span>},
         {key:'cwd',label:'工作目录',children:<span className="path">{source.cwd||'不可读取'}</span>},
@@ -322,7 +324,7 @@ export function App({api,context}:{api:Api;context:Context}) {
       <Alert type="warning" showIcon title={force?'立即终止进程，未保存内容和正在执行的任务可能丢失。':'发送退出信号，可能中断任务或影响同一进程内的多个页面。'} className="mb-3"/>
       <label className="flex items-center gap-2 mb-3"><Switch aria-label="强制结束" checked={force} onChange={setForce} disabled={busy}/>强制结束<span className="muted text-xs">无响应时使用；不删除文件</span></label>
       <p className="muted text-xs mb-3">{plan?.targets.length??0} 个进程 · 确认剩余 {remaining} 秒 · 执行前重新核对身份</p>
-      <div className="confirm-targets">{plan?.targets.map(p=><div key={`${p.pid}:${p.started}`} className="confirm-target"><strong>{p.name}</strong><span className="muted text-xs">PID {p.pid} · 足迹 {bytes(p.footprint)} · RSS {bytes(p.memory)}</span><span className="path muted text-xs">{p.executable}</span></div>)}</div>
+      <div className="confirm-targets">{plan?.targets.map(p=><div key={`${p.pid}:${p.started}`} className="confirm-target"><strong>{processName(p)}</strong><span className="muted text-xs">PID {p.pid} · 足迹 {bytes(p.footprint)} · RSS {bytes(p.memory)}</span><span className="path muted text-xs">{p.executable}</span></div>)}</div>
     </Modal>
   </main>;
 }

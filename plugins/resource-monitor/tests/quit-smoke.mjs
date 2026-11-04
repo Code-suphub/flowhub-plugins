@@ -52,6 +52,9 @@ app.run()
   const stale=await rpc('quit_preview',{groupId:group.id});
   assert.equal(stale.targets.length,1);
   const originalPid=stale.targets[0].pid;
+  const named=group.processes.find(p=>p.pid===originalPid);
+  assert.equal(named.name,'Fixture','keep executable basename for search and diagnostics');
+  assert.equal(named.displayName,'FlowHubQuitSmoke','read the OS registered name of this exact running PID');
   // Reproduce Chrome: the running vnode moves to a signing clone, while
   // Launch Services still registers the original app/executable URL.
   const cloneRoot=`${root}/X/${bundleId}.code_sign_clone/code_sign_clone.Abc123/FlowHubQuitSmoke.app.bundle`;

@@ -1,5 +1,6 @@
 export interface Identity {pid:number;started:number;executable:string;uid:number}
 export interface Process extends Identity {
+  displayName?:string|null;
   instanceId?:string;
   responsible?:Identity|null;
   runtimeProject?:{name:string;root:string;entry:string|null;evidence:string}|null;

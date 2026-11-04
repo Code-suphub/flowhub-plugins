@@ -51,6 +51,19 @@ test('rank/search includes child PID, cwd and parent; sorting does not mutate so
   assert.equal(model.bytes(1073741824),'1.00 GiB');
 });
 
+test('system display names and executable names both find the same app and process',()=>{
+  const seed=model.sampleSnapshot().groups[0];
+  const process={...seed.processes[0],name:'plugin-container',displayName:'ZenCP WebExtensions',executable:'/Applications/Zen.app/Contents/MacOS/plugin-container.app/Contents/MacOS/plugin-container'};
+  const group={...seed,name:'Zen',appPath:'/Applications/Zen.app',processes:[process]};
+  for(const query of ['ZenCP WebExtensions','zencp','plugin-container',String(process.pid)]){
+    assert.equal(model.filterGroups([group],query,false,'memory')[0],group);
+    assert.equal(model.matchesProcess(process,query.toLocaleLowerCase()),true);
+  }
+  assert.equal(model.processName(process),'ZenCP WebExtensions');
+  assert.equal(model.processName({...process,displayName:undefined}),'plugin-container');
+  assert.equal(model.filterGroups([group],'missing-extension',false,'memory').length,0);
+});
+
 test('cards default to the complete ranked list, with explicit top-N and focus options',()=>{
   const snapshot=model.statusFrom(model.sampleSnapshot()),seed=snapshot.rows[0];
   const rows=Array.from({length:28},(_,i)=>({...seed,id:String(i),values:{...seed.values,footprint:i,cpu:i===27?null:i}}));

@@ -4,7 +4,7 @@ use crate::{
     native,
 };
 use objc2::rc::{autoreleasepool, Retained};
-use objc2_app_kit::{NSApplicationActivationPolicy, NSRunningApplication};
+use objc2_app_kit::{NSApplicationActivationPolicy, NSRunningApplication, NSWorkspace};
 use objc2_foundation::{NSDate, NSRunLoop};
 use serde_json::{json, Value};
 use std::{
@@ -86,6 +86,7 @@ fn registered_owner(bundle: &Path, executable: &Path) -> Option<PathBuf> {
 pub fn resolve_bundle_paths(processes: &mut [Process]) {
     autoreleasepool(|_| {
         appkit_turn();
+        resolve_display_names(processes);
         let mut clones = Vec::new();
         let mut registered = HashMap::new();
         for process in processes.iter() {
@@ -156,6 +157,30 @@ pub fn resolve_bundle_paths(processes: &mut [Process]) {
             }
         }
     });
+}
+
+fn resolve_display_names(processes: &mut [Process]) {
+    // Activity Monitor can show a Launch Services name that differs from both
+    // the kernel name and executable (e.g. ZenCP WebExtensions/plugin-container).
+    // Labels are presentation/search metadata only, never process identity.
+    let apps = NSWorkspace::sharedWorkspace().runningApplications();
+    let by_pid: HashMap<_, _> = (0..apps.count()).map(|index| {
+        let app = apps.objectAtIndex(index);
+        (app.processIdentifier(), app)
+    }).collect();
+    for process in processes {
+        let id = &process.identity;
+        let Some(app) = by_pid.get(&id.pid) else { continue; };
+        if id.uid != native::uid() || app.isTerminated()
+            || native::identity(id.pid).as_ref() != Some(id) { continue; }
+        let Some(name) = app.localizedName().map(|name| name.to_string()) else { continue; };
+        let name = name.trim();
+        if name.is_empty() || name == process.name || name.chars().count() > 256
+            || name.chars().any(char::is_control) { continue; }
+        if !app.isTerminated() && native::identity(id.pid).as_ref() == Some(id) {
+            process.display_name = Some(name.into());
+        }
+    }
 }
 
 fn targets(group: &Group) -> Result<Vec<Target>, String> {
