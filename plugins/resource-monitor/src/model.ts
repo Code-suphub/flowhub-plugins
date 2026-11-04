@@ -26,10 +26,14 @@ export const cpu = (value:number|null|undefined) => value == null || !Number.isF
 export function matchesProcess(p:Process,q:string) {
   return [p.name,p.executable,p.cwd,p.parentName,String(p.pid),String(p.ppid),p.avd].some(s=>s.toLocaleLowerCase().includes(q));
 }
-export function filterGroups(groups:Group[],query:string,system:boolean,sort:Sort) {
+export function filterGroups(groups:Group[],query:string,system:boolean,sort:Sort,order:'ascend'|'descend'='descend') {
   const q=query.trim().toLocaleLowerCase();
   return groups.filter(g=>(system||!g.system)&&(!q||[g.name,g.source].some(s=>s.toLocaleLowerCase().includes(q))||g.processes.some(p=>matchesProcess(p,q))))
-    .slice().sort((a,b)=>(b[sort]??-1)-(a[sort]??-1)||a.id.localeCompare(b.id));
+    .sort((a,b)=>{
+      const left=a[sort],right=b[sort];
+      if(left==null||right==null)return left==null?(right==null?a.id.localeCompare(b.id):1):-1;
+      return (order==='ascend'?left-right:right-left)||a.id.localeCompare(b.id);
+    });
 }
 export function updateDetail(previous:Group,latest:Group|undefined):Group {
   const key=(p:Process)=>`${p.pid}:${p.started}`;

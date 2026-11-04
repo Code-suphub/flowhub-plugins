@@ -43,6 +43,16 @@ test('detail refresh keeps row order, marks exits and appends reused PIDs and ne
   assert.equal(model.updateDetail(detail,undefined).canTerminate,false);
 });
 
+test('ranking switches metric and direction while keeping missing values last and input unchanged',()=>{
+  const seed=model.sampleSnapshot().groups[0];
+  for(const metric of ['footprint','memory','cpu']){
+    const groups=[null,10,0,10,30].map((value,index)=>({...seed,id:String.fromCharCode(97+index),[metric]:value}));
+    assert.deepEqual(model.filterGroups(groups,'',true,metric,'descend').map(g=>g.id),['e','b','d','c','a']);
+    assert.deepEqual(model.filterGroups(groups,'',true,metric,'ascend').map(g=>g.id),['c','b','d','e','a']);
+    assert.deepEqual(groups.map(g=>g.id),['a','b','c','d','e']);
+  }
+});
+
 test('context usage deduplicates identities, rejects reused PIDs, preserves unknowns and expires mappings',()=>{
   const snapshot=model.sampleSnapshot(),contexts=model.sampleContexts('codex',snapshot);
   const process=snapshot.groups[0].processes[2];

@@ -12,6 +12,7 @@ export interface Snapshot {at:number;groups:Group[];system:SystemInfo;error?:str
 export interface StatusRow {id:string;name:string;at:number;status:string;summary:string;values:{memory:number|null;footprint:number|null;rss:number|null;cpu:number|null};count:number;incomplete:boolean}
 export interface StatusSnapshot {at:number;rows:StatusRow[];system:SystemInfo;error?:string|null}
 export type Sort = 'footprint'|'memory'|'cpu';
+export type SortOrder = 'ascend'|'descend';
 export interface Config {title?:string;sort?:Sort;limit?:number;groupId?:string;selection?:{groupId?:string}}
 export interface ContextEntry {id:string;token:string|null;title:string;detail:string;processes:Identity[];source:string;shared:boolean;ambiguous:boolean}
 export interface PageContexts {

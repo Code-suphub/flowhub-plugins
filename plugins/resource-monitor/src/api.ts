@@ -39,7 +39,8 @@ export function createApi(host:Window):Api {
         return Promise.reject(new Error('浏览器预览不执行清理操作'));
       }
       return new Promise<T>((resolve,reject)=>{
-        const id=requestId(),timer=setTimeout(()=>{pending.delete(id);reject(new Error('插件响应超时，请刷新核实状态'));},20000);
+        const timeout=method==='privileged_enable'||method==='privileged_disable'?300000:20000;
+        const id=requestId(),timer=setTimeout(()=>{pending.delete(id);reject(new Error('插件响应超时，请刷新核实状态'));},timeout);
         pending.set(id,{resolve:value=>resolve(value as T),reject,timer});
         try {send(widget?{type:'flowhub:widget-rpc',id,params:{action:'management',method,params}}:{type:'flowhub:request',id,method,params});}
         catch {clearTimeout(timer);pending.delete(id);reject(new Error('无法连接 FlowHub'));}
