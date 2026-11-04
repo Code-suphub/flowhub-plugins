@@ -90,6 +90,9 @@
 .docker-actions--overview {margin:14px 0 18px}
 .docker-project-note {padding:12px 0}
 .docker-loading {padding:24px 0}
+.docker-detail-error {display:grid;justify-items:start;gap:12px;padding:24px 0}
+.docker-detail-error .docker-error {margin:0}
+.docker-image-delete-reason {flex-basis:100%;margin:2px 0;color:var(--docker-muted);font-size:12px}
 .docker-overview-content h3 {margin:24px 0 10px; font-size:13px}
 .docker-metrics {display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:10px; margin-bottom:22px}
 .docker-metrics > div {min-width:0; border:1px solid var(--docker-line); border-radius:9px; background:var(--docker-panel-raised); padding:13px}
@@ -103,6 +106,13 @@
 .docker-member-row small {flex-shrink:0; color:var(--docker-muted)}
 .docker-muted {color:var(--docker-muted); font-size:12px}
 .docker-error {margin-top:14px; color:var(--docker-danger)!important}
+.docker-prune-preview {display:grid; gap:12px; font-size:12px; line-height:1.6}
+.docker-prune-preview strong {color:var(--fh-text)}
+.docker-prune-targets {display:grid; gap:10px; margin:0; padding:0; list-style:none}
+.docker-prune-targets li {display:grid; grid-template-columns:minmax(0,1fr) auto; gap:4px 12px; border:1px solid var(--fh-border); border-radius:8px; padding:10px 12px}
+.docker-prune-targets strong, .docker-prune-targets small {overflow-wrap:anywhere; white-space:pre-wrap}
+.docker-prune-targets span, .docker-prune-targets small {color:var(--fh-muted)}
+.docker-prune-targets small {grid-column:1/-1; font:10px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace}
 .docker-log-tools {display:flex; align-items:center; flex-wrap:wrap; gap:9px}
 .docker-log-tools .fh-input {min-width:140px; flex:1}
 .docker-log-output {height:300px; min-height:260px; margin-top:13px; resize:vertical; background:var(--docker-panel)!important; color:var(--docker-ink)!important; font:11px/1.8 ui-monospace, SFMono-Regular, Menlo, monospace!important}
@@ -140,6 +150,7 @@
 .docker-settings-note .fh-help__trigger {width:24px; height:24px}
 .docker-settings-note > span {overflow-wrap:anywhere; font:11px ui-monospace, SFMono-Regular, Menlo, monospace}
 .docker-confirm-text {white-space:pre-wrap; overflow-wrap:anywhere; font-size:13px}
+.docker-confirm-content {max-height:min(44rem,calc(100dvh - 2rem)); grid-template-rows:auto minmax(0,1fr) auto}
 
 @media (max-width: 760px) {
   .docker-header {flex-wrap:wrap}

@@ -21,6 +21,7 @@ Docker CLI 查找 `/opt/homebrew/bin/docker`、`/usr/local/bin/docker` 以及 Do
 - 支持「全部 / Compose / 独立容器 / 镜像」切换与搜索。Compose 分组可展开收起，刷新保留当前展开状态；点击项目进入成员详情，点击成员进入容器资源与日志页。
 - 删除容器需确认完整 ID 与 context，且只接受已停止、未启动或 dead 容器。使用不带 force/volumes 的 `docker container rm`，保留数据卷和镜像；可写层和容器日志会永久删除。
 - 镜像支持本地列表、搜索、大小/平台/创建时间/标签/摘要与引用容器详情。删除当前标签需确认；有容器引用（包括已停止容器及派生镜像容器）时拒绝删除。按标签移除，最后一个引用删除时镜像也移除；不强制删除、不清理父镜像。
+- 镜像页右上角「清理未使用镜像」先预览所有无容器引用的镜像及大小合计，同一镜像的多个标签只计一次。确认后执行 `docker image prune --all --force`；带标签镜像也会清理，已停止容器引用的镜像仍保留。不清理容器、数据卷、网络或构建缓存。执行前复核 context、镜像 ID 和引用列表，变化时要求重新预览；操作后回读实际移除数量和 Docker 报告释放空间。共享层和构建缓存可能使实际释放少于大小合计。
 - 目前不提供 Compose 文件编辑、compose up/build/down、项目批量启动、镜像拉取/构建/推送、远程 Docker 或数据卷删除。支持按 Compose 标签批量停止已有项目容器。
 
 ## 桌面悬浮窗
@@ -44,6 +45,8 @@ Docker 页面右上角「桌面悬浮窗」打开 FlowHub 桌面组件画布，�
 `node tests/compose-smoke.mjs`：使用已有的 minio/minio:latest 镜像创建独立双容器 Compose 项目，验证单个停止、整个项目停止和目标变化拒绝，最后自动清理测试项目。测试容器不挂载宿主目录、不开放网络，不操作已有业务项目。
 
 `node tests/management-smoke.mjs`：导入独立空镜像、创建测试容器及测试卷，通过真实 widget RPC 验证对象详情、未确认/环境变化拒绝、容器删除后数据卷保留、被引用镜像拒绝删除，以及多标签逐个删除。自动清理专用测试资源，不下载或改动业务镜像。
+
+`node tests/image-prune-smoke.mjs`：真实 Docker CLI 连接临时 Unix socket 上的隔离引擎测试接口，验证清理预览、多标签去重、已停止容器引用保护、确认/context/目标变化拒绝、`prune -a` 请求、部分保留结果及空列表。使用独立 Docker 配置，不连接用户引擎、不清理用户镜像。
 
 真实冒烟测试：先创建专用容器，名称以 `flowhub-docker-smoke-` 开头、项目标签为 `flowhub-plugin-test`，日志包含 `FLOWHUB_PLUGIN_SMOKE_READY`，然后运行 `node tests/smoke.mjs <完整容器ID>`。脚本会对该测试容器执行 restart/stop/start，拒绝测试普通业务容器。测试后需清理专用容器。
 

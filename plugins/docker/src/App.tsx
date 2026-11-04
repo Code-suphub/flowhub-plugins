@@ -5,11 +5,11 @@ import {
 } from '@flowhub/plugin-common/react';
 import type {
   Container, ContainerDetail, HostContext, ImageDetail, ImageSummary, ListResult,
-  ManagementApi, Scope, Selection, StopPlan, StopResult,
+  ImagePrunePlan, ImagePruneResult, ManagementApi, Scope, Selection, StopPlan, StopResult,
 } from './api';
 import {createPreviewApi} from './api';
 import {ContainerTerminal} from './ContainerTerminal';
-import {actionAvailability, filterContainers, groupContainers, imageReference, reorderGroups, sortGroups, statusLabels} from './model';
+import {actionAvailability, filterContainers, formatDate, formatImageBytes, groupContainers, imageDeleteLabel, imageLabel, imageReference, reorderGroups, sortGroups, statusLabels} from './model';
 
 interface Settings {
   refreshSeconds: number;
@@ -37,9 +37,6 @@ function loadGroupOrders(): Record<string, string[]> {
     return saved && typeof saved === 'object' && !Array.isArray(saved) ? saved as Record<string, string[]> : {};
   } catch { return {}; }
 }
-function formatDate(value?: string): string {
-  return value && Date.parse(value) > 0 ? new Date(value).toLocaleString() : '尚未启动';
-}
 function selectedContainer(selection: Selection | null, containers: Container[]): Container | null {
   return selection?.kind === 'container' ? containers.find((row) => row.id === selection.id) ?? null : null;
 }
@@ -57,6 +54,18 @@ function ScopeNav({scope, counts, onChange, disabled}: {scope: Scope; counts: Sc
   return <nav className="docker-scope-nav" aria-label="资源类型">
     {scopeTabs.map(([value, label]) => <button key={value} type="button" className={scope === value ? 'is-active' : ''} aria-pressed={scope === value} disabled={disabled} onClick={() => onChange(value)}>{label}{value !== 'settings' ? <span className="docker-scope-nav__count">{counts[value] ?? '—'}</span> : null}</button>)}
   </nav>;
+}
+
+function ImagePrunePreview({plan}: {plan: ImagePrunePlan}) {
+  return <div className="docker-prune-preview">
+    <p><strong>{plan.context} · {plan.targets.length} 个未使用镜像</strong></p>
+    <p>镜像大小合计 {formatImageBytes(plan.totalBytes)}。共享层和构建缓存可能使实际释放空间更少。</p>
+    <p>将清理所有未被任何容器引用的镜像，包含带标签镜像。保留已停止容器引用的镜像、全部容器、数据卷、网络和构建缓存。此操作不可撤销，再次使用需重新拉取或构建。</p>
+    <ul className="docker-prune-targets" aria-label="待清理镜像">{plan.targets.map(image => <li key={image.id}>
+      <strong>{image.references.length ? image.references.join('\n') : '无标签镜像'}</strong>
+      <span>{image.size}</span><small>{image.id}</small>
+    </li>)}</ul>
+  </div>;
 }
 
 function ResourceList({containers, images, scope, query, onlyIssues, selected, collapsed, groupOrder, onToggleProject, onReorderProject, onSelect}: {
@@ -92,11 +101,11 @@ function ResourceList({containers, images, scope, query, onlyIssues, selected, c
     if (target !== null && target !== active.project) onReorderProject(active.project, target);
   }
   if (scope === 'images') {
-    const visible = images.filter((image) => (imageReference(image) + ' ' + image.ID).toLowerCase().includes(query.trim().toLowerCase()));
+    const visible = images.filter((image) => (imageLabel(image) + ' ' + imageReference(image) + ' ' + image.ID).toLowerCase().includes(query.trim().toLowerCase()));
     return visible.length ? <div className="docker-resource-list" aria-label="镜像列表">{visible.map((image) => {
       const reference = imageReference(image);
       return <button type="button" key={image.ID + reference} className={'docker-resource-row ' + (selected?.kind === 'image' && selected.reference === reference ? 'is-selected' : '')} onClick={() => onSelect({kind: 'image', id: image.ID, reference})}>
-        <span className="docker-resource-copy"><strong>{reference}</strong><small>{image.Size} · {image.CreatedSince}<br/>{image.ID.slice(0, 24)}</small></span>
+        <span className="docker-resource-copy"><strong>{imageLabel(image)}</strong><small>{image.Size} · {image.CreatedSince}<br/>{image.ID.slice(0, 24)}</small></span>
       </button>;
     })}</div> : <EmptyState size="compact" title="没有匹配的本地镜像"/>;
   }
@@ -119,23 +128,23 @@ function ResourceList({containers, images, scope, query, onlyIssues, selected, c
   })}</div> : <EmptyState size="compact" title="没有匹配的容器"/>;
 }
 
-function DetailOverview({selection, container, detail, imageDetail, projectRows, onSelect}: {
-  selection: Selection; container: Container | null; detail: ContainerDetail | null; imageDetail: ImageDetail | null; projectRows: Container[]; onSelect(selection: Selection): void;
+function DetailOverview({selection, container, detail, imageDetail, imageSize, projectRows, onSelect}: {
+  selection: Selection; container: Container | null; detail: ContainerDetail | null; imageDetail: ImageDetail | null; imageSize?: string; projectRows: Container[]; onSelect(selection: Selection): void;
 }) {
   if (selection.kind === 'project') {
     return <div className="docker-overview-content"><p className="docker-project-note">{projectRows.length} 个成员容器 <HelpPopover label="项目成员说明">点击服务查看容器资源、日志与操作。</HelpPopover></p>{projectRows.map((row) => <button type="button" className="docker-member-row" key={row.id} onClick={() => onSelect({kind: 'container', id: row.id})}><span>{row.service || row.name}<small>{row.name} · {row.image}</small></span><small>{statusLabels[row.state] || row.state} ↗</small></button>)}</div>;
   }
   if (selection.kind === 'image' && imageDetail) {
     return <div className="docker-overview-content"><dl className="docker-detail-grid">
-      <dt>镜像 ID</dt><dd>{imageDetail.id}</dd><dt>全部标签</dt><dd>{imageDetail.tags?.join('\n') || '无标签'}</dd>
+      <dt>镜像 ID</dt><dd>{imageDetail.id}</dd><dt>全部引用</dt><dd>{[...new Set([...(imageDetail.tags ?? []), ...(imageDetail.digests ?? [])])].join('\n') || '无标签或摘要引用'}</dd>
       <dt>平台</dt><dd>{imageDetail.os || '未知'} / {imageDetail.architecture || '未知'}</dd>
-      <dt>大小</dt><dd>{typeof imageDetail.size === 'number' ? (imageDetail.size / 1048576).toFixed(1) + ' MiB' : '未知'}</dd>
-      <dt>创建时间</dt><dd>{formatDate(imageDetail.created)}</dd><dt>摘要</dt><dd>{imageDetail.digests?.join('\n') || '无'}</dd>
+      <dt>大小</dt><dd>{imageSize || (typeof imageDetail.size === 'number' ? (imageDetail.size / 1048576).toFixed(1) + ' MiB' : '未知')}</dd>
+      <dt>创建时间</dt><dd>{formatDate(imageDetail.created, '未提供创建时间')}</dd><dt>摘要</dt><dd>{imageDetail.digests?.join('\n') || '无'}</dd>
     </dl><h3>引用此镜像或其派生镜像的容器</h3>
-      {imageDetail.containers.length ? imageDetail.containers.map((row) => <button type="button" className="docker-member-row" key={row.id} onClick={() => onSelect({kind: 'container', id: row.id})}><span>{row.name}</span><small>{statusLabels[row.state] || row.state} ↗</small></button>) : <p className="docker-muted">暂无容器引用，可删除当前标签。</p>}
+      {imageDetail.containers.length ? imageDetail.containers.map((row) => <button type="button" className="docker-member-row" key={row.id} onClick={() => onSelect({kind: 'container', id: row.id})}><span>{row.name}</span><small>{statusLabels[row.state] || row.state} ↗</small></button>) : <p className="docker-muted">暂无容器引用。</p>}
     </div>;
   }
-  if (!container || !detail) return <p className="docker-loading">正在读取详情…</p>;
+  if (!container || !detail) return <EmptyState size="compact" title="暂无可用详情"/>;
   return <div className="docker-overview-content"><div className="docker-metrics"><div><span>CPU</span><strong>{detail.stats?.CPUPerc || '—'}</strong></div><div><span>内存 / 上限</span><strong>{detail.stats?.MemUsage || '—'}</strong></div></div>
     <dl className="docker-detail-grid"><dt>运行状态</dt><dd>{statusLabels[detail.state || container.state] || detail.state || container.state}</dd>
       <dt>健康检查</dt><dd>{detail.health || '未配置'}</dd><dt>退出码 / 重启</dt><dd>{detail.exitCode ?? '—'} / {detail.restarts ?? '—'} 次</dd>
@@ -185,11 +194,13 @@ export function App({api, context}: {api: ManagementApi; context: HostContext}) 
   const resizing = useRef<{x: number; width: number} | null>(null);
   const [loading, setLoading] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState('');
+  const [detailReload, setDetailReload] = useState(0);
   const [operationBusy, setOperationBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [followLogs, setFollowLogs] = useState(false);
-  const [confirm, setConfirm] = useState<{method: string; params: Record<string, unknown>; title: string; description: string} | null>(null);
+  const [confirm, setConfirm] = useState<{method: string; params: Record<string, unknown>; title: string; description: string; prune?: ImagePrunePlan} | null>(null);
   const [confirmError, setConfirmError] = useState('');
   const appliedInitial = useRef(false);
   const generation = useRef(0);
@@ -204,8 +215,8 @@ export function App({api, context}: {api: ManagementApi; context: HostContext}) 
   const activeApi = context.preview ? previewApi : api;
   const readOnly = activeApi.preview || Boolean(context.preview);
 
-  const refresh = useCallback(async () => {
-    if (inFlight.current || operationBusyRef.current || scope === 'settings') return;
+  const refresh = useCallback(async (afterOperation = false) => {
+    if (inFlight.current || (operationBusyRef.current && !afterOperation) || scope === 'settings') return;
     inFlight.current = true; setLoading(true); setError('');
     try {
       const next = await activeApi.invoke<ListResult>('list');
@@ -240,6 +251,7 @@ export function App({api, context}: {api: ManagementApi; context: HostContext}) 
   }, [context.config, data.context, data.containers, settings.expandCompose]);
   useEffect(() => {
     generation.current += 1;
+    setDetailError('');
     if (!selection || selection.kind === 'project' || selection.kind === 'images') {setDetailLoading(false); setDetail(null); setImageDetail(null); return;}
     const revision = ++generation.current; setDetailLoading(true); setDetail(null); setImageDetail(null);
     const method = selection.kind === 'image' ? 'image_detail' : 'detail';
@@ -247,8 +259,9 @@ export function App({api, context}: {api: ManagementApi; context: HostContext}) 
     void activeApi.invoke<ContainerDetail & ImageDetail>(method, params).then((result) => {
       if (revision !== generation.current) return;
       if (selection.kind === 'image') setImageDetail(result as ImageDetail); else setDetail(result as ContainerDetail);
-    }).catch((reason) => {if (revision === generation.current) setError(noticeText(reason));}).finally(() => {if (revision === generation.current) setDetailLoading(false);});
-  }, [activeApi, data.context, selection]);
+    }).catch((reason) => {if (revision === generation.current) setDetailError(noticeText(reason));}).finally(() => {if (revision === generation.current) setDetailLoading(false);});
+    return () => {if (revision === generation.current) generation.current += 1;};
+  }, [activeApi, data.context, selection, detailReload]);
   const loadLogs = useCallback(async () => {
     if (selection?.kind !== 'container' || operationBusyRef.current || logsInFlight.current === generation.current) return;
     const revision = generation.current; setLogs('正在读取日志…');
@@ -265,6 +278,17 @@ export function App({api, context}: {api: ManagementApi; context: HostContext}) 
   function changeScope(next: Scope) {generation.current += 1; setScope(next); setSelection(null); setQuery(''); setError('');}
   function saveSettings(next: Settings, nextTheme: string) {setSettings(next); localStorage.setItem(settingsKey, JSON.stringify(next)); setTheme(nextTheme); if (!window.FlowHubTheme?.hosted) window.FlowHubTheme?.set(nextTheme); setScope(next.defaultScope); generation.current += 1; setSelection(null); setCollapsed(next.expandCompose ? new Set() : new Set(data.containers.filter((row) => row.project).map((row) => row.project))); setNotice('设置已保存');}
   function resetSettings() {saveSettings(defaultSettings, 'system'); setNotice('已恢复默认设置');}
+  async function prepareImagePrune() {
+    if (readOnly || operationBusyRef.current || !data.context) return;
+    operationBusyRef.current = true; setOperationBusy(true); setConfirmError(''); setError(''); setNotice('正在检查未使用镜像…');
+    try {
+      const plan = await activeApi.invoke<ImagePrunePlan>('image_prune_preview', {context: data.context});
+      if (!plan.targets.length) {setNotice('没有可清理的未使用镜像。已停止容器引用的镜像也会保留。'); return;}
+      setNotice('');
+      setConfirm({method: 'image_prune_confirm', params: {context: plan.context, targets: plan.targets}, title: '清理未使用镜像？', description: '', prune: plan});
+    } catch (reason) {setNotice(''); setError(noticeText(reason));}
+    finally {operationBusyRef.current = false; setOperationBusy(false);}
+  }
   function prepareAction(action: string) {
     if (readOnly || !selection || operationBusyRef.current) return;
     if (action === 'project_stop' && selection.kind === 'project') {
@@ -275,7 +299,7 @@ export function App({api, context}: {api: ManagementApi; context: HostContext}) 
       }).catch((reason) => setError(noticeText(reason))).finally(() => {operationBusyRef.current = false; setOperationBusy(false);});
       return;
     }
-    if (action === 'image_remove' && selection.kind === 'image' && imageDetail) {setConfirmError(''); setConfirm({method: 'image_remove', params: {id: selection.id, reference: selection.reference, context: data.context}, title: '删除镜像标签？', description: data.context + '\n' + selection.reference + '\n' + selection.id + '\n将删除本地标签；这是最后一个引用时也会删除镜像。此操作不能撤销。'}); return;}
+    if (action === 'image_remove' && selection.kind === 'image' && imageDetail?.id === selection.id && !imageDetail.containers.length && images?.some(image => image.ID === selection.id && imageReference(image) === selection.reference)) {setConfirmError(''); setConfirm({method: 'image_remove', params: {id: selection.id, reference: selection.reference, context: data.context}, title: imageDeleteLabel(selection.reference) + '？', description: data.context + '\n' + selection.reference + '\n' + selection.id + '\n' + (selection.reference === selection.id ? '将删除该无标签镜像。此操作不能撤销。' : '将移除所选的本地镜像引用；若为最后一个引用，也会删除镜像。此操作不能撤销。')}); return;}
     if (selection.kind !== 'container' || !current) return;
     if (action === 'container_remove') {setConfirmError(''); setConfirm({method: action, params: {id: current.id, context: data.context}, title: '删除容器？', description: data.context + ' · ' + current.name + '\n将永久删除容器、可写层及日志；保留数据卷、挂载目录和镜像。'}); return;}
     const name = {start: '启动', stop: '停止', restart: '重启'}[action as 'start' | 'stop' | 'restart'];
@@ -285,18 +309,23 @@ export function App({api, context}: {api: ManagementApi; context: HostContext}) 
     if (readOnly || !confirm || operationBusyRef.current) return;
     operationBusyRef.current = true; setOperationBusy(true); setConfirmError(''); setNotice('正在执行，请稍候…');
     try {
-      const result = await activeApi.invoke<StopResult>(confirm.method, {...confirm.params, confirmed: true});
-      const message = result.results ? result.results.map((row) => row.name + '：' + (row.stopped ? '已停止' : row.error || '未确认停止')).join('\n') : '操作完成';
-      setConfirm(null); setNotice(message); await refresh();
-    } catch (reason) {setConfirmError(noticeText(reason));}
+      const result = await activeApi.invoke<StopResult & ImagePruneResult>(confirm.method, {...confirm.params, confirmed: true});
+      const message = confirm.prune ? `已清理 ${result.removed} 个镜像，Docker 报告释放 ${result.reclaimed ?? '空间未知'}。${result.remaining ? `仍有 ${result.remaining} 个镜像被保留，请刷新核对引用关系。` : ''}` : result.results ? result.results.map((row) => row.name + '：' + (row.stopped ? '已停止' : row.error || '未确认停止')).join('\n') : '操作完成';
+      if (confirm.prune || ['image_remove', 'container_remove'].includes(confirm.method)) {generation.current += 1; setSelection(null);}
+      setConfirm(null); setNotice(message); await refresh(true);
+    } catch (reason) {setNotice(''); setConfirmError(noticeText(reason));}
     finally {operationBusyRef.current = false; setOperationBusy(false);}
   }
   const visibleLogs = useMemo(() => {const normalized = logQuery.toLowerCase(); return normalized ? logs.split('\n').filter((line) => line.toLowerCase().includes(normalized)).join('\n') : logs;}, [logQuery, logs]);
   const actions = selection?.kind === 'container' ? actionAvailability(current) : null;
   const listTitle = scope === 'images' ? '本地镜像' : '项目与容器';
-  const title = current?.name || (selection?.kind === 'project' ? selection.project : selection?.kind === 'image' ? selection.reference : '选择资源');
+  const selectedImage = selection?.kind === 'image' ? images?.find(image => image.ID === selection.id && imageReference(image) === selection.reference) : undefined;
+  const title = current?.name || (selection?.kind === 'project' ? selection.project : selection?.kind === 'image' ? selectedImage ? imageLabel(selectedImage) : selection.reference : '选择资源');
   const state = current ? statusLabels[current.state] || current.state : selection?.kind === 'project' ? projectRows.filter((row) => row.state === 'running').length + ' / ' + projectRows.length + ' 运行' : selection?.kind === 'image' && imageDetail ? (imageDetail.containers.length ? '被容器引用' : '未被容器引用') : '';
   const containerActions = actions ? <div className="docker-actions docker-actions--overview"><Button size="sm" disabled={!actions.start || readOnly || operationBusy} onClick={() => prepareAction('start')}>启动</Button><Button size="sm" disabled={!actions.stop || readOnly || operationBusy} onClick={() => prepareAction('stop')}>停止</Button><Button size="sm" disabled={!actions.restart || readOnly || operationBusy} onClick={() => prepareAction('restart')}>重启</Button><Button size="sm" variant="danger" disabled={!actions.remove || readOnly || operationBusy} onClick={() => prepareAction('container_remove')}>删除容器</Button></div> : null;
+  const imageDetailReady = Boolean(selectedImage) && selection?.kind === 'image' && imageDetail?.id === selection.id;
+  const imageDeleteReason = detailError ? '详情读取失败，请重试后核对删除条件。' : imageDetailReady && imageDetail.containers.length ? `被 ${imageDetail.containers.length} 个容器引用（包括已停止容器），请先处理下方关联容器。` : '';
+  const overviewContent = detailLoading ? <p className="docker-loading" role="status">正在读取详情…</p> : detailError ? <div className="docker-detail-error" role="alert"><p className="docker-error">详情读取失败：{detailError}</p><Button size="sm" onClick={() => setDetailReload(value => value + 1)}>重试读取详情</Button></div> : selection ? <DetailOverview selection={selection} container={current} detail={detail} imageDetail={imageDetail} imageSize={selectedImage?.Size} projectRows={projectRows} onSelect={select}/> : null;
   const counts: ScopeCounts = {
     all: data.containers.length,
     compose: new Set(data.containers.map((row) => row.project).filter(Boolean)).size,
@@ -305,7 +334,7 @@ export function App({api, context}: {api: ManagementApi; context: HostContext}) 
   };
 
   return <main className="docker-page">
-    <header className="docker-header"><div><h1>{context.title || 'Docker 管理'} <span className="docker-context">{data.context || '正在连接'}</span> <HelpPopover label="管理页说明">按项目组织容器，查看服务与镜像。仅连接本机 Docker context；远程 context、Compose 文件编辑、镜像构建与推送不在本页执行。列表每 {settings.refreshSeconds} 秒刷新，删除操作均需确认。</HelpPopover></h1></div><div className="docker-header-actions"><Button hidden={isWidget} disabled={readOnly} onClick={() => void activeApi.invoke('flowhub_status').catch((reason) => setError(noticeText(reason)))}>桌面悬浮窗</Button><Button hidden={Boolean(window.FlowHubTheme?.hosted)} onClick={() => window.FlowHubTheme?.set(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark')}>切换外观</Button><Button onClick={() => {setNotice(''); void refresh();}} disabled={loading || operationBusy}>{loading ? '刷新中…' : '↻ 刷新'}</Button></div></header>
+    <header className="docker-header"><div><h1>{context.title || 'Docker 管理'} <span className="docker-context">{data.context || '正在连接'}</span> <HelpPopover label="管理页说明">按项目组织容器，查看服务与镜像。仅连接本机 Docker context；远程 context、Compose 文件编辑、镜像构建与推送不在本页执行。列表每 {settings.refreshSeconds} 秒刷新，删除操作均需确认。</HelpPopover></h1></div><div className="docker-header-actions">{scope === 'images' ? <Button variant="danger" disabled={readOnly || loading || operationBusy || !data.context} onClick={() => void prepareImagePrune()}>清理未使用镜像</Button> : null}<Button hidden={isWidget} disabled={readOnly} onClick={() => void activeApi.invoke('flowhub_status').catch((reason) => setError(noticeText(reason)))}>桌面悬浮窗</Button><Button hidden={Boolean(window.FlowHubTheme?.hosted)} onClick={() => window.FlowHubTheme?.set(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark')}>切换外观</Button><Button onClick={() => {setNotice(''); setDetailReload(value => value + 1); void refresh();}} disabled={loading || operationBusy}>{loading ? '刷新中…' : '↻ 刷新'}</Button></div></header>
     {readOnly ? <div className="docker-preview" role="status">只读模拟预览 · 不连接 Docker，不执行操作</div> : null}
     {error ? <div className="docker-alert" role="alert">{error}</div> : null}
     {notice ? <div className="docker-notice" role="status">{notice}</div> : null}
@@ -313,17 +342,17 @@ export function App({api, context}: {api: ManagementApi; context: HostContext}) 
       <ScopeNav scope={scope} counts={counts} onChange={changeScope} disabled={loading || operationBusy}/><section className={'docker-workspace' + (sidebarCollapsed ? ' is-sidebar-collapsed' : '')} style={{'--docker-sidebar-width': `${sidebarWidth}px`} as CSSProperties}><aside className="docker-sidebar"><div className="docker-list-heading"><h2>{listTitle}</h2><button type="button" className="docker-sidebar-toggle" aria-label="收起资源列表" title="收起资源列表" onClick={() => setSidebarCollapsed(true)}>‹</button></div><Input type="search" aria-label="搜索资源" placeholder="搜索名称、镜像或项目" value={query} onChange={(event) => setQuery(event.target.value)}/><ResourceList containers={data.containers} images={images ?? []} scope={scope} query={query} onlyIssues={settings.onlyIssues} selected={selection} collapsed={collapsed} groupOrder={Array.isArray(groupOrders[data.context]) ? groupOrders[data.context] : []} onToggleProject={(project) => setCollapsed((currentSet) => {const next = new Set(currentSet); if (next.has(project)) next.delete(project); else next.add(project); return next;})} onReorderProject={reorderProject} onSelect={select}/></aside>
         <div className="docker-sidebar-rail">{sidebarCollapsed ? <button type="button" aria-label="展开资源列表" title="展开资源列表" onClick={() => setSidebarCollapsed(false)}>›</button> : <div className="docker-sidebar-divider" role="separator" tabIndex={0} aria-label="拖动调整资源列表宽度" aria-orientation="vertical" aria-valuemin={220} aria-valuemax={380} aria-valuenow={sidebarWidth} onPointerDown={(event) => {resizing.current = {x: event.clientX, width: sidebarWidth}; event.currentTarget.setPointerCapture(event.pointerId);}} onPointerMove={(event) => {if (resizing.current) resizeSidebar(resizing.current.width + event.clientX - resizing.current.x);}} onPointerUp={() => {resizing.current = null;}} onPointerCancel={() => {resizing.current = null;}} onDoubleClick={() => resizeSidebar(260)} onKeyDown={(event) => {const next = {ArrowLeft: sidebarWidth - 10, ArrowRight: sidebarWidth + 10, Home: 220, End: 380}[event.key]; if (next !== undefined) {event.preventDefault(); resizeSidebar(next);}}}><span aria-hidden="true">⋮</span></div>}</div>
         <section className="docker-detail" aria-live="polite">{selection ? <><div className="docker-detail-heading"><div><span className="docker-eyebrow">{current ? (current.project ? current.project + ' / ' + current.service : '独立容器') : selection.kind === 'project' ? '项目' : '本地镜像'}</span><h2>{title}</h2><p>{current?.image || ''}</p></div><span className={'docker-badge' + (selection.kind === 'image' && imageDetail && !imageDetail.containers.length ? ' is-unused' : '')}>{state}</span></div>
-          {selection.kind === 'project' ? <div className="docker-actions"><Button size="sm" variant="danger" disabled={readOnly || operationBusy || !projectRows.some((row) => ['running', 'restarting', 'paused'].includes(row.state))} onClick={() => prepareAction('project_stop')}>停止整个项目</Button></div> : selection.kind === 'image' ? <div className="docker-actions"><Button size="sm" variant="danger" disabled={readOnly || operationBusy || !imageDetail || Boolean(imageDetail.containers.length)} onClick={() => prepareAction('image_remove')}>删除镜像标签</Button></div> : null}
+          {selection.kind === 'project' ? <div className="docker-actions"><Button size="sm" variant="danger" disabled={readOnly || operationBusy || !projectRows.some((row) => ['running', 'restarting', 'paused'].includes(row.state))} onClick={() => prepareAction('project_stop')}>停止整个项目</Button></div> : selection.kind === 'image' ? <div className="docker-actions"><Button size="sm" variant="danger" disabled={readOnly || operationBusy || !imageDetailReady || Boolean(imageDetail?.containers.length)} title={imageDeleteReason || (!imageDetailReady ? '正在核对镜像引用关系' : undefined)} aria-describedby={imageDeleteReason ? 'docker-image-delete-reason' : undefined} onClick={() => prepareAction('image_remove')}>{imageDeleteLabel(selection.reference)}</Button>{imageDeleteReason ? <p id="docker-image-delete-reason" className="docker-image-delete-reason">{imageDeleteReason}</p> : null}</div> : null}
           {selection.kind === 'container' ? <Tabs value={tab} onValueChange={(value) => setTab(value as 'overview' | 'logs' | 'terminal')}>
             <Tabs.List aria-label="容器详情">
               <Tabs.Trigger value="overview">概览</Tabs.Trigger>
               <Tabs.Trigger value="logs">运行日志</Tabs.Trigger>
               <Tabs.Trigger value="terminal">终端</Tabs.Trigger>
             </Tabs.List>
-            <Tabs.Panel value="overview">{containerActions}{detailLoading ? <p className="docker-loading">正在读取详情…</p> : <DetailOverview selection={selection} container={current} detail={detail} imageDetail={imageDetail} projectRows={projectRows} onSelect={select}/>}</Tabs.Panel>
+            <Tabs.Panel value="overview">{containerActions}{overviewContent}</Tabs.Panel>
             <Tabs.Panel value="logs"><div className="docker-log-tools"><Input type="search" aria-label="过滤日志" placeholder="过滤日志内容" value={logQuery} onChange={(event) => setLogQuery(event.target.value)}/><Checkbox checked={followLogs} onChange={setFollowLogs} label="每 3 秒刷新"/><Button size="sm" disabled={logsInFlight.current === generation.current} onClick={() => void loadLogs()}>刷新日志</Button><Button size="sm" onClick={() => {const command = 'docker --context \'' + data.context.replaceAll('\'', '\\\'') + '\' logs --tail 300 --timestamps ' + (current?.id || ''); if (!navigator.clipboard?.writeText) {setNotice(command); return;} void navigator.clipboard.writeText(command).then(() => setNotice('已复制日志命令'), () => setNotice('无法复制，请手动复制日志命令。'));}}>复制日志命令</Button><HelpPopover label="日志范围说明">显示最近 300 行，stdout 与 stderr 分段展示，最多各读取 512 KiB。</HelpPopover></div><Textarea readOnly value={visibleLogs || '暂无匹配日志'} className="docker-log-output"/></Tabs.Panel>
             <Tabs.Panel value="terminal"><ContainerTerminal key={current?.id + data.context} api={activeApi} context={data.context} containerId={current?.id || ''} containerState={current?.state || ''} readOnly={readOnly}/></Tabs.Panel>
-          </Tabs> : detailLoading ? <p className="docker-loading">正在读取详情…</p> : <DetailOverview selection={selection} container={current} detail={detail} imageDetail={imageDetail} projectRows={projectRows} onSelect={select}/>}</> : <EmptyState icon="◇" title="选择项目、容器或镜像" description="点击名称查看详情，箭头控制项目展开。"/>}</section></section></>}
-    <DialogShell open={Boolean(confirm)} onOpenChange={(open) => {if (!open && !operationBusy) {setConfirm(null); setConfirmError('');}}} onCancel={(event) => {if (operationBusy) event.preventDefault();}} title={confirm?.title || ''} description="请核对下面的 context、对象和影响范围后确认。" footer={<><Button disabled={operationBusy} onClick={() => setConfirm(null)}>取消</Button><Button variant="danger" disabled={operationBusy} onClick={() => void confirmAction()}>{operationBusy ? '执行中…' : '确认操作'}</Button></>}>{confirm ? <>{confirmError ? <p className="docker-error" role="alert">{confirmError}</p> : null}<p className="docker-confirm-text">{confirm.description}</p></> : null}</DialogShell>
+          </Tabs> : overviewContent}</> : <EmptyState icon="◇" title="选择项目、容器或镜像" description="点击名称查看详情，箭头控制项目展开。"/>}</section></section></>}
+    <DialogShell contentClassName="docker-confirm-content" open={Boolean(confirm)} onOpenChange={(open) => {if (!open && !operationBusy) {setConfirm(null); setConfirmError('');}}} onCancel={(event) => {if (operationBusy) event.preventDefault();}} title={confirm?.title || ''} description="请核对下面的 context、对象和影响范围后确认。" footer={<><Button disabled={operationBusy} onClick={() => setConfirm(null)}>取消</Button><Button variant="danger" disabled={operationBusy} onClick={() => void confirmAction()}>{operationBusy ? '执行中…' : confirm?.prune ? `确认清理 ${confirm.prune.targets.length} 个镜像` : '确认操作'}</Button></>}>{confirm ? <>{confirmError ? <p className="docker-error" role="alert">{confirmError}</p> : null}{confirm.prune ? <><ImagePrunePreview plan={confirm.prune}/>{confirmError ? <Button size="sm" disabled={operationBusy} onClick={() => {setConfirm(null); void prepareImagePrune();}}>重新预览</Button> : null}</> : <p className="docker-confirm-text">{confirm.description}</p>}</> : null}</DialogShell>
   </main>;
 }

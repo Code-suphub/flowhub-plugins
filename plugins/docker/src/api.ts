@@ -3,7 +3,7 @@ export interface Container {
   ports: string; project: string; service: string;
 }
 export interface ImageSummary {
-  ID: string; Repository: string; Tag: string; Size: string; CreatedSince: string;
+  ID: string; Repository: string; Tag: string; Size: string; CreatedSince: string; CreatedAt?: string | null; Digest?: string;
 }
 export interface ListResult {context: string; containers: Container[]}
 export interface ContainerDetail {
@@ -12,8 +12,8 @@ export interface ContainerDetail {
   stats?: {CPUPerc?: string; MemUsage?: string}; statsError?: string;
 }
 export interface ImageDetail {
-  id: string; tags?: string[]; digests?: string[]; created?: string; size?: number;
-  os?: string; architecture?: string; containers: Array<{id: string; name: string; state: string}>;
+  id: string; tags?: string[] | null; digests?: string[] | null; created?: string | null; size?: number;
+  os?: string | null; architecture?: string | null; containers: Array<{id: string; name: string; state: string}>;
 }
 export interface StopPlan {
   context: string; targets: Array<{id: string; name: string; state: string}>;
@@ -21,6 +21,12 @@ export interface StopPlan {
 export interface StopResult {
   results?: Array<{name: string; stopped: boolean; error?: string}>;
 }
+export interface ImagePrunePlan {
+  context: string;
+  targets: Array<{id: string; references: string[]; size: string}>;
+  totalBytes: number | null;
+}
+export interface ImagePruneResult {removed: number; remaining: number; reclaimed: string | null}
 export type Scope = 'all' | 'compose' | 'standalone' | 'images' | 'settings';
 export type Selection =
   | {kind: 'container'; id: string}

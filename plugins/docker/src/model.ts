@@ -1,5 +1,10 @@
 import type {Container, ImageSummary, Scope} from './api';
 
+export function formatDate(value?: string | null, fallback = '尚未启动'): string {
+  const timestamp = value ? Date.parse(value) : NaN;
+  return Number.isFinite(timestamp) && timestamp > 0 ? new Date(timestamp).toLocaleString() : fallback;
+}
+
 export const statusLabels: Record<string, string> = {
   running: '运行中', exited: '已停止', created: '未启动', restarting: '重启中',
   paused: '已暂停', dead: '异常', removing: '移除中',
@@ -10,7 +15,24 @@ export function isIssue(container: Container): boolean {
 }
 
 export function imageReference(image: ImageSummary): string {
-  return image.Repository === '<none>' ? image.ID : image.Repository + ':' + image.Tag;
+  if (!image.Repository || image.Repository === '<none>') return image.ID;
+  if (image.Tag && image.Tag !== '<none>') return image.Repository + ':' + image.Tag;
+  return image.Digest?.startsWith('sha256:') ? image.Repository + '@' + image.Digest : image.ID;
+}
+
+export function imageLabel(image: ImageSummary): string {
+  return image.Repository && image.Repository !== '<none>' && (!image.Tag || image.Tag === '<none>')
+    ? image.Repository + '（无标签）' : imageReference(image);
+}
+
+export function imageDeleteLabel(reference: string): string {
+  return reference.startsWith('sha256:') ? '删除无标签镜像' : reference.includes('@') ? '删除镜像摘要引用' : '删除镜像标签';
+}
+
+export function formatImageBytes(bytes: number | null): string {
+  if (bytes === null || !Number.isFinite(bytes) || bytes < 0) return '未知';
+  const unit = Math.min(4, Math.max(0, Math.floor(Math.log10(bytes || 1) / 3)));
+  return (bytes / 1000 ** unit).toFixed(unit ? 2 : 0) + ' ' + ['B', 'kB', 'MB', 'GB', 'TB'][unit];
 }
 
 export function filterContainers(containers: Container[], scope: Exclude<Scope, 'images' | 'settings'>, query: string, onlyIssues: boolean): Container[] {

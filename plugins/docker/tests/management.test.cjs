@@ -17,6 +17,24 @@ function load(name, globals = {}) {
 
 const model = load('model');
 
+test('untagged images use their real digest or ID rather than a placeholder tag', () => {
+  const id='sha256:'+'a'.repeat(64),digest='sha256:'+'b'.repeat(64);
+  const image={ID:id,Repository:'nginx',Tag:'<none>',Digest:digest};
+  assert.equal(model.imageReference(image),'nginx@'+digest);
+  assert.equal(model.imageLabel(image),'nginx（无标签）');
+  assert.equal(model.imageReference({...image,Digest:'<none>'}),id);
+  assert.equal(model.imageReference({...image,Repository:'<none>'}),id);
+  assert.equal(model.imageReference({...image,Tag:'latest'}),'nginx:latest');
+});
+
+test('missing and epoch image creation dates show an explicit placeholder', () => {
+  for (const value of [undefined, null, '', 'not-a-date', '1970-01-01T00:00:00Z', '0001-01-01T00:00:00Z']) {
+    assert.equal(model.formatDate(value, '未提供创建时间'), '未提供创建时间');
+  }
+  assert.notEqual(model.formatDate('2026-10-27T00:00:00Z', '未提供创建时间'), '未提供创建时间');
+  assert.equal(model.formatDate(undefined), '尚未启动');
+});
+
 test('resource detail uses concise Chinese type labels', () => {
   const source = fs.readFileSync(path.join(__dirname, '../src/App.tsx'), 'utf8');
   assert.match(source, /selection\.kind === 'project' \? '项目' : '本地镜像'/);
@@ -173,6 +191,7 @@ test('transport ignores unknown or wrong message types and dispose rejects pendi
 test('preview API rejects mutations asynchronously without sending host messages', async () => {
   const api = load('api').createPreviewApi();
   await assert.rejects(api.invoke('operate', {id: 'a'.repeat(64)}), /浏览器预览不执行操作/);
+  await assert.rejects(api.invoke('image_prune_confirm', {confirmed: true, targets: []}), /浏览器预览不执行操作/);
   const list = await api.invoke('list');
   assert.equal(list.context, '本机 · 模拟数据');
 });

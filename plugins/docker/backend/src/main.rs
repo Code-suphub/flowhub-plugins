@@ -1,5 +1,6 @@
 use serde_json::{json, Value};
 mod management;
+mod image_prune;
 mod terminal;
 use std::{
     path::PathBuf,
@@ -312,6 +313,9 @@ async fn dispatch(method: &str, p: &Value) -> Result<Value, String> {
     manage(method, p).await
 }
 async fn manage(method: &str, p: &Value) -> Result<Value, String> {
+    if ["image_prune_preview", "image_prune_confirm"].contains(&method) {
+        return image_prune::dispatch(method, p).await;
+    }
     if method.starts_with("terminal_") {
         return terminal::dispatch(method, p).await;
     }
