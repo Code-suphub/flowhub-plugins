@@ -12,12 +12,30 @@
   button:disabled {cursor:not-allowed}
   h2,p {margin:0}
 }
-.twofa {padding:20px;min-width:0}
+.twofa {max-width:1160px;margin:0 auto;padding:clamp(18px,3vw,36px);min-width:0}
 .muted {color:var(--fh-muted)}
 .error {color:var(--fh-danger)}
-.search-input {max-width:360px}
-.account-row {display:grid;grid-template-columns:minmax(100px,1fr) 175px auto 44px;gap:16px;align-items:center;padding:14px 0;border-bottom:1px solid var(--fh-border)}
-.token-code {font:600 24px ui-monospace,Menlo,monospace;letter-spacing:1px;color:var(--fh-accent);white-space:nowrap;user-select:text}
+.twofa-toolbar {display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:24px}
+.twofa-heading {display:flex;align-items:baseline;gap:12px}
+.twofa-heading h1 {margin:0;font-size:24px;letter-spacing:-.03em;font-weight:650}
+.twofa-toolbar-actions {display:flex;gap:8px;margin-left:auto}
+.twofa-search {display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:22px}
+.search-input {max-width:400px}
+.twofa-preview {margin-bottom:16px;color:var(--fh-muted);font-size:12px}
+.account-grid {display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr));gap:16px}
+.account-row {display:grid;grid-template-columns:minmax(0,1fr) 34px 44px;gap:12px 8px;align-items:center;padding:18px;border:1px solid var(--fh-border);border-radius:15px;background:var(--fh-canvas);box-shadow:0 2px 6px color-mix(in srgb,var(--fh-text) 3%,transparent)}
+.account-identity {display:flex;align-items:center;gap:10px;min-width:0}
+.account-identity strong {display:block;overflow-wrap:anywhere;font-size:14px;font-weight:650}
+.account-identity .muted {display:block;margin-top:4px;overflow-wrap:anywhere;font-size:12px}
+.service-avatar {display:grid;place-items:center;width:36px;height:36px;border-radius:10px;flex-shrink:0;background:color-mix(in srgb,var(--fh-accent) 12%,var(--fh-canvas));color:var(--fh-accent);font-size:12px;font-weight:700}
+.account-timer {display:grid;place-items:center;width:32px;height:32px;padding:3px;border-radius:50%;background:conic-gradient(var(--fh-accent) var(--otp-progress),var(--fh-border) 0);color:var(--fh-muted);font:11px ui-monospace,Menlo,monospace}
+.account-timer>span {display:grid;place-items:center;width:100%;height:100%;border-radius:50%;background:var(--fh-canvas)}
+.token-copy {grid-column:1/-1;justify-content:space-between;gap:12px;min-width:0;padding:8px 0;border:0;border-radius:6px;letter-spacing:0}
+.token-code {font:600 clamp(25px,3vw,32px) ui-monospace,Menlo,monospace;letter-spacing:1px;color:var(--fh-text);white-space:nowrap;user-select:text}
+.token-copy-hint {color:var(--fh-muted);font-size:12px;font-weight:400}
+.token-copy:hover .token-copy-hint {color:var(--fh-accent)}
+.account-footnote,.account-error {grid-column:1/-1;font-size:11px;line-height:1.6}
+.account-error {overflow-wrap:anywhere}
 .twofa-dialog {width:min(440px,calc(100vw - 32px))}
 .twofa-import-dialog {width:min(500px,calc(100vw - 32px))}
 .twofa-dialog-content {max-height:calc(100dvh - 32px);grid-template-rows:auto minmax(0,1fr) auto}
@@ -25,8 +43,11 @@
 .twofa-empty {border:0;background:transparent}
 @media(max-width:520px) {
   .twofa {padding:14px}
+  .twofa-heading h1 {font-size:21px}
+  .twofa-toolbar {gap:8px;margin-bottom:18px}
+  .twofa-toolbar-actions {width:100%;margin-left:0}
+  .twofa-toolbar-actions>button {flex:1}
+  .twofa-search {flex-wrap:wrap;gap:9px}
   .search-input {max-width:none}
-  .account-row {grid-template-columns:minmax(0,1fr) auto 44px;gap:10px}
-  .account-identity {grid-column:1/-1}
-  .token-code {font-size:22px}
+  .account-row {padding:16px}
 }

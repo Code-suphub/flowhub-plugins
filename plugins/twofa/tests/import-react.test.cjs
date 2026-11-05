@@ -59,3 +59,11 @@ test('editing an imported account keeps its algorithm, period and digits when it
   const s=setup(t);s.accounts[0]={...metadata,name:'Work'};await wait(()=>s.w.document.querySelector('[aria-label="Work更多操作"]'));s.w.document.querySelector('[aria-label="Work更多操作"]').click();await wait(()=>s.button('编辑'));s.button('编辑').click();await wait(()=>s.w.document.querySelector('#account-name'));
   s.fill('#account-name','Renamed');s.w.document.querySelector('#account-form').dispatchEvent(new s.w.Event('submit',{bubbles:true,cancelable:true}));await wait(()=>s.calls.some(call=>call.method==='save'));const saved=s.calls.find(call=>call.method==='save');assert.equal(saved.algorithm,'SHA256');assert.equal(saved.digits,8);assert.equal(saved.period,60);assert.equal(saved.secret,'');assert.equal(saved.previous,'Work');
 });
+test('account cards keep service identity, accessible expiry and direct code copy together; search still matches issuer',async t=>{
+  const s=setup(t);s.accounts.splice(0,1,{name:'Work',issuer:'GitHub',digits:8,period:60},{name:'Personal',issuer:'Cloudflare'});
+  await wait(()=>s.w.document.querySelectorAll('.account-row').length===2 && s.w.document.querySelector('[aria-label="Work验证码"]')?.textContent==='1234 5678');
+  const card=s.w.document.querySelector('.account-row');assert.equal(card.querySelector('strong').textContent,'GitHub');assert.match(card.textContent,/Work/);
+  const expiry=card.querySelector('[role="progressbar"]');assert.equal(expiry.getAttribute('aria-valuemax'),'60');assert.ok(Number(expiry.getAttribute('aria-valuenow'))>0);
+  s.w.document.querySelector('[aria-label="复制 Work 验证码"]').click();await wait(()=>s.copies.length);assert.equal(s.copies[0],'12345678');
+  s.fill('[aria-label="搜索账户"]','cloudflare');await wait(()=>s.w.document.querySelectorAll('.account-row').length===1);assert.match(s.w.document.querySelector('.account-row').textContent,/Personal/);
+});

@@ -1,4 +1,4 @@
-import {useEffect, useMemo, useRef, useState, type FormEvent} from 'react';
+import {useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent} from 'react';
 import {Button, DialogShell, DropdownMenu, EmptyState, Field, HelpPopover, Input} from '@flowhub/plugin-common/react';
 import type {Account, TwofaApi} from './api';
 import {CodeCache, filterAccounts,formatCode} from './codes';
@@ -38,25 +38,21 @@ function AccountList({accounts, cache, onEdit, onRemove, notify}: {
     if (!navigator.clipboard?.writeText) { notify('当前环境不支持复制，请选中验证码手动复制。'); return; }
     void navigator.clipboard.writeText(entry.code).then(() => notify('验证码已复制'), () => notify('无法复制，请选中验证码手动复制。'));
   }
-  return <ul className="m-0 list-none p-0" aria-label="验证器账户">
+  return <ul className="account-grid m-0 list-none p-0" aria-label="验证器账户">
     {accounts.map(account => {
       const entry = cache.read(account.name);
       const remaining = Math.max(0, Math.ceil(((entry?.expires ?? 0) - now) / 1000));
       const code = remaining ? entry?.code : undefined;
+      const period = entry?.period ?? account.period ?? 30;
       return <li key={account.name} className="account-row">
-        <div className="account-identity grid min-w-0 gap-1">
-          <strong className="break-words text-sm">{account.name}</strong>
-          {account.issuer ? <span className="muted break-words text-xs">{account.issuer}</span> : null}
-        </div>
-        <div className="grid min-w-0 gap-1">
-          <span className="token-code" aria-label={`${account.name}验证码`}>{code?formatCode(code):account.digits===8?'···· ····':'··· ···'}</span>
-          <span className={`text-xs ${entry?.error ? 'error' : 'muted'}`}>{entry?.error || (remaining ? `${remaining} 秒` : '刷新中')}</span>
-        </div>
-        <Button size="sm" disabled={!code} aria-label={`复制 ${account.name} 验证码`} onClick={() => copy(account.name)}>复制</Button>
+        <div className="account-identity"><span className="service-avatar" aria-hidden="true">{(account.issuer || account.name).trim().slice(0,2).toLocaleUpperCase()}</span><div className="min-w-0"><strong>{account.issuer || account.name}</strong>{account.issuer ? <span className="muted">{account.name}</span> : null}</div></div>
+        <div className="account-timer" role="progressbar" aria-label={`${account.name}到期时间`} aria-valuemin={0} aria-valuemax={period} aria-valuenow={remaining} aria-valuetext={remaining?`${remaining} 秒后更新`:'正在更新'} style={{'--otp-progress':`${Math.min(1,remaining/period)*100}%`} as CSSProperties}><span>{remaining || '…'}</span></div>
         <DropdownMenu label="•••" ariaLabel={`${account.name}更多操作`} items={[
           {id: 'edit', label: '编辑', onSelect: () => onEdit(account)},
           {id: 'remove', label: '删除', danger: true, onSelect: () => onRemove(account)}
         ]}/>
+        <Button variant="ghost" className="token-copy" disabled={!code} aria-label={`复制 ${account.name} 验证码`} onClick={() => copy(account.name)}><span className="token-code" aria-label={`${account.name}验证码`}>{code?formatCode(code):account.digits===8?'···· ····':'··· ···'}</span><span className="token-copy-hint">复制</span></Button>
+        {entry?.error ? <p className="account-error error" role="status">{entry.error}</p> : <span className="account-footnote muted">{remaining ? `${account.digits || 6} 位 · 每 ${period} 秒更新` : '正在更新验证码…'}</span>}
       </li>;
     })}
   </ul>;
@@ -128,13 +124,13 @@ export function App({api}: {api: TwofaApi}) {
     finally { setDeleting(false); }
   }
   return <main className="twofa">
-    <header className="mb-4 flex flex-wrap items-center gap-2">
-      {api.preview ? <h1 className="m-0 text-lg font-semibold">2FA 验证码</h1> : <span className="text-sm font-semibold">账户</span>}
+    <header className="twofa-toolbar">
+      <div className="twofa-heading"><h1>验证器</h1><span className="muted text-xs">{accounts.length} 个账户</span></div>
       <HelpPopover label="验证码说明">输入名称或发行方过滤账户。验证码到期自动刷新；密钥保存在本机加密文件中。</HelpPopover>
-      <span className="muted text-xs">{visible.length} / {accounts.length}</span>
-      <div className="ml-auto flex gap-2"><Button onClick={()=>setImporting(true)}>导入账户</Button><Button onClick={() => setEditor({account: null})}>添加账户</Button></div>
+      <div className="twofa-toolbar-actions"><Button onClick={()=>setImporting(true)}>导入账户</Button><Button variant="primary" onClick={() => setEditor({account: null})}>＋ 添加账户</Button></div>
     </header>
-    <Input type="search" className="search-input" aria-label="搜索账户" placeholder="搜索名称或发行方" value={query} onChange={event => setQuery(event.target.value)}/>
+    {api.preview ? <p className="twofa-preview" role="status">只读预览 · 示例验证码，不连接真实账户</p> : null}
+    <div className="twofa-search"><Input type="search" className="search-input" aria-label="搜索账户" placeholder="搜索名称或发行方" value={query} onChange={event => setQuery(event.target.value)}/><span className="muted text-xs" role="status">{query ? `${visible.length} 个匹配账户` : '点击验证码复制'}</span></div>
     {notice ? <p role="status" className="muted my-3 text-sm">{notice}</p> : null}
     {loading ? <p role="status" className="muted text-sm">加载账户中…</p>
       : loadError ? <div role="alert" className="my-4 flex items-center gap-3"><span className="error text-sm">{loadError}</span><Button onClick={() => setRevision(v => v + 1)}>重试</Button></div>

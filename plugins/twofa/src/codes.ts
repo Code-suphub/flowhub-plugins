@@ -1,5 +1,5 @@
 import type {CodeResult} from './api';
-export interface CodeEntry { code?: string; expires?: number; error?: string; retryAt?: number }
+export interface CodeEntry { code?: string; expires?: number; period?: number; error?: string; retryAt?: number }
 
 /** Codes are ephemeral: no storage or logs, and no RPC on each countdown tick. */
 export class CodeCache {
@@ -22,7 +22,7 @@ export class CodeCache {
         if (generation !== this.generation) return;
         const period=result.period ?? 30;
         if (!/^\d{6,8}$/.test(result.code) || !Number.isInteger(period) || period<15 || period>120 || !Number.isFinite(result.remaining) || result.remaining <= 0 || result.remaining > period) throw new Error('验证码响应无效');
-        this.values.set(name, {code: result.code, expires: started + result.remaining * 1000});
+        this.values.set(name, {code: result.code, expires: started + result.remaining * 1000, period});
       } catch (error) {
         if (generation === this.generation) this.values.set(name, {error: error instanceof Error ? error.message : '验证码读取失败', retryAt: this.now() + 5000});
       } finally { if (generation === this.generation) this.pending.delete(name); }
