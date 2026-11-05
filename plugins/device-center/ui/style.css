@@ -51,6 +51,10 @@ h1{font-size:24px;margin:0 0 3px;line-height:1.25;letter-spacing:-.4px;font-weig
 .widget-power{border:1px solid #ecf0ea;background:#f4f8f2;border-radius:8px;width:100%;text-align:left;padding:7px 8px;display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:8px}.widget-power>.widget-power-metric{display:grid;gap:2px;min-width:0}.widget-power-metric>span{font-size:9px;color:#75887d}.widget-power strong{font-size:15px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}.widget-source-value{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px}.widget-source-value small{font-size:9px;color:#75887d;white-space:nowrap}.widget-section{font-size:10px;color:#75887d;margin:6px 0 4px}.widget .device-row{height:42px}.widget .device-photo{width:34px;height:34px;flex-basis:34px}.widget .device-name{font-size:11px}.widget .device-sub{font-size:9px}.widget .tag{padding:3px 7px;font-size:9px}
 .editor{padding:24px;max-width:500px}.editor label{display:block;margin:18px 0;font-size:12px}.editor input,.editor select{display:block;width:100%;margin-top:7px;background:#fff;border:1px solid #dfe8e2;border-radius:9px;padding:9px}
 .device-name,.device-sub{display:block}
+.widget{height:100vh;min-height:0;display:flex;flex-direction:column}
+.widget>.widget-head,.widget>.widget-counts,.widget>.widget-power,.widget>.widget-section,.widget>.warning-message{flex-shrink:0}
+.widget-device-list{min-height:0;flex:1;overflow-y:auto;overscroll-behavior:contain}
+.widget-metric[aria-pressed=true]{border-color:var(--accent);background:var(--canvas)}
 .display-connection{display:inline-block;vertical-align:middle;margin-left:5px;padding:1px 5px;border-radius:5px;background:#edf1ef;color:#63796c;font-size:9px;font-weight:500;line-height:1.4}
 .battery-indicator:before{right:auto;width:calc((100% - 2px) * var(--battery-level,0))}
 .battery-indicator.low:before{background:#c17b36}

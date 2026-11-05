@@ -7,8 +7,8 @@ const code=fs.readFileSync(new URL('../ui/app.js',import.meta.url),'utf8');
 
 // Exercise the shipped widget message protocol and rendering with host snapshots.
 async function mountWidget(data,config={},surface='card'){
-  const sent=[],listeners={},intervals=[],controls={};
-  const node={innerHTML:'',querySelectorAll:()=>[],querySelector:selector=>controls[selector]||null};
+  const sent=[],listeners={},intervals=[],controls={},categories={};
+  const node={innerHTML:'',querySelectorAll:selector=>selector==='[data-widget-category]'?[...node.innerHTML.matchAll(/data-widget-category="([^"]+)"/g)].map(([,key])=>({dataset:{widgetCategory:key},addEventListener:(event,callback)=>{categories[key]=callback;}})):[],querySelector:selector=>controls[selector]||null};
   const parent={postMessage:message=>sent.push(message)};
   const window={parent,addEventListener:(name,fn)=>{listeners[name]=fn;},removeEventListener(){}};
   const document={body:{dataset:{surface},classList:{add(){}}},getElementById:()=>node,
@@ -22,7 +22,7 @@ async function mountWidget(data,config={},surface='card'){
     listeners.message({source:parent,data:{type:'flowhub:widget-result',token:'test-token',id:request.id,result:data}});
   }
   await Promise.resolve();
-  return {node,sent,intervals,controls,receive:message=>listeners.message({source:parent,data:{token:'test-token',...message}})};
+  return {node,sent,intervals,controls,selectCategory:key=>categories[key](),receive:message=>listeners.message({source:parent,data:{token:'test-token',...message}})};
 }
 const renderWidget=async(data,config={})=>(await mountWidget(data,config)).node.innerHTML;
 
@@ -51,9 +51,9 @@ test('widget excludes disconnected devices and shows an explicit empty state',as
 test('display badges are visible and Retina logical size stays in device details',async()=>{
   const internal={id:'display-1',name:'Color LCD',category:'display',kind:'monitor',status:'connected',
     displayConnection:'built-in',pixelResolution:'3024 × 1964',logicalResolution:'1512 × 982',refreshRate:'120.00Hz',detail:'3024 × 1964 · 120.00Hz'};
-  const external={...internal,id:'display-2',name:'DELL P2419H',displayConnection:'external',pixelResolution:'1920 × 1080',detail:'1920 × 1080 · 60.00Hz'};
+  const external={...internal,id:'display-2',name:'DELL P2419H',displayConnection:'external',pixelResolution:'1920 × 1080',refreshRate:'60.00Hz',detail:'1920 × 1080 · 60.00Hz'};
   const html=await renderWidget({...snapshot,devices:[internal,external]});
-  for(const text of ['内置','外接','3024 × 1964','1920 × 1080'])assert.ok(html.includes(text),text);
+  for(const text of ['内置','外接','3024 × 1964','1080P · 60.00Hz'])assert.ok(html.includes(text),text);
   assert.ok(!html.includes('1512 × 982'));
   const detail=await mountWidget({...snapshot,devices:[internal]}, {selection:{deviceId:internal.id}},'detail');
   for(const text of ['像素分辨率','3024 × 1964','界面逻辑尺寸','1512 × 982','刷新率','内置'])assert.ok(detail.node.innerHTML.includes(text),text);
@@ -93,6 +93,45 @@ test('missing or failed power telemetry never substitutes adapter rating for liv
   assert.equal((html.match(/<strong>未提供<\/strong>/g)||[]).length,2);
   assert.ok(html.includes('当前功率读取失败：读取失败'));
   assert.ok(!html.includes('<strong>68W</strong>'));
+});
+test('desktop supply stays visible when wattage and battery telemetry are unavailable',async()=>{
+  const html=await renderWidget({...snapshot,power:{source:'外接电源',externalConnected:null,batteryPresent:false,systemWatts:null,inputWatts:null,charging:null,powerUnavailableReason:'系统未提供实时功率读数，供电来源仍可独立读取。'}});
+  assert.ok(html.includes('<strong>外接电源</strong>'));
+  assert.ok(html.includes('无内置电池'));assert.ok(!html.includes('未充电'));
+  assert.ok(html.includes('系统未提供实时功率读数'));
+  assert.ok(!html.includes('0.0W'));
+});
+test('USB category reveals devices beyond the default first three and survives context refresh',async()=>{
+  const usb=Array.from({length:7},(_,i)=>({id:`usb-${i}`,name:`USB ${i}`,category:'usb',kind:'hub',status:'connected'}));
+  const mixed={...snapshot,devices:[...devices.slice(0,2),{id:'display',name:'Display',category:'display',status:'connected'},...usb]};
+  const mounted=await mountWidget(mixed,{limit:3});
+  assert.ok(mounted.node.innerHTML.includes('显示 3/10'));
+  assert.ok(!mounted.node.innerHTML.includes('data-device="usb-0"'));
+  mounted.selectCategory('usb');
+  assert.equal((mounted.node.innerHTML.match(/data-device=/g)||[]).length,3);
+  assert.ok(mounted.node.innerHTML.includes('data-device="usb-0"'));
+  assert.ok(mounted.node.innerHTML.includes('显示 3/7'));
+  mounted.receive({type:'flowhub:widget-init',context:{config:{limit:3}}});
+  assert.ok(mounted.node.innerHTML.includes('data-widget-category="usb" aria-pressed="true"'));
+  mounted.selectCategory('overview');
+  assert.ok(mounted.node.innerHTML.includes('显示 3/10'));
+});
+test('all-device mode renders beyond eight and is preserved by the editor save protocol',async()=>{
+  const full={...snapshot,devices:[...devices,...devices.slice(0,2).map(d=>({...d,id:d.id+'-extra'}))]};
+  const html=await renderWidget(full,{limit:'all'});
+  assert.equal((html.match(/data-device=/g)||[]).length,10);
+  assert.ok(html.includes('widget-device-list'));assert.ok(!html.includes('显示 3/10'));
+  const editor=await mountWidget(full,{limit:'all'},'editor');
+  assert.ok(editor.node.innerHTML.includes('value="all" selected'));
+  editor.controls['#widget-limit']={value:'all'};
+  editor.receive({type:'flowhub:widget-save',id:'all-save'});
+  assert.equal(editor.sent.find(message=>message.type==='flowhub:widget-config').config.limit,'all');
+});
+test('USB detail navigation honors the requested category',async()=>{
+  const full={...snapshot,devices:[devices[0],{id:'usb-0',name:'USB test device',category:'usb',kind:'hub',status:'connected'}]};
+  const mounted=await mountWidget(full,{selection:{view:'usb'}},'detail');
+  assert.ok(mounted.node.innerHTML.includes('data-device="usb-0"'));
+  assert.ok(!mounted.node.innerHTML.includes('data-device="d0"'));
 });
 test('sampling interval is configured, saved and sent to the backend with matching polling',async()=>{
   const mounted=await mountWidget(snapshot,{powerIntervalSeconds:30});

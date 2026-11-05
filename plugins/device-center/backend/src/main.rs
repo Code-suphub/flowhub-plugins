@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 mod power_telemetry;
+mod power_source;
+mod smc_power;
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
     io::{BufRead, Read, Write},
@@ -420,11 +422,13 @@ fn power_interval_seconds(params: &Value) -> u64 {
 fn update_power_sample(state: &Arc<Mutex<State>>, force: bool, interval_seconds: u64) {
     let due = state.lock().map(|s| now().saturating_sub(s.power_checked_at) >= interval_seconds * 1_000).unwrap_or(false);
     if !force && !due { return; }
-    let sample = power_telemetry::read().unwrap_or_else(|error| json!({
+    let mut sample = power_telemetry::read().unwrap_or_else(|error| json!({
         "inputWatts":null,"systemWatts":null,"batterySideWatts":null,"sampledAt":null,
         "telemetryError":error,"externalConnected":null,"source":null,"charging":null,
         "note":"当前功率读取失败，适配器规格不代表实时输入功率。"
     }));
+    power_source::apply(&mut sample, power_source::read());
+    smc_power::fill_missing(&mut sample);
     if let Ok(mut s) = state.lock() { s.power_sample = Some(sample); s.power_checked_at = now(); }
 }
 fn dispatch(state: &Arc<Mutex<State>>, method: &str, params: &Value) -> Result<Value, String> {
