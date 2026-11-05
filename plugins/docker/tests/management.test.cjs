@@ -35,13 +35,6 @@ test('missing and epoch image creation dates show an explicit placeholder', () =
   assert.equal(model.formatDate(undefined), '尚未启动');
 });
 
-test('resource detail uses concise Chinese type labels', () => {
-  const source = fs.readFileSync(path.join(__dirname, '../src/App.tsx'), 'utf8');
-  assert.match(source, /selection\.kind === 'project' \? '项目' : '本地镜像'/);
-  assert.doesNotMatch(source, /COMPOSE PROJECT|LOCAL IMAGE/);
-  const preview = fs.readFileSync(path.join(__dirname, '../src/api.ts'), 'utf8');
-  assert.doesNotMatch(preview, /\d+ days ago/);
-});
 
 test('resource counts live beside scope tabs instead of in summary cards', () => {
   const source = fs.readFileSync(path.join(__dirname, '../src/App.tsx'), 'utf8');
@@ -53,14 +46,6 @@ test('resource counts live beside scope tabs instead of in summary cards', () =>
   assert.match(source, /imagesContextRef\.current !== next\.context/);
 });
 
-test('resource details stay beside the list until the viewport is genuinely narrow', () => {
-  const styles = fs.readFileSync(path.join(__dirname, '../src/styles.css'), 'utf8');
-  assert.match(styles, /grid-template-columns:minmax\(220px, min\(var\(--docker-sidebar-width\), 48%\)\) 10px minmax\(0, 1fr\)/);
-  assert.match(styles, /height:clamp\(510px, calc\(100dvh - 360px\), 620px\)/);
-  assert.match(styles, /\.docker-detail \{[^}]*overflow:auto/);
-  assert.match(styles, /@media \(max-width: 620px\) \{\s*\.docker-workspace, \.docker-workspace\.is-sidebar-collapsed \{grid-template-columns:1fr; height:auto\}/);
-  assert.match(styles, /\.docker-resource-list \{max-height:180px; overflow:auto\}/);
-});
 
 test('settings typography is scoped and appearance card keeps its natural height', () => {
   const styles = fs.readFileSync(path.join(__dirname, '../src/styles.css'), 'utf8');
@@ -88,21 +73,6 @@ test('settings explanations use contextual help and checked boxes use theme-awar
   }
 });
 
-test('list controls are clear and container actions stay within their relevant tabs', () => {
-  const source = fs.readFileSync(path.join(__dirname, '../src/App.tsx'), 'utf8');
-  assert.doesNotMatch(source, /setUpdated|\{updated\}/);
-  assert.match(source, /aria-label="收起资源列表"/);
-  assert.match(source, /aria-label="拖动调整资源列表宽度"/);
-  assert.match(source, /aria-label=\{'拖动排序 '/);
-  assert.match(source, /onPointerDown=\{\(event\) => startDrag\(event, project\)\}/);
-  assert.match(source, /onPointerMove=\{moveDrag\} onPointerUp=\{endDrag\}/);
-  assert.doesNotMatch(source, /onDragStart|onDragOver|onDrop=/);
-  assert.match(source, /<svg viewBox="0 0 16 16" aria-hidden="true">/);
-  assert.match(source, /<Tabs.Panel value="overview">\{containerActions\}/);
-  assert.match(source, /<Tabs.Panel value="logs"><ContainerLogs/);
-  assert.match(fs.readFileSync(path.join(__dirname, '../src/ContainerLogs.tsx'), 'utf8'), /复制日志命令/);
-  assert.match(source, /aria-expanded=\{!isCollapsed\}/);
-});
 
 test('project groups can be reordered without changing container membership', () => {
   const groups = [['web-app', [{id: 'a'}]], ['', [{id: 'b'}]], ['worker', [{id: 'c'}]]];

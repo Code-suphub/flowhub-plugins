@@ -1,6 +1,6 @@
 # Docker 导航与日志交互验收
 
-目标：`docker 0.2.0`。参考版本为 [Dockge 1.5.0](https://github.com/louislam/dockge/tree/1.5.0)，模块为 `frontend/src/pages/Compose.vue` 和 `frontend/src/components/Container.vue`。上游为 MIT；本轮只参考项目／成员／输出的组织方式，不移植上游源码、资源或服务端。
+本页保留 `docker 0.2.0` 的导航与日志基线。最新 `0.3.0` 的 Arcane 方向界面、卷与网络扩展及验收见[资源管理清单](resources-acceptance.md)。0.2.0 参考 [Dockge 1.5.0](https://github.com/louislam/dockge/tree/1.5.0) 的 `Compose.vue` 和 `Container.vue` 组织方式，不移植其源码、资源或服务端。
 
 ## 当前已有 → 本批变化
 

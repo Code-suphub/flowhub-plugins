@@ -1,6 +1,6 @@
 # Docker 管理
 
-FlowHub schema 2 独立插件。第一版面向本机 Docker：按 Compose 标签归组已有容器，搜索名称、镜像及项目，查看运行状态、健康检查、CPU/内存、端口和挂载信息，读取最近日志，并确认后启动、停止或重启单个容器。
+FlowHub schema 2 独立插件，面向本机 Docker。0.3.0 采用参考 Arcane 的资源侧栏与表格，统一浏览容器、Compose 项目、镜像、卷和网络；详情可查看运行状态、健康检查、CPU／内存、端口、挂载与引用容器，读取日志，并在确认后执行管理操作。
 
 ## 构建与加载
 
@@ -9,6 +9,10 @@ FlowHub schema 2 独立插件。第一版面向本机 Docker：按 Compose 标�
 Docker CLI 查找 `/opt/homebrew/bin/docker`、`/usr/local/bin/docker` 以及 Docker Desktop 自带路径。使用 Docker 当前 context，但仅接受 Unix socket 本机环境；不切换用户 context，不启动引擎，不执行 shell，不读取容器环境变量。Docker Desktop 或 Colima 必须先启动。环境变量 DOCKER_HOST / DOCKER_CONTEXT 不覆盖 context 配置。
 
 ## 行为与范围
+
+- 卷：列表／搜索／排序／仅未引用筛选、驱动／范围、创建时间、引擎内路径和全部引用容器；新建本地 local 命名卷。删除前完整输入名称，重新核对卷身份与引用，已停止容器的引用也受保护；仅删除身份完整且未引用的本地 local 卷，卷内数据永久丢失。不使用 force／prune，不读取或编辑卷内文件。
+- 网络：列表／搜索／排序／仅未引用筛选、驱动／范围、IPAM 子网和网关、内部／IPv6 属性与引用容器；新建本地 bridge 网络。删除须完整输入名称，核对完整 ID 与引用；默认网络、非本地 bridge 网络及仍有容器引用的网络受保护。
+- 资源表格每页 25 项；进入详情后保留列表筛选和分页，返回恢复来源位置与焦点。冷加载失败显示不可用，刷新失败保留缓存并禁用修改；新建失败保留草稿，待执行操作阻止重复提交与关闭。
 
 - 容器列表可手动刷新，可见时每 15 秒更新。列表的状态和健康检查由批量 `docker inspect` 核对，避免 Docker 列表摘要滞后时将已停止容器仍显示为运行中。选中时采集详情，资源数据是单次快照。
 - 日志最近 300 行，stdout 和 stderr 各限制 512 KiB，分别拼接而非严格按时间合并；可过滤和每 3 秒轮询，不是流式终端。日志只在当前页面内存中，不存盘。
@@ -39,6 +43,8 @@ Docker 页面右上角「桌面悬浮窗」打开 FlowHub 桌面组件画布，�
 交互式卡片需要更新支持 `widget.interactive` 和对象选择导航的 FlowHub 宿主。点击容器名直接进入该容器详情；点击 Compose 项目名进入其成员页，左侧箭头只展开收起。顶部可切换全部/Compose/独立容器，「镜像」直接打开镜像管理。「配置」可调整标题、类型、项目范围和异常筛选。导航携带对象 ID/项目名及 Docker context；环境改变后不沿用旧选择。停止按钮不会触发跳转，确认和执行期间也不会导航。宿主定时更新保留 iframe。浏览器预览禁用所有修改操作。
 
 ## 验证
+
+0.3.0 的范围及验收见[资源管理清单](docs/resources-acceptance.md)。`node tests/resources-smoke.mjs` 使用真实 Docker CLI 和插件进程连接临时 Unix socket 模拟引擎，验证卷／网络列表、详情、引用、创建和受保护的删除，不连接用户引擎。添加 `--serve` 可在 `127.0.0.1:5204` 启动同一隔离流程验收页；退出自动清理测试配置和模拟数据。
 
 0.2.0 的实现范围、自动回归和安装版待验项见 [交互验收清单](docs/acceptance.md)。本轮参考 [Dockge 1.5.0](https://github.com/louislam/dockge/tree/1.5.0) 的 Compose 项目、成员与输出工作台组织（`Compose.vue`、`Container.vue`）。上游采用 [MIT 许可](https://github.com/louislam/dockge/blob/1.5.0/LICENSE)；本轮只参考交互，使用 FlowHub 公共 React 组件重新实现，没有复制其源码、样式或素材，没有引入其服务端。
 

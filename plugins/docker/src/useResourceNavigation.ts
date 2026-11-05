@@ -9,6 +9,8 @@ export function resourceKey(selection:Selection|null):string {
   if(selection.kind==='container')return 'container:'+selection.id;
   if(selection.kind==='project')return 'project:'+selection.project;
   if(selection.kind==='image')return JSON.stringify(['image',selection.id,selection.reference]);
+  if(selection.kind==='volume')return 'volume:'+selection.name;
+  if(selection.kind==='network')return 'network:'+selection.id;
   return 'images';
 }
 const viewKey=(view:BrowseView)=>JSON.stringify([view.scope,resourceKey(view.selection),view.query,view.tab]);
@@ -45,7 +47,7 @@ export function useResourceNavigation({context,view,apply,disabled,ready,list,de
   function change(next:BrowseView,origin?:HTMLElement){
     if(disabled || viewKey(next)===viewKey(view))return;
     const active=document.activeElement;
-    const snapshot:Snapshot={context,view:{...view},listTop:listNode()?.scrollTop || 0,detailTop:detail.current?.scrollTop || 0,pageTop:window.scrollY,focus:origin?{key:resourceKey(next.selection),zone:detail.current?.contains(origin)?'detail':'list'}:null};
+    const snapshot:Snapshot={context,view:{...view},listTop:listNode()?.scrollTop || 0,detailTop:detail.current?.scrollTop || 0,pageTop:window.scrollY,focus:origin?{key:origin.dataset.dockerSelect || resourceKey(next.selection),zone:detail.current?.contains(origin)?'detail':'list'}:null};
     setHistory([...entries.slice(-19),snapshot]);
     pending.current={kind:'open',context,view:viewKey(next),active:origin || active};
     apply(next);
