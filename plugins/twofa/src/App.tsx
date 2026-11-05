@@ -1,7 +1,8 @@
 import {useEffect, useMemo, useRef, useState, type FormEvent} from 'react';
 import {Button, DialogShell, DropdownMenu, EmptyState, Field, HelpPopover, Input} from '@flowhub/plugin-common/react';
 import type {Account, TwofaApi} from './api';
-import {CodeCache, filterAccounts} from './codes';
+import {CodeCache, filterAccounts,formatCode} from './codes';
+import {ImportAccount} from './ImportAccount';
 
 const message = (error: unknown) => error instanceof Error ? error.message : '操作失败，请重试';
 
@@ -48,7 +49,7 @@ function AccountList({accounts, cache, onEdit, onRemove, notify}: {
           {account.issuer ? <span className="muted break-words text-xs">{account.issuer}</span> : null}
         </div>
         <div className="grid min-w-0 gap-1">
-          <span className="token-code" aria-label={`${account.name}验证码`}>{code?.replace(/^(\d{3})(\d{3})$/, '$1 $2') || '··· ···'}</span>
+          <span className="token-code" aria-label={`${account.name}验证码`}>{code?formatCode(code):account.digits===8?'···· ····':'··· ···'}</span>
           <span className={`text-xs ${entry?.error ? 'error' : 'muted'}`}>{entry?.error || (remaining ? `${remaining} 秒` : '刷新中')}</span>
         </div>
         <Button size="sm" disabled={!code} aria-label={`复制 ${account.name} 验证码`} onClick={() => copy(account.name)}>复制</Button>
@@ -77,21 +78,22 @@ function Editor({account, accounts, api, onClose, onSaved}: {
     if (accounts.some(a => a.name === trimmedName && a.name !== account?.name)) { setError('该名称已存在，请使用其他名称'); return; }
     setBusy(true); setError('');
     try {
-      await api.save({name: trimmedName, issuer: issuer.trim() || null, secret: secret.trim(), ...(account ? {previous: account.name} : {})});
+      await api.save({name: trimmedName, issuer: issuer.trim() || null, secret: secret.trim(), ...(account ? {previous: account.name,algorithm:account.algorithm,digits:account.digits,period:account.period} : {})});
       setSecret(''); await onSaved(); onClose();
     } catch (error) { setError(message(error)); }
     finally { setBusy(false); }
   }
   return <DialogShell open onOpenChange={open => { if (!open && !busy) { setSecret(''); onClose(); } }}
     onCancel={event => { if (busy) event.preventDefault(); }}
-    title={account ? '编辑账户' : '添加账户'} initialFocusRef={nameRef} className="twofa-dialog"
+    title={account ? '编辑账户' : '添加账户'} initialFocusRef={nameRef} className="twofa-dialog" contentClassName="twofa-dialog-content"
     footer={<><Button disabled={busy} onClick={onClose}>取消</Button><Button variant="primary" type="submit" form="account-form" disabled={busy}>{busy ? '保存中…' : '保存'}</Button></>}>
     <form id="account-form" onSubmit={save} className="grid gap-4">
       <Field label="名称" htmlFor="account-name"><Input id="account-name" ref={nameRef} required maxLength={80} value={name} onChange={e => setName(e.target.value)} disabled={busy}/></Field>
       <Field label="发行方（可选）" htmlFor="account-issuer"><Input id="account-issuer" maxLength={120} value={issuer} onChange={e => setIssuer(e.target.value)} disabled={busy}/></Field>
       <Field label={<span className="inline-flex items-center gap-2">Base32 密钥<HelpPopover label="密钥说明">支持标准 Base32 TOTP 密钥；编辑时留空保留原密钥。密钥仅交给本机后端保存，不写入浏览器存储。</HelpPopover></span>} htmlFor="account-secret">
-        <Input id="account-secret" type="password" autoComplete="new-password" spellCheck={false} required={!account} value={secret} onChange={e => setSecret(e.target.value)} placeholder={account ? '留空保留原密钥' : '输入 Base32 密钥'} disabled={busy}/>
+        <Input id="account-secret" type="password" autoComplete="new-password" spellCheck={false} maxLength={4096} required={!account} value={secret} onChange={e => setSecret(e.target.value)} placeholder={account ? '留空保留原密钥' : '输入 Base32 密钥'} disabled={busy}/>
       </Field>
+      <p className="muted text-xs">{account?.algorithm || 'SHA1'} · {account?.digits || 6} 位 · 每 {account?.period || 30} 秒更新</p>
       {api.preview ? <p className="muted m-0 text-xs">模拟预览：不会保存真实账户。</p> : null}
       {error ? <p className="error m-0 text-sm" role="alert">{error}</p> : null}
     </form>
@@ -103,6 +105,7 @@ export function App({api}: {api: TwofaApi}) {
   const [query, setQuery] = useState(''), [notice, setNotice] = useState('');
   const [loading, setLoading] = useState(true), [loadError, setLoadError] = useState('');
   const [editor, setEditor] = useState<{account: Account | null} | null>(null);
+  const [importing,setImporting]=useState(false);
   const [removing, setRemoving] = useState<Account | null>(null);
   const [deleting, setDeleting] = useState(false), [deleteError, setDeleteError] = useState('');
   const [revision, setRevision] = useState(0);
@@ -116,7 +119,7 @@ export function App({api}: {api: TwofaApi}) {
     return () => { active = false; };
   }, [api, revision]);
   const visible = useMemo(() => filterAccounts(accounts, query), [accounts, query]);
-  async function saved() { setNotice('账户已保存'); setRevision(v => v + 1); }
+  async function saved(notice='账户已保存') { setNotice(notice); setRevision(v => v + 1); }
   async function remove() {
     if (!removing || deleting) return;
     setDeleting(true); setDeleteError('');
@@ -129,7 +132,7 @@ export function App({api}: {api: TwofaApi}) {
       {api.preview ? <h1 className="m-0 text-lg font-semibold">2FA 验证码</h1> : <span className="text-sm font-semibold">账户</span>}
       <HelpPopover label="验证码说明">输入名称或发行方过滤账户。验证码到期自动刷新；密钥保存在本机加密文件中。</HelpPopover>
       <span className="muted text-xs">{visible.length} / {accounts.length}</span>
-      <Button className="ml-auto" onClick={() => setEditor({account: null})}>添加账户</Button>
+      <div className="ml-auto flex gap-2"><Button onClick={()=>setImporting(true)}>导入账户</Button><Button onClick={() => setEditor({account: null})}>添加账户</Button></div>
     </header>
     <Input type="search" className="search-input" aria-label="搜索账户" placeholder="搜索名称或发行方" value={query} onChange={event => setQuery(event.target.value)}/>
     {notice ? <p role="status" className="muted my-3 text-sm">{notice}</p> : null}
@@ -138,6 +141,7 @@ export function App({api}: {api: TwofaApi}) {
       : visible.length ? <AccountList accounts={visible} cache={cache} onEdit={account => setEditor({account})} onRemove={account => {setRemoving(account); setDeleteError('');}} notify={setNotice}/>
       : <EmptyState size="compact" className="twofa-empty" title={accounts.length ? '没有匹配的账户' : '暂无账户'}/>}
     {editor ? <Editor account={editor.account} accounts={accounts} api={api} onClose={() => setEditor(null)} onSaved={saved}/> : null}
+    {importing?<ImportAccount api={api} accounts={accounts} onClose={()=>setImporting(false)} onSaved={()=>saved('账户已导入')}/>:null}
     <DialogShell open={Boolean(removing)} onOpenChange={open => { if (!open && !deleting) setRemoving(null); }} onCancel={event => {if (deleting) event.preventDefault();}}
       title="删除账户" className="twofa-dialog" footer={<><Button disabled={deleting} onClick={() => setRemoving(null)}>取消</Button><Button variant="danger" disabled={deleting} onClick={() => void remove()}>{deleting ? '删除中…' : '删除'}</Button></>}>
       <p className="m-0 break-words text-sm leading-6">删除「{removing?.name}」后，需要重新添加密钥才能生成验证码。此操作无法撤销。</p>

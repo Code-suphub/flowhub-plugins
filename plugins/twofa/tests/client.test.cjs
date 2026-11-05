@@ -11,7 +11,7 @@ function load(name) {
   vm.runInNewContext(code, {exports, setTimeout, clearTimeout, Date, console});
   return exports;
 }
-const {CodeCache, filterAccounts} = load('codes');
+const {CodeCache, filterAccounts,formatCode} = load('codes');
 const {createApi, createTransport} = load('api');
 const deferred = () => {let resolve; const promise = new Promise(r => {resolve = r;}); return {promise, resolve};};
 
@@ -88,6 +88,14 @@ test('host API preserves names and edit previous field without returning secrets
   assert.equal(window.sent[0].params.secret,'');
   window.respond({type:'flowhub:response',id:'1',result:{saved:true}});
   await saving; api.dispose();
+});
+test('longer codes and periods retain raw copy values and reject impossible countdowns',async()=>{
+  const cache=new CodeCache(async()=>({name:'test',code:'00123456',remaining:60,period:60}),()=>1000);await cache.ensure('test');assert.equal(cache.read('test').code,'00123456');assert.equal(cache.read('test').expires,61000);assert.equal(formatCode('00123456'),'0012 3456');assert.equal(formatCode('0123456'),'012 3456');
+  for(const response of [{code:'12345678',remaining:61,period:60},{code:'123456',remaining:2,period:0},{code:'1234567890',remaining:30,period:30}]){const bad=new CodeCache(async()=>response);await bad.ensure('test');assert.equal(bad.read('test').code,undefined);}
+});
+test('URI preview and import use separate host requests; preview never writes',async()=>{
+  const window=host(),api=createApi(window),uri='otpauth://totp/demo?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ';const reading=api.previewImport(uri);assert.equal(window.sent[0].method,'preview_import');window.respond({type:'flowhub:response',id:'1',result:{name:'demo',issuer:null,algorithm:'SHA1',digits:6,period:30}});assert.equal((await reading).name,'demo');assert.equal(window.sent.length,1);
+  const saving=api.importAccount(uri,'Renamed');assert.equal(window.sent[1].method,'import');assert.equal(window.sent[1].params.name,'Renamed');window.respond({type:'flowhub:response',id:'2',result:{saved:true}});await saving;api.dispose();
 });
 test('source entry has a single React root and no legacy scripts', () => {
   const root = path.join(__dirname,'..');

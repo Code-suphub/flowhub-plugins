@@ -16,9 +16,12 @@
 .muted {color:var(--fh-muted)}
 .error {color:var(--fh-danger)}
 .search-input {max-width:360px}
-.account-row {display:grid;grid-template-columns:minmax(100px,1fr) 145px auto 44px;gap:16px;align-items:center;padding:14px 0;border-bottom:1px solid var(--fh-border)}
+.account-row {display:grid;grid-template-columns:minmax(100px,1fr) 175px auto 44px;gap:16px;align-items:center;padding:14px 0;border-bottom:1px solid var(--fh-border)}
 .token-code {font:600 24px ui-monospace,Menlo,monospace;letter-spacing:1px;color:var(--fh-accent);white-space:nowrap;user-select:text}
 .twofa-dialog {width:min(440px,calc(100vw - 32px))}
+.twofa-import-dialog {width:min(500px,calc(100vw - 32px))}
+.twofa-dialog-content {max-height:calc(100dvh - 32px);grid-template-rows:auto minmax(0,1fr) auto}
+.twofa-import-summary {padding-top:12px;border-top:1px solid var(--fh-border)}
 .twofa-empty {border:0;background:transparent}
 @media(max-width:520px) {
   .twofa {padding:14px}
