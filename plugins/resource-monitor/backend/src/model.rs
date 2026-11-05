@@ -28,7 +28,14 @@ pub struct Process {
     pub ppid: i32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub responsible: Option<Identity>,
-    // Locally verified Launch Services attribution; never accepted from sampler RPC.
+    // Terminal ownership is presentation evidence, not an action-parent edge.
+    #[serde(default, skip_deserializing, skip_serializing_if = "Option::is_none")]
+    pub terminal_owner: Option<Identity>,
+    #[serde(skip)]
+    pub process_group: i32,
+    #[serde(skip)]
+    pub terminal_job: bool,
+    // Locally verified bundle attribution; never accepted from sampler RPC.
     #[serde(skip)]
     pub registered_app_path: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -36,6 +43,9 @@ pub struct Process {
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub display_name: Option<String>,
+    // A launch path is source metadata, never a replacement for Identity.executable.
+    #[serde(default, skip_deserializing, skip_serializing_if = "Option::is_none")]
+    pub launch_executable: Option<String>,
     pub memory: Option<u64>,
     pub footprint: Option<u64>,
     pub cpu: Option<f64>,
@@ -63,6 +73,8 @@ pub struct Group {
     pub footprint: Option<u64>,
     pub footprint_incomplete: bool,
     pub app_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<SourceOrigin>,
     pub cpu: Option<f64>,
     pub incomplete: bool,
     pub system: bool,
@@ -72,6 +84,14 @@ pub struct Group {
     pub instances: Vec<Instance>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon_key: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceOrigin {
+    pub name: String,
+    pub app_path: Option<String>,
+    pub evidence: String,
 }
 
 fn runtime_icon(executable: &str) -> Option<&'static str> {
@@ -104,11 +124,19 @@ pub fn app_bundle(executable: &str) -> Option<(String, String)> {
     Some((format!("app:{path}"), name.into()))
 }
 
-fn process_bundle(process: &Process) -> Option<(String, String)> {
+pub(crate) fn process_bundle(process: &Process) -> Option<(String, String)> {
     process.registered_app_path.as_ref().and_then(|path| {
         let name = path.rsplit('/').next()?.strip_suffix(".app")?;
         Some((format!("app:{path}"), name.into()))
     }).or_else(|| app_bundle(&process.identity.executable))
+}
+
+fn tool_key(p: &Process) -> String {
+    if p.identity.executable.is_empty() {
+        format!("unknown:{}:{}",p.identity.pid,p.identity.started)
+    } else {
+        format!("tool:{}:{}:{}",p.identity.executable,p.cwd,p.identity.uid)
+    }
 }
 
 fn special(p: &Process) -> Option<(String, String, String)> {
@@ -154,8 +182,9 @@ pub fn group_processes(mut processes: Vec<Process>, own_uid: u32) -> Vec<Group> 
             .map(|(id, name, source)| (id, name, source, "路径识别".to_string()))
             .or_else(|| {
                 process_bundle(p).map(|(id, name)| {
+                    let launched=p.launch_executable.is_some();
                     let registered=p.registered_app_path.is_some()&&p.identity.executable.is_empty();
-                    (id,name,if registered {"macOS 应用登记"}else{"应用包路径"}.into(),if registered {"应用登记归属"}else{"应用包路径"}.into())
+                    (id,name,if launched {"进程启动路径"}else if registered {"macOS 应用登记"}else{"应用包路径"}.into(),if launched {"启动路径归属"}else if registered {"应用登记归属"}else{"应用包路径"}.into())
                 })
             });
         if let Some(found) = own {
@@ -166,16 +195,30 @@ pub fn group_processes(mut processes: Vec<Process>, own_uid: u32) -> Vec<Group> 
             assignments.push((id, name, source, "项目/工具识别".into()));
             continue;
         }
+        if let Some(owner) = p.terminal_owner.as_ref().and_then(|id| index.get(&id.pid)
+            .map(|i| &processes[*i]).filter(|owner| owner.identity==*id && id.uid==p.identity.uid)) {
+            if let Some((id,name))=process_bundle(owner) {
+                assignments.push((id,name,"应用包及终端会话".into(),"终端应用归属".into()));
+                continue;
+            }
+            if owner.identity.executable.rsplit('/').next()==Some("tmux") {
+                assignments.push((tool_key(owner),"tmux".into(),"终端复用及独立会话".into(),"终端父进程归属".into()));
+                continue;
+            }
+        }
         let mut next = p.ppid;
+        let mut youngest = p.identity.started;
         let mut visited = HashSet::from([p.identity.pid]);
         let mut inherited = None;
         while visited.len() < 64 && next > 1 && visited.insert(next) {
             let Some(parent) = index.get(&next).map(|i| &processes[*i]) else {
                 break;
             };
-            if parent.identity.uid != p.identity.uid {
+            if parent.identity.uid != p.identity.uid || parent.identity.started==0
+                || parent.identity.started>youngest {
                 break;
             }
+            youngest=parent.identity.started;
             if let Some((id, name, source)) = special(parent) {
                 inherited = Some((id, name, source, "父进程推断".into()));
                 break;
@@ -207,11 +250,7 @@ pub fn group_processes(mut processes: Vec<Process>, own_uid: u32) -> Vec<Group> 
                     p.name.clone(), "WebKit · 所属应用未确定".into(), "归属未确定".into());
             }
             // Do not merge unrelated development projects that happen to use node/python.
-            let key = if exe.is_empty() {
-                format!("unknown:{}:{}", p.identity.pid, p.identity.started)
-            } else {
-                format!("tool:{exe}:{}:{}", p.cwd, p.identity.uid)
-            };
+            let key = tool_key(p);
             (
                 key,
                 p.name.clone(),
@@ -224,8 +263,33 @@ pub fn group_processes(mut processes: Vec<Process>, own_uid: u32) -> Vec<Group> 
             )
         }));
     }
+    // A launch source is not application membership. External jobs stay outside
+    // app action scopes even when a parent/OS responsibility link names that app.
+    let by: HashMap<_,_> = processes.iter().map(|p|(p.identity.pid,p)).collect();
+    let mut origins=Vec::with_capacity(processes.len());
+    for (p,assignment) in processes.iter().zip(&mut assignments) {
+        let app_source=assignment.0.strip_prefix("app:").filter(|_|process_bundle(p).is_none() && p.responsible.is_none());
+        let tmux_source=p.terminal_owner.as_ref().and_then(|owner| by.get(&owner.pid)
+            .filter(|actual|actual.identity==*owner && actual.identity.uid==p.identity.uid
+                && actual.identity.executable.rsplit('/').next()==Some("tmux")));
+        let origin=if let Some(path)=app_source {
+            Some(SourceOrigin{name:assignment.1.clone(),app_path:Some(path.into()),evidence:"应用启动来源线索".into()})
+        } else if tmux_source.is_some() {
+            Some(SourceOrigin{name:"tmux".into(),app_path:None,evidence:"终端托管来源线索".into()})
+        } else {None};
+        if let Some(origin)=&origin {
+            let (key,name)=if p.terminal_job {
+                let root=crate::instances::root(p,&by);
+                let name=by.get(&root.pid).map(|p|p.display_name.as_ref().unwrap_or(&p.name).clone()).unwrap_or_else(||p.name.clone());
+                (format!("job:{:x}",Sha256::digest(serde_json::to_vec(&root).unwrap())),name)
+            } else {(tool_key(p),p.display_name.as_ref().unwrap_or(&p.name).clone())};
+            *assignment=(format!("{key}:source:{}",origin.app_path.as_deref().unwrap_or(&origin.name)),name,
+                if p.terminal_job {"独立终端任务"}else{"独立任务"}.into(),"来源关联 · 独立任务".into());
+        }
+        origins.push(origin);
+    }
     let mut groups: BTreeMap<String, Group> = BTreeMap::new();
-    for (p, (id, name, source, attribution)) in processes.iter_mut().zip(assignments) {
+    for ((p, (id, name, source, attribution)),origin) in processes.iter_mut().zip(assignments).zip(origins) {
         let app_path = id.strip_prefix("app:").map(String::from);
         let icon_key = if id.starts_with("tool:") {runtime_icon(&p.identity.executable).map(String::from)} else {None};
         let id = format!("group-{:x}", Sha256::digest(id.as_bytes()));
@@ -240,6 +304,7 @@ pub fn group_processes(mut processes: Vec<Process>, own_uid: u32) -> Vec<Group> 
             footprint: None,
             footprint_incomplete: false,
             app_path,
+            origin,
             cpu: None,
             incomplete: false,
             system: true,
@@ -271,6 +336,12 @@ pub fn group_processes(mut processes: Vec<Process>, own_uid: u32) -> Vec<Group> 
         .collect();
     let mut result: Vec<_> = groups.into_values().collect();
     for g in &mut result {
+        if g.processes.iter().any(|p| p.attribution=="启动路径归属") {
+            g.source="应用包及启动路径".into();
+        }
+        if g.origin.is_none() && g.processes.iter().any(|p| p.terminal_owner.is_some()) {
+            g.source=if g.app_path.is_some(){"应用包及关联进程"}else{"终端复用及独立会话"}.into();
+        }
         for p in &mut g.processes {
             p.parent_name = names
                 .get(&p.ppid)
@@ -302,10 +373,14 @@ pub(crate) mod tests {
             },
             ppid,
             responsible: None,
+            terminal_owner: None,
+            process_group: 0,
+            terminal_job: false,
             registered_app_path: None,
             runtime_project: None,
             name: exe.rsplit('/').next().unwrap().into(),
             display_name: None,
+            launch_executable: None,
             memory: Some(100),
             footprint: Some(150),
             cpu: None,
@@ -387,14 +462,17 @@ pub(crate) mod tests {
         let unrelated = process(13, 1, &exe.replace("Abc123", "Def456"));
         let groups = group_processes(vec![main, helper, installed, unrelated], 501);
         let group = groups.iter().find(|g| g.app_path.as_deref() == Some("/Applications/Example.app")).unwrap();
-        assert_eq!(group.processes.len(), 3);
-        assert_eq!(group.footprint, Some(450));
+        assert_eq!(group.processes.len(), 2);
+        assert_eq!(group.footprint, Some(300));
         assert_eq!(group.processes.iter().find(|p| p.identity.pid == 10).unwrap().identity.executable, exe);
-        assert_eq!(groups.len(), 2);
+        assert_eq!(groups.len(), 3);
+        let external=groups.iter().find(|g|g.processes.iter().any(|p|p.identity.pid==11)).unwrap();
+        assert!(external.app_path.is_none());
+        assert_eq!(external.origin.as_ref().unwrap().app_path.as_deref(),Some("/Applications/Example.app"));
         assert!(!serde_json::to_value(&group.processes[0]).unwrap().as_object().unwrap().contains_key("registeredAppPath"));
     }
     #[test]
-    fn bundles_helpers_and_descendants_are_counted_once() {
+    fn bundle_helpers_and_external_descendants_are_counted_once_in_separate_scopes() {
         let g = group_processes(
             vec![
                 process(10, 1, "/Applications/Codex.app/Contents/MacOS/Codex"),
@@ -407,12 +485,13 @@ pub(crate) mod tests {
             ],
             501,
         );
-        assert_eq!(g.len(), 1);
-        assert_eq!(g[0].memory, Some(300));
-        assert_eq!(g[0].footprint, Some(450));
-        assert_eq!(g[0].app_path.as_deref(), Some("/Applications/Codex.app"));
-        assert_eq!(g[0].processes.len(), 3);
-        assert_eq!(g[0].processes[2].attribution, "父进程推断");
+        assert_eq!(g.len(), 2);
+        let app=g.iter().find(|g|g.app_path.is_some()).unwrap();
+        assert_eq!(app.memory, Some(200));assert_eq!(app.footprint, Some(300));
+        assert_eq!(app.app_path.as_deref(), Some("/Applications/Codex.app"));assert_eq!(app.processes.len(),2);
+        let external=g.iter().find(|g|g.processes.iter().any(|p|p.identity.pid==12)).unwrap();
+        assert!(external.app_path.is_none());assert!(external.origin.is_some());
+        assert_eq!(g.iter().map(|g|g.footprint.unwrap()).sum::<u64>(),450);
     }
     #[test]
     fn emulator_is_independent_from_codex_and_pid_reuse_changes_identity() {

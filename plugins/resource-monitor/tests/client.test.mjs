@@ -30,6 +30,20 @@ test('runtime icons are bundled while native application icons retain priority a
   assert.equal(applicationIcon('python',native,[native.iconUrl,python]),'');
 });
 
+test('related helper labels and icons never replace the independent application path or process scope',()=>{
+  const parent={path:'/Applications/QQ.app',name:'QQ',bundleId:'com.tencent.qq',iconUrl:'data:image/png;base64,qq'};
+  const helper={path:'/private/QQUpdate.app',name:'QQUpdate',bundleId:'com.tencent.qq.qqupdate',iconUrl:'data:image/png;base64,helper',relatedApplication:{...parent,evidence:'bundle-id-and-signing-team'}};
+  const group={...model.sampleSnapshot().groups[0],name:'QQUpdate',appPath:helper.path};
+  const apps={[helper.path]:helper,[parent.path]:parent},label=applicationIdentity(group,apps);
+  assert.equal(label.name,'QQ · QQUpdate');assert.match(label.description,/QQ.*辅助应用.*独立运行/);
+  assert.equal(applicationIdentity(group,{...apps,[helper.path]:{...helper,name:'QQ'}}).name,'QQ · QQUpdate');
+  assert.equal(applicationIdentity({...group,name:label.name},{...apps,[helper.path]:{...helper,name:'QQ'}}).name,'QQ · QQUpdate');
+  assert.equal(label.app.path,helper.path);assert.equal(group.appPath,helper.path);
+  assert.equal(applicationIcon(undefined,label.app),parent.iconUrl);
+  assert.equal(applicationIcon(undefined,label.app,[parent.iconUrl]),helper.iconUrl);
+  assert.equal(model.filterGroups([{...group,name:label.name}],parent.name,false,'memory').length,1);
+});
+
 function host(surface='main',hosted=false,token='') {
   const bus=new EventTarget(),messages=[],parent={postMessage:message=>messages.push(message)};
   const window={document:{body:{dataset:{surface}}},location:{hash:token?`#flowhubWidgetToken=${token}`:''},crypto:webcrypto,
@@ -62,6 +76,52 @@ test('system display names and executable names both find the same app and proce
   assert.equal(model.processName(process),'ZenCP WebExtensions');
   assert.equal(model.processName({...process,displayName:undefined}),'plugin-container');
   assert.equal(model.filterGroups([group],'missing-extension',false,'memory').length,0);
+});
+
+test('verified launch paths remain searchable without becoming signal identities or card status data',()=>{
+  const seed=model.sampleSnapshot().groups[0];
+  const process={...seed.processes[0],name:'bare-modifier-m',displayName:'bare-modifier-monitor',executable:'',launchExecutable:'/Applications/ChatGPT.app/Contents/Resources/native/bare-modifier-monitor',protected:true};
+  const group={...seed,name:'ChatGPT',appPath:'/Applications/ChatGPT.app',processes:[process]};
+  for(const query of ['bare-modifier-monitor','resources/native','bare-modifier-m']){
+    assert.equal(model.filterGroups([group],query,false,'memory')[0],group);
+    assert.equal(model.matchesProcess(process,query),true);
+  }
+  const identity=model.processKey(process);
+  assert.equal(identity,model.processKey({...process,launchExecutable:'/different/path'}));
+  const status=model.statusFrom({...model.sampleSnapshot(),groups:[group]});
+  assert.equal(JSON.stringify(status).includes('Resources/native'),false);
+  assert.equal(JSON.stringify(status).includes('launchExecutable'),false);
+});
+
+test('terminal ownership is searchable presentation metadata and never replaces process identity',()=>{
+  const seed=model.sampleSnapshot().groups[0],process=seed.processes[0];
+  const owned={...process,terminalOwner:{pid:12345,started:90,uid:501,executable:'/Applications/cmux.app/Contents/MacOS/cmux'}};
+  assert.equal(model.matchesProcess(owned,'cmux.app'),true);
+  assert.equal(model.processKey(owned),model.processKey(process));
+  const status=model.statusFrom({...model.sampleSnapshot(),groups:[{...seed,processes:[owned]}]});
+  assert.equal(JSON.stringify(status).includes('terminalOwner'),false);
+  assert.equal(JSON.stringify(status).includes('12345'),false);
+});
+
+test('source application metadata never replaces an independent task name or application action path',()=>{
+  const seed=model.sampleSnapshot().groups[0];
+  const group={...seed,name:'ssh',source:'独立终端任务',appPath:null,origin:{name:'InternalTerminalName',appPath:'/Applications/Terminal.app',evidence:'系统来源线索'}};
+  const apps={'/Applications/Terminal.app':{path:'/Applications/Terminal.app',name:'终端',bundleId:'com.example.Terminal',iconUrl:'data:image/png;base64,example'}};
+  const label=applicationIdentity(group,apps);
+  assert.equal(label.name,'ssh');assert.equal(label.app,undefined);assert.equal(label.originName,'终端');
+  assert.match(label.description,/来源线索：终端/);assert.equal(group.appPath,null);
+  assert.equal(model.filterGroups([group],'InternalTerminalName',false,'memory').length,1);
+  assert.equal(model.statusFrom({...model.sampleSnapshot(),groups:[group]}).rows[0].origin.appPath,'/Applications/Terminal.app');
+});
+
+test('a live process moving to an independent task is not reported as exited or actionable from its old group',()=>{
+  const group=model.sampleSnapshot().groups[0],process=group.processes[0];
+  const detail=model.updateDetail(group,{...group,processes:group.processes.slice(1)},[{...process,groupId:'independent-task'}]);
+  assert.equal(detail.processes[0].moved,true);assert.equal(detail.processes[0].exited,false);
+  assert.equal(detail.processes[0].protected,true);assert.equal(detail.processes[0].memory,null);
+  const execChanged={...process,executable:'/different/executable'};
+  const changed=model.updateDetail({...group,processes:[process]},{...group,processes:[execChanged]});
+  assert.equal(changed.processes.length,2);assert.equal(changed.processes[0].exited,true);
 });
 
 test('cards default to the complete ranked list, with explicit top-N and focus options',()=>{

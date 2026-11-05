@@ -1,10 +1,11 @@
 // The only app quit by this test is its own disposable AppKit fixture.
 import {spawn,execFileSync} from 'node:child_process';
-import {mkdtempSync,mkdirSync,writeFileSync,copyFileSync,renameSync,realpathSync,rmSync} from 'node:fs';
+import {mkdtempSync,mkdirSync,writeFileSync,copyFileSync,renameSync,realpathSync,readFileSync,rmSync} from 'node:fs';
 import {createInterface} from 'node:readline';
 import {once} from 'node:events';
 import assert from 'node:assert/strict';
 const root=realpathSync(mkdtempSync('/tmp/flowhub-quit-')),appPath=root+'/FlowHubQuitSmoke.app';
+const independent=root+'/independent-sleep',externalPids=new Set();
 const contents=appPath+'/Contents',executable=contents+'/MacOS/Fixture';
 let backend,helper,sequence=0;const pending=new Map(),apps=[],fixturePids=new Set();
 const bundleId=`local.flowhub.quit-smoke.${process.pid}`;
@@ -15,6 +16,7 @@ function rpc(method,params={}){return new Promise((resolve,reject)=>{
 try{
   mkdirSync(contents+'/MacOS',{recursive:true});mkdirSync(contents+'/Resources');
   writeFileSync(contents+'/Info.plist',`<?xml version="1.0"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>CFBundleIdentifier</key><string>${bundleId}</string><key>CFBundleExecutable</key><string>Fixture</string><key>CFBundleName</key><string>FlowHubQuitSmoke</string><key>CFBundlePackageType</key><string>APPL</string></dict></plist>`);
+  copyFileSync('/bin/sleep',independent);
   writeFileSync(root+'/main.swift',`import AppKit
 let app = NSApplication.shared
 app.setActivationPolicy(CommandLine.arguments.contains("--background") ? .prohibited : .regular)
@@ -24,6 +26,14 @@ class Delegate: NSObject, NSApplicationDelegate {
     return .terminateNow
   }
 }
+let external = Process()
+external.executableURL = URL(fileURLWithPath: "${independent}")
+external.arguments = ["180"]
+external.currentDirectoryURL = URL(fileURLWithPath: "${root}")
+external.standardOutput = FileHandle.nullDevice
+external.standardError = FileHandle.nullDevice
+try external.run()
+try String(external.processIdentifier).write(toFile: "${root}/job-\\(ProcessInfo.processInfo.processIdentifier)", atomically: true, encoding: .utf8)
 let delegate = Delegate()
 app.delegate = delegate
 app.run()
@@ -38,10 +48,11 @@ app.run()
     const result=JSON.parse(line),item=pending.get(result.id);if(!item)return;
     pending.delete(result.id);clearTimeout(item.timer);result.error?item.reject(Error(result.error)):item.resolve(result.result);
   });
-  let group,state;
+  let group,state,snapshot;
   async function read(){
-    const snapshot=await rpc('refresh');group=snapshot.groups.find(group=>group.appPath===appPath);
+    snapshot=await rpc('refresh');group=snapshot.groups.find(group=>group.appPath===appPath);
     for(const g of snapshot.groups)for(const p of g.processes)if(p.executable.startsWith(root)&&p.executable.endsWith('/Fixture'))fixturePids.add(p.pid);
+    for(const g of snapshot.groups)for(const p of g.processes)if(p.executable===independent)externalPids.add(p.pid);
     if(group)state=await rpc('application_state',{groupId:group.id});
   }
   for(let attempt=0;attempt<30;attempt++){
@@ -52,6 +63,11 @@ app.run()
   const stale=await rpc('quit_preview',{groupId:group.id});
   assert.equal(stale.targets.length,1);
   const originalPid=stale.targets[0].pid;
+  const externalPid=Number(readFileSync(root+'/job-'+originalPid,'utf8'));externalPids.add(externalPid);
+  assert.ok(!group.processes.some(p=>p.pid===externalPid),'external jobs must not enter application totals or action scopes');
+  const independentGroup=snapshot.groups.find(g=>g.processes.some(p=>p.pid===externalPid));
+  assert.equal(independentGroup.appPath,null);assert.equal(independentGroup.origin.appPath,appPath);
+  await assert.rejects(rpc('quit_preview',{groupId:independentGroup.id}),/独立任务|应用|界面/);
   const named=group.processes.find(p=>p.pid===originalPid);
   assert.equal(named.name,'Fixture','keep executable basename for search and diagnostics');
   assert.equal(named.displayName,'FlowHubQuitSmoke','read the OS registered name of this exact running PID');
@@ -76,6 +92,9 @@ app.run()
     await new Promise(resolve=>setTimeout(resolve,100));
   }
   assert.equal(plan?.targets.length,1,'quit preview must contain only the selected GUI instance');
+  const ownInstance=group.instances.find(i=>i.root.pid===originalPid);
+  const stopPlan=await rpc('terminate_preview',{groupId:group.id,instanceId:ownInstance.id,force:false});
+  assert.ok(stopPlan.targets.every(p=>!externalPids.has(p.pid)),'application stop preview must exclude source-only jobs');
   assert.equal(secondPlan.targets.length,1);
   assert.ok(group.processes.some(p=>p.pid===originalPid&&p.executable===cloneExe),'keep real executable while attributing clone');
   assert.equal(plan.appPath,appPath);
@@ -94,6 +113,7 @@ app.run()
   for(const child of apps.slice(0,2)){assert.equal(child.exitCode,0);assert.equal(child.signalCode,null);}
   for(const target of [...plan.targets,...secondPlan.targets])assert.equal((await import('node:fs')).readFileSync(`${root}/quit-received-${target.pid}`,'utf8'),'normal quit');
   assert.equal(helper.exitCode,null);assert.equal(helper.signalCode,null,'background service must remain running');
+  for(const pid of externalPids)process.kill(pid,0);
   process.kill(backgroundPid,0);
   await assert.rejects(rpc('quit_confirm',{token:plan.token,confirmed:true}),/失效/);
   await read();assert.equal(state.canQuit,false);assert.match(state.message,/无界面|后台模式/);
@@ -101,10 +121,11 @@ app.run()
   for(let attempt=0;attempt<30;attempt++){await read();if(!group.processes.some(p=>p.pid===backgroundPid))break;await new Promise(resolve=>setTimeout(resolve,100));}
   assert.ok(group.processes.some(p=>p.pid===helper.pid));
   assert.equal(state.canQuit,false);assert.match(state.message,/只剩后台或辅助/);
-  console.log('PASS: signing-clone attribution, explicit GUI instance selection, isolated normal quit, changed-root rejection, confirmation/token checks and preserved headless/background processes');
+  console.log('PASS: signing-clone attribution, explicit GUI instance selection, isolated normal quit, changed-root rejection, confirmation/token checks and preserved headless/background processes and source-only external jobs');
 }finally{
   backend?.stdin.end();for(const item of pending.values())clearTimeout(item.timer);
   for(const child of [...apps,helper])if(child&&child.exitCode===null&&child.signalCode===null)child.kill('SIGTERM');
   for(const pid of fixturePids){try{const path=execFileSync('/bin/ps',['-p',String(pid),'-o','comm='],{encoding:'utf8'}).trim();if(path.startsWith(root)&&path.endsWith('/Fixture'))process.kill(pid,'SIGTERM');}catch{}}
+  for(const pid of externalPids){try{if(execFileSync('/bin/ps',['-p',String(pid),'-o','comm='],{encoding:'utf8'}).trim()===independent)process.kill(pid,'SIGTERM');}catch{}}
   rmSync(root,{recursive:true,force:true});
 }

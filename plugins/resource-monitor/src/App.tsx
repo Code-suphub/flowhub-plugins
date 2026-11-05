@@ -55,7 +55,7 @@ export function App({api,context}:{api:Api;context:Context}) {
   }
   function closeDetail(){contextGeneration.current++;setDetail(undefined);setSource(undefined);setContextDetail(undefined);setLinksBusy(false);}
   useEffect(()=>{if(selected&&selected!==openedSelection.current){const group=data?.groups.find(g=>g.id===selected);if(group){openedSelection.current=selected;openDetail(group);}}},[selected,data]);
-  useEffect(()=>{if(data)setDetail(previous=>previous?updateDetail(previous,data.groups.find(g=>g.id===previous.id)):previous);},[data]);
+  useEffect(()=>{if(data)setDetail(previous=>previous?updateDetail(previous,data.groups.find(g=>g.id===previous.id),data.groups.flatMap(g=>g.processes)):previous);},[data]);
   useEffect(()=>{
     const groupId=detail?.id;if(!groupId||api.preview)return;
     let current=true;
@@ -212,7 +212,7 @@ export function App({api,context}:{api:Api;context:Context}) {
     {title:'操作',key:'actions',width:190,render:(_,instance)=><div className="flex flex-wrap gap-1"><Button size="sm" className="compact-button" onClick={()=>{setSelectedInstance(instance.id);setTab('processes');}}>查看进程</Button>{applicationState?.quitInstances?.includes(instance.id)?<Button size="sm" className="compact-button" disabled={api.preview||busy||!!plan||!!quitPlan} onClick={()=>void prepareQuit(instance.id)}>正常退出</Button>:null}<Button size="sm" className="compact-button" disabled={api.preview||busy||!!plan||!!quitPlan||!instance.canTerminate} title={!instance.canTerminate?'此实例含受保护进程，可查看后逐个处理允许的进程':undefined} onClick={()=>detail&&void prepare(detail,instance.id)}>结束实例</Button></div>}
   ];
   const processColumns:TableColumnsType<Process>=[
-    {title:'进程 / 来源',key:'name',render:(_,p)=><div className={p.exited?'exited':''}><button className="name-link" onClick={()=>setSource(p)}>{processName(p)}</button>{p.displayName?<div className="muted text-xs mt-1">可执行文件名：{p.name}</div>:null}<div className="muted text-xs mt-1">PID {p.pid}{p.ppid>0?` ← ${p.ppid} · ${p.parentName}`:' · 父进程不可读取'}{p.exited?' · 已退出':''}</div><div className="muted text-xs mt-1">{p.role} · {p.attribution}</div>{permissionLimited(p)?<div className="warning text-xs mt-1">资源指标不可读取</div>:null}{processLabels.has(processKey(p))?<div className="context-label text-xs mt-1">{(processLabels.get(processKey(p))?.length??0)>1?'共享：':'关联：'}{processLabels.get(processKey(p))?.join('、')}</div>:contexts?<div className="muted text-xs mt-1">未关联到页面或对话</div>:null}</div>},
+    {title:'进程 / 来源',key:'name',render:(_,p)=><div className={p.exited?'exited':''}><button className="name-link" onClick={()=>setSource(p)}>{processName(p)}</button>{p.displayName?<div className="muted text-xs mt-1">可执行文件名：{p.name}</div>:null}<div className="muted text-xs mt-1">PID {p.pid}{p.ppid>0?` ← ${p.ppid} · ${p.parentName}`:' · 父进程不可读取'}{p.moved?' · 已移到其他分组':p.exited?' · 已退出':''}</div><div className="muted text-xs mt-1">{p.role} · {p.attribution}</div>{permissionLimited(p)?<div className="warning text-xs mt-1">资源指标不可读取</div>:null}{processLabels.has(processKey(p))?<div className="context-label text-xs mt-1">{(processLabels.get(processKey(p))?.length??0)>1?'共享：':'关联：'}{processLabels.get(processKey(p))?.join('、')}</div>:contexts?<div className="muted text-xs mt-1">未关联到页面或对话</div>:null}</div>},
     {title:'内存足迹',key:'footprint',width:110,align:'right',render:(_,p)=>bytes(p.footprint)},
     {title:'RSS',key:'memory',width:100,align:'right',render:(_,p)=>bytes(p.memory)},
     {title:'CPU',key:'cpu',width:75,align:'right',render:(_,p)=>p.exited||permissionLimited(p)?'—':cpu(p.cpu)},
@@ -256,6 +256,8 @@ export function App({api,context}:{api:Api;context:Context}) {
       {detail?<>
         <div className="flex flex-wrap items-center gap-3 mb-3"><span className="numeric">{selectedInstance?'实例足迹':'合计足迹'} {bytes(shownStats?.footprint)}{shownStats?.footprintIncomplete?'（部分）':''} · RSS {bytes(shownStats?.memory)} · CPU {detail.processes.length>0&&detail.processes.every(permissionLimited)?'—':cpu(shownStats?.cpu)}</span><Button size="sm" className="compact-button ml-auto" disabled={api.preview||!detail.appPath||linksBusy||!!plan||!!quitPlan} onClick={()=>void openApp(detail)}>打开应用 ↗</Button><Button size="sm" variant="danger" className="compact-button" disabled={api.preview||busy||!!plan||!!quitPlan||!canQuitSelection} title={applicationState?.message} onClick={()=>void prepareQuit(selectedInstance)}>{selectedInstance?'退出此实例':multipleQuitInstances?'选择实例退出':'退出应用'}</Button></div>
         <p className="muted text-xs mb-3">归组依据：{data?.groups.find(group=>group.id===detail.id)?.source??detail.source}。{detail.appPath?(applications[detail.appPath]?'应用名和图标来自本机应用扫描；进程原名保留在下表。':'应用名和图标尚未匹配到本机应用索引。'):'原始进程名保留在下表，可点击查看路径、工作目录和当前父进程。'}</p>
+        {detail.origin?<Alert type="info" showIcon title={`独立任务 · 来源线索：${applicationIdentity(detail,applications).originName}`} description="监控不会把此任务加入来源应用的结束名单。来源信息只解释启动线索；应用自身退出时，仍可能影响其管理的连接或子任务。" className="mb-3"/>:null}
+        {applicationIdentity(detail,applications).related?<Alert type="info" showIcon title={`关联应用：${applicationIdentity(detail,applications).related!.name} · 独立辅助应用`} description="此辅助应用独立统计，结束操作按当前启动实例确认。关联名称不会把其他应用的进程加入本次结束名单。" className="mb-3"/>:null}
         {applicationState&&!applicationState.canQuit?<p className="muted text-xs mb-3">{applicationState.message}</p>:null}
         {detail.processes.some(permissionLimited)?<Alert type="warning" showIcon title="部分进程受系统权限限制：可查看名称与路径，内存和 CPU 数据不可读取，也不能结束进程。" className="mb-3"/>:null}
         <Tabs activeKey={tab} onChange={key=>{setTab(key);if(key!=='processes')setSelectedInstance(undefined);}} items={[{key:'instances',label:`启动实例${detail.instances?.length?` (${detail.instances.length})`:''}`},{key:'processes',label:'进程'},{key:'pages',label:'页面与对话'}]}/>
@@ -293,10 +295,12 @@ export function App({api,context}:{api:Api;context:Context}) {
 
     <Modal title="进程来源" open={!!source} onCancel={()=>setSource(undefined)} footer={null} width={580} zIndex={1200} styles={{body:{maxHeight:'65dvh',overflow:'auto'}}}>
       {source?<><Descriptions column={1} size="small" items={[
-        {key:'name',label:'进程',children:`${processName(source)} · PID ${source.pid}${source.exited?' · 已退出':''}`},
+        {key:'name',label:'进程',children:`${processName(source)} · PID ${source.pid}${source.moved?' · 已移到其他分组':source.exited?' · 已退出':''}`},
         ...(source.displayName?[{key:'binaryName',label:'可执行文件名',children:source.name}]:[]),
         {key:'role',label:'类型 / 归属',children:`${source.role} · ${source.attribution}`},
         {key:'path',label:'可执行文件',children:<span className="path">{source.executable||'不可读取'}</span>},
+        ...(source.launchExecutable?[{key:'launch-path',label:'启动路径',children:<span className="path">{source.launchExecutable}</span>}]:[]),
+        ...(source.terminalOwner?[{key:'terminal-owner',label:'终端来源线索',children:<span className="path">{source.terminalOwner.executable} · PID {source.terminalOwner.pid}</span>}]:[]),
         {key:'cwd',label:'工作目录',children:<span className="path">{source.cwd||'不可读取'}</span>},
         ...(source.runtimeProject?[
           {key:'project',label:'项目 / 工具',children:`${source.runtimeProject.name} · ${source.runtimeProject.evidence}`},
@@ -315,13 +319,14 @@ export function App({api,context}:{api:Api;context:Context}) {
     <Modal title={quitPlan?`退出 ${applicationIdentity({name:quitPlan.name,appPath:quitPlan.appPath},applications).name}${quitPlan.root?` · PID ${quitPlan.root.pid}`:''}？`:'退出此实例？'} open={!!quitPlan} onCancel={()=>{if(!busy)setQuitPlan(undefined);}} onOk={()=>void executeQuit()} okText={remaining>0?'确认退出此实例':'确认已过期'} cancelText="取消" confirmLoading={busy} okButtonProps={{danger:true,disabled:api.preview||remaining<=0}} cancelButtonProps={{disabled:busy}} closable={!busy} mask={{closable:!busy}} keyboard={!busy} zIndex={1300}>
       <p className="mb-3">向主应用发送正常退出请求。应用可能提示保存未保存内容，需要你在应用中处理。</p>
       <p className="mb-3">本次仅请求退出所选实例的界面主进程：{quitPlan?.targets.map(target=>`PID ${target.pid}`).join('、')}。</p>
-      <p className="muted text-xs mb-3">后台连接、同步和常驻服务可能继续运行，进程列表会继续显示它们。</p>
+      <p className="muted text-xs mb-3">应用自身可能关闭其管理的窗口、SSH 或脚本；监控不会额外结束仅有来源关联的独立任务。</p>
       <p className="muted text-xs">确认剩余 {remaining} 秒 · 执行前重新核对主应用身份</p>
     </Modal>
 
     <Modal title={plan?.scope?.kind==='instance'?(force?'强制结束此启动实例？':'结束此启动实例？'):(force?'强制结束此进程？':'结束此进程？')} open={!!plan} onCancel={()=>{if(!busy)setPlan(undefined);}} onOk={()=>void execute()} okText={remaining>0?force?'确认强制结束':'确认结束':'确认已过期'} cancelText="取消" confirmLoading={busy} okButtonProps={{danger:true,disabled:api.preview||remaining<=0}} cancelButtonProps={{disabled:busy}} closable={!busy} mask={{closable:!busy}} keyboard={!busy} zIndex={1300}>
       {plan?.scope?.kind==='instance'?<p className="mb-3"><strong>{plan.scope.name} · 根进程 PID {plan.scope.root?.pid}</strong><br/>本次操作仅包含下面列出的此实例进程。</p>:null}
       <Alert type="warning" showIcon title={force?'立即终止进程，未保存内容和正在执行的任务可能丢失。':'发送退出信号，可能中断任务或影响同一进程内的多个页面。'} className="mb-3"/>
+      <p className="muted text-xs mb-3">结束 shell 或终端会话仍可能使其连接、子任务随之退出。</p>
       <label className="flex items-center gap-2 mb-3"><Switch aria-label="强制结束" checked={force} onChange={setForce} disabled={busy}/>强制结束<span className="muted text-xs">无响应时使用；不删除文件</span></label>
       <p className="muted text-xs mb-3">{plan?.targets.length??0} 个进程 · 确认剩余 {remaining} 秒 · 执行前重新核对身份</p>
       <div className="confirm-targets">{plan?.targets.map(p=><div key={`${p.pid}:${p.started}`} className="confirm-target"><strong>{processName(p)}</strong><span className="muted text-xs">PID {p.pid} · 足迹 {bytes(p.footprint)} · RSS {bytes(p.memory)}</span><span className="path muted text-xs">{p.executable}</span></div>)}</div>

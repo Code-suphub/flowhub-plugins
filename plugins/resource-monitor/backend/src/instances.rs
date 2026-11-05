@@ -3,7 +3,7 @@ use crate::model::{Group, Identity, Instance, Process};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-fn root(process: &Process, members: &HashMap<i32, &Process>) -> Identity {
+pub(crate) fn root(process: &Process, members: &HashMap<i32, &Process>) -> Identity {
     let mut current = process;
     let mut visited = HashSet::from([current.identity.pid]);
     loop {
@@ -11,6 +11,8 @@ fn root(process: &Process, members: &HashMap<i32, &Process>) -> Identity {
             parent.identity.uid == current.identity.uid
                 && parent.identity.started > 0
                 && parent.identity.started <= current.identity.started
+                && (!current.terminal_job || (parent.terminal_job && current.process_group>0
+                    && parent.process_group==current.process_group))
         };
         let parent = members
             .get(&current.ppid)

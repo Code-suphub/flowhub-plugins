@@ -32,31 +32,32 @@ export const bytes = (value:number|null|undefined) => {
 export const cpu = (value:number|null|undefined) => value == null || !Number.isFinite(value) ? '采样中' : `${value.toFixed(1)}%`;
 export const processName = (p:Process) => p.displayName || p.name;
 export function matchesProcess(p:Process,q:string) {
-  return [p.name,p.displayName??'',p.executable,p.cwd,p.parentName,String(p.pid),String(p.ppid),p.avd,p.runtimeProject?.name??'',p.runtimeProject?.root??'',p.runtimeProject?.entry??''].some(s=>s.toLocaleLowerCase().includes(q));
+  return [p.name,p.displayName??'',p.executable,p.launchExecutable??'',p.terminalOwner?.executable??'',p.cwd,p.parentName,String(p.pid),String(p.ppid),p.avd,p.runtimeProject?.name??'',p.runtimeProject?.root??'',p.runtimeProject?.entry??''].some(s=>s.toLocaleLowerCase().includes(q));
 }
 export function filterGroups(groups:Group[],query:string,system:boolean,sort:Sort,order:'ascend'|'descend'='descend') {
   const q=query.trim().toLocaleLowerCase();
-  return groups.filter(g=>(system||!g.system)&&(!q||[g.name,g.source].some(s=>s.toLocaleLowerCase().includes(q))||g.processes.some(p=>matchesProcess(p,q))))
+  return groups.filter(g=>(system||!g.system)&&(!q||[g.name,g.source,g.origin?.name??'',g.origin?.appPath??''].some(s=>s.toLocaleLowerCase().includes(q))||g.processes.some(p=>matchesProcess(p,q))))
     .sort((a,b)=>{
       const left=a[sort],right=b[sort];
       if(left==null||right==null)return left==null?(right==null?a.id.localeCompare(b.id):1):-1;
       return (order==='ascend'?left-right:right-left)||a.id.localeCompare(b.id);
     });
 }
-export function updateDetail(previous:Group,latest:Group|undefined):Group {
-  const key=(p:Process)=>`${p.pid}:${p.started}`;
+export function updateDetail(previous:Group,latest:Group|undefined,live:readonly Process[]=[]):Group {
+  const key=processKey;
+  const elsewhere=new Set(live.filter(p=>p.groupId!==previous.id).map(key));
   const fresh=new Map((latest?.processes??[]).map(p=>[key(p),p]));
-  const processes=previous.processes.map(p=>{const current=fresh.get(key(p));fresh.delete(key(p));return current?{...current,exited:false}:{...p,exited:true,memory:null,footprint:null,cpu:null};});
+  const processes=previous.processes.map(p=>{const current=fresh.get(key(p));fresh.delete(key(p));return current?{...current,exited:false,moved:false}:elsewhere.has(key(p))?{...p,exited:false,moved:true,protected:true,protection:'已移到其他分组，请重新打开对应条目',memory:null,footprint:null,cpu:null}:{...p,exited:true,moved:false,memory:null,footprint:null,cpu:null};});
   return {...(latest??previous),memory:latest?.memory??null,footprint:latest?.footprint??null,cpu:latest?.cpu??null,canTerminate:latest?.canTerminate??false,instances:latest?.instances??[],processes:[...processes,...fresh.values()]};
 }
 export function statusFrom(snapshot:Snapshot):StatusSnapshot {
-  return {at:snapshot.at,system:snapshot.system,error:snapshot.error,rows:snapshot.groups.filter(g=>!g.system).map(g=>({id:g.id,name:g.name,appPath:g.appPath,iconKey:g.iconKey,at:snapshot.at,status:'healthy',summary:`${bytes(g.footprint)} 足迹 · CPU ${cpu(g.cpu)}`,values:{memory:g.memory,footprint:g.footprint,rss:g.memory,cpu:g.cpu},count:g.processes.length,instanceCount:g.instances?.length,incomplete:g.footprintIncomplete}))};
+  return {at:snapshot.at,system:snapshot.system,error:snapshot.error,rows:snapshot.groups.filter(g=>!g.system).map(g=>({id:g.id,name:g.name,appPath:g.appPath,origin:g.origin,iconKey:g.iconKey,at:snapshot.at,status:'healthy',summary:`${bytes(g.footprint)} 足迹 · CPU ${cpu(g.cpu)}`,values:{memory:g.memory,footprint:g.footprint,rss:g.memory,cpu:g.cpu},count:g.processes.length,instanceCount:g.instances?.length,incomplete:g.footprintIncomplete}))};
 }
 export function sampleSnapshot():Snapshot {
   const appPath=(processes:Process[])=>{const exe=processes.find(p=>p.executable.includes('.app/'))?.executable;return exe?exe.split('.app/')[0]+'.app':null;};
   const make=(pid:number,name:string,executable:string,memory:number,ppid=1,role='进程'):Process=>({pid,ppid,name,executable,memory,footprint:Math.round(memory*1.7),cpu:pid%10+0.2,started:1700000000000000+pid,uid:501,cwd:'/Users/demo/projects/mobile-automation',role,avd:'',protected:false,protection:'',parentName:'Codex',groupId:'',attribution:'应用包路径'});
   const definitions:Array<[string,string,string,Process[]]>=[
-    ['app:codex','Codex','应用包及子进程',[make(400,'Codex','/Applications/Codex.app/Contents/MacOS/Codex',490000000),make(401,'Codex Helper (Renderer)','/Applications/Codex.app/Contents/Frameworks/Codex Helper.app/Contents/MacOS/Codex Helper',1650000000,400,'渲染进程'),make(402,'node','/usr/local/bin/node',260000000,400,'后台服务')]],
+    ['app:codex','Codex','应用包及子进程',[make(400,'Codex','/Applications/Codex.app/Contents/MacOS/Codex',490000000),make(401,'Codex Helper (Renderer)','/Applications/Codex.app/Contents/Frameworks/Codex Helper.app/Contents/MacOS/Codex Helper',1650000000,400,'渲染进程'),make(402,'node','/Applications/Codex.app/Contents/Resources/node',260000000,400,'后台服务')]],
     ['app:arc','Arc','应用包路径',[make(470,'Arc','/Applications/Arc.app/Contents/MacOS/Arc',220000000),make(471,'Arc Helper (Renderer)','/Applications/Arc.app/Contents/Frameworks/Arc Helper.app/Contents/MacOS/Arc Helper',624000000,470,'渲染进程')]],
     ['android:410','Android 模拟器 · Pixel_Test','Android SDK · 可执行路径识别',[{...make(410,'qemu-system-aarch64-headless','/Users/demo/Library/Android/sdk/emulator/qemu/darwin-aarch64/qemu-system-aarch64-headless',1420000000,400,'虚拟机'),avd:'Pixel_Test',attribution:'路径识别'}]],
     ['app:qq','QQ','应用包路径',[make(420,'QQ','/Applications/QQ.app/Contents/MacOS/QQ',390000000),make(421,'QQ Helper','/Applications/QQ.app/Contents/Frameworks/QQ Helper.app/Contents/MacOS/QQ Helper',480000000,420,'渲染进程')]],

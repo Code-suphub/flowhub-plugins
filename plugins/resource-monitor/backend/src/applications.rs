@@ -191,6 +191,9 @@ fn targets(group: &Group) -> Result<Vec<Target>, String> {
     })
 }
 fn find_targets(group: &Group) -> Result<Vec<Target>, String> {
+    if group.origin.is_some() {
+        return Err("这是独立任务，来源关联不能用于退出应用".into());
+    }
     let Some(path) = group.app_path.as_deref() else {
         return Err("这是系统服务或独立进程，可在下方查看进程信息。".into());
     };
@@ -422,6 +425,13 @@ impl Quitter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn a_source_association_never_authorizes_application_quit() {
+        let mut group=model::group_processes(vec![model::tests::process(10,1,"/Applications/Example.app/Contents/MacOS/Example")],501).remove(0);
+        group.origin=Some(model::SourceOrigin{name:"Example".into(),app_path:Some("/Applications/Example.app".into()),evidence:"source only".into()});
+        let error=find_targets(&group).err().expect("source-only group must be rejected before AppKit target discovery");
+        assert!(error.contains("独立任务"));
+    }
     #[test]
     fn registered_login_item_resolves_to_its_outer_bundle_by_path() {
         let root = std::env::temp_dir().join(format!("flowhub-owner-{}", uuid::Uuid::new_v4()));

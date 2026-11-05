@@ -81,10 +81,14 @@ fn merge_privileged(result: &mut Vec<Process>, own_uid: u32) {
                 },
                 ppid: record.ppid,
                 responsible: None,
+                terminal_owner: None,
+                process_group: 0,
+                terminal_job: false,
                 registered_app_path: None,
                 runtime_project: None,
                 name: record.executable.rsplit('/').next().unwrap_or(&record.executable).into(),
                 display_name: None,
+                launch_executable: None,
                 memory: record.memory,
                 footprint: record.footprint,
                 cpu: None,
@@ -107,15 +111,37 @@ pub fn uid() -> u32 {
     unsafe { libc::geteuid() }
 }
 
-fn webkit_responsibility(processes: &mut [Process], own_uid: u32) {
-    type ResponsiblePid = unsafe extern "C" fn(i32) -> i32;
+type ResponsiblePid = unsafe extern "C" fn(i32) -> i32;
+fn responsibility_lookup() -> Option<ResponsiblePid> {
     static LOOKUP: OnceLock<Option<ResponsiblePid>> = OnceLock::new();
-    let Some(lookup) = *LOOKUP.get_or_init(|| unsafe {
+    *LOOKUP.get_or_init(|| unsafe {
         // Optional macOS SPI also used by Chromium. Missing support leaves the
         // process unattributed; it must never prevent sampling on another OS version.
         let symbol = libc::dlsym(libc::RTLD_DEFAULT, b"responsibility_get_pid_responsible_for_pid\0".as_ptr().cast());
         (!symbol.is_null()).then(|| std::mem::transmute::<*mut libc::c_void, ResponsiblePid>(symbol))
-    }) else { return; };
+    })
+}
+
+pub fn responsibility_owner(target: &Identity) -> Option<Identity> {
+    if target.uid!=uid() || target.started==0 || identity(target.pid).as_ref()!=Some(target) {return None;}
+    let lookup=responsibility_lookup()?;
+    let pid=unsafe {lookup(target.pid)};
+    if pid<=1 || pid==target.pid {return None;}
+    let owner=identity(pid)?;
+    if owner.uid!=target.uid || owner.started==0 || owner.started>target.started
+        || identity(target.pid).as_ref()!=Some(target) || identity(pid).as_ref()!=Some(&owner)
+        || unsafe {lookup(target.pid)}!=pid {return None;}
+    Some(owner)
+}
+
+pub fn parent_matches(child: &Identity, parent: &Identity) -> bool {
+    let Some(bsd)=info::<libc::proc_bsdinfo>(child.pid,libc::PROC_PIDTBSDINFO) else {return false;};
+    bsd.pbi_ppid as i32==parent.pid && identity(child.pid).as_ref()==Some(child)
+        && identity(parent.pid).as_ref()==Some(parent)
+}
+
+fn webkit_responsibility(processes: &mut [Process], own_uid: u32) {
+    let Some(lookup)=responsibility_lookup() else {return;};
     let identities: std::collections::HashMap<_, _> = processes.iter().map(|p| (p.identity.pid, p.identity.clone())).collect();
     for process in processes {
         if process.identity.uid != own_uid || !process.identity.executable.contains("/WebKit.framework/")
@@ -241,6 +267,29 @@ fn argument_sections(data: &[u8]) -> Option<(Vec<&[u8]>, &[u8])> {
     Some((args, data.get(offset..)?))
 }
 
+fn initial_executable(data: &[u8]) -> Option<String> {
+    // KERN_PROCARGS2 puts the executable path before argv. Do not use argv[0],
+    // which callers can choose, or retain any arguments/environment as evidence.
+    let argc = i32::from_ne_bytes(data.get(..4)?.try_into().ok()?);
+    if !(0..=4096).contains(&argc) { return None; }
+    let bytes = data.get(4..)?;
+    let end = bytes.iter().position(|byte| *byte == 0)?;
+    if end == 0 || end > 4096 { return None; }
+    let value = std::str::from_utf8(&bytes[..end]).ok()?;
+    if !value.starts_with('/') || value.chars().any(char::is_control) { return None; }
+    Some(value.into())
+}
+
+pub fn launch_executable(target: &Identity) -> Option<String> {
+    if target.uid != uid() || target.started == 0 || !target.executable.is_empty()
+        || identity(target.pid).as_ref() != Some(target) { return None; }
+    let mut data = process_arguments(target.pid)?;
+    let path = initial_executable(&data);
+    data.fill(0);
+    if identity(target.pid).as_ref() != Some(target) { return None; }
+    path
+}
+
 fn thread_from_arguments(data: &[u8]) -> Option<String> {
     let (_, environment) = argument_sections(data)?;
     let mut values = environment
@@ -360,6 +409,21 @@ mod argument_tests {
         result
     }
     #[test]
+    fn initial_path_ignores_argv_zero_arguments_and_environment() {
+        let mut data=1_i32.to_ne_bytes().to_vec();
+        data.extend_from_slice(b"/usr/bin/real-tool\0\0/Applications/Fake.app/Contents/MacOS/Fake\0TOKEN=secret\0");
+        assert_eq!(initial_executable(&data),Some("/usr/bin/real-tool".into()));
+        assert_eq!(initial_executable(&arguments(b"TOKEN=secret\0")),Some("/usr/bin/tool".into()));
+        for path in [b"relative\0".as_slice(),b"\0",b"/bad\npath\0",b"/invalid\xff\0",b"/missing-terminator"] {
+            let mut malformed=1_i32.to_ne_bytes().to_vec();malformed.extend_from_slice(path);
+            assert!(initial_executable(&malformed).is_none());
+        }
+        let mut oversized=1_i32.to_ne_bytes().to_vec();
+        oversized.push(b'/');oversized.extend(vec![b'a';4096]);oversized.push(0);
+        assert!(initial_executable(&oversized).is_none());
+        assert!(initial_executable(b"bad").is_none());
+    }
+    #[test]
     fn node_entry_is_one_positional_script_and_never_inline_code_or_later_arguments() {
         assert_eq!(node_entry_argument(&[b"node", b"/project/index.js", b"--token", b"secret"]),Some("/project/index.js".into()));
         assert_eq!(node_entry_argument(&[b"node", b"--require", b"/setup.js", b"--no-warnings", b"/project/index.js"]),Some("/project/index.js".into()));
@@ -442,10 +506,14 @@ pub fn collect() -> Result<Vec<Process>, String> {
                 },
                 ppid: 0,
                 responsible: None,
+                terminal_owner: None,
+                process_group: 0,
+                terminal_job: false,
                 registered_app_path: None,
                 runtime_project: None,
                 name,
                 display_name: None,
+                launch_executable: None,
                 memory: None,
                 footprint: None,
                 cpu: None,
@@ -522,10 +590,14 @@ pub fn collect() -> Result<Vec<Process>, String> {
             identity,
             ppid: bsd.pbi_ppid as i32,
             responsible: None,
+            terminal_owner: None,
+            process_group: bsd.pbi_pgid as i32,
+            terminal_job: false,
             registered_app_path: None,
             runtime_project: None,
             name,
             display_name: None,
+            launch_executable: None,
             memory,
             footprint,
             cpu: None,

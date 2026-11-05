@@ -4,6 +4,8 @@ mod applications;
 mod model;
 mod projects;
 mod instances;
+mod origins;
+mod terminals;
 #[cfg(target_os = "macos")]
 mod native;
 mod surfaces;
@@ -41,7 +43,7 @@ impl Snapshot {
         // Status includes app bundle paths for icons, but no process paths, argv, cwd or PIDs.
         let stale = now().saturating_sub(self.at) > 20_000;
         let rows: Vec<_> = self.groups.iter().filter(|g| !g.system).map(|g| {
-            json!({"id":g.id,"name":g.name,"appPath":g.app_path,"iconKey":g.icon_key,"at":self.at,"status":if self.at == 0 {"unknown"} else if stale || self.error.is_some() {"stale"} else {"healthy"},
+            json!({"id":g.id,"name":g.name,"appPath":g.app_path,"origin":g.origin,"iconKey":g.icon_key,"at":self.at,"status":if self.at == 0 {"unknown"} else if stale || self.error.is_some() {"stale"} else {"healthy"},
                 "summary":format!("{} · CPU {} · {} 个进程",g.footprint.map(|v|format!("{:.0} MiB 足迹{}",v as f64/1048576.,if g.footprint_incomplete {"（部分）"} else {""})).unwrap_or("足迹未知".into()),g.cpu.map(|v|format!("{v:.1}%")).unwrap_or("采样中".into()),g.processes.len()),
                 "values":{"memory":g.memory,"footprint":g.footprint,"rss":g.memory,"cpu":g.cpu},"count":g.processes.len(),"instanceCount":g.instances.len(),"incomplete":g.footprint_incomplete})
         }).collect();
@@ -109,7 +111,11 @@ impl Monitor {
             .collect();
         self.sampled = Some(at);
         applications::resolve_bundle_paths(&mut processes);
+        origins::resolve(&mut processes, native::uid(), native::launch_executable,
+            |identity| native::identity(identity.pid).as_ref()==Some(identity));
         projects::resolve(&mut processes, native::uid(), native::node_entry);
+        terminals::resolve(&mut processes,native::uid(),native::responsibility_owner,
+            |identity| native::identity(identity.pid).as_ref()==Some(identity),native::parent_matches);
         self.snapshot = Snapshot {
             at: now(),
             groups: model::group_processes(processes, native::uid()),
@@ -136,7 +142,16 @@ impl Monitor {
                 .iter()
                 .find(|g| &g.id == id)
                 .ok_or("应用已退出，请刷新")?;
+            if selected_group.app_path.is_some() && selected_group.origin.is_some() {
+                return Err("来源线索不能作为应用结束范围，请单独选择任务".into());
+            }
             let (selected,members)=instances::members(selected_group,params["instanceId"].as_str())?;
+            if let Some(path)=selected_group.app_path.as_deref() {
+                if members.iter().any(|p|model::process_bundle(p).as_ref().is_none_or(|(key,_)|
+                    key.strip_prefix("app:")!=Some(path)) && p.responsible.is_none()) {
+                    return Err("来源关联任务不能随应用结束，请单独选择任务".into());
+                }
+            }
             instance=Some(selected.id.clone());
             scope=json!({"kind":"instance","name":selected_group.name,"instanceId":selected.id,"root":selected.root});
             members
