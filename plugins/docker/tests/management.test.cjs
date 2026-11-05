@@ -99,7 +99,8 @@ test('list controls are clear and container actions stay within their relevant t
   assert.doesNotMatch(source, /onDragStart|onDragOver|onDrop=/);
   assert.match(source, /<svg viewBox="0 0 16 16" aria-hidden="true">/);
   assert.match(source, /<Tabs.Panel value="overview">\{containerActions\}/);
-  assert.match(source, /<Tabs.Panel value="logs">.*复制日志命令/);
+  assert.match(source, /<Tabs.Panel value="logs"><ContainerLogs/);
+  assert.match(fs.readFileSync(path.join(__dirname, '../src/ContainerLogs.tsx'), 'utf8'), /复制日志命令/);
   assert.match(source, /aria-expanded=\{!isCollapsed\}/);
 });
 

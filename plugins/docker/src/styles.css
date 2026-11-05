@@ -81,9 +81,16 @@
 .docker-resource-copy strong {font-size:12px}
 .docker-resource-copy small {margin-top:4px; color:var(--docker-muted); font-size:10px; line-height:1.5}
 .docker-detail {min-width:0; min-height:0; overflow:auto; padding:24px}
+.docker-navigation {display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin:0 0 18px;color:var(--docker-muted)}
+.docker-navigation > button {max-width:100%;padding-block:8px;white-space:normal;overflow-wrap:anywhere;line-height:1.5}
+.docker-selection-note {margin:12px 0;padding-left:10px;border-left:2px solid var(--docker-accent);color:var(--docker-muted);font-size:12px;line-height:1.7}
+.docker-detail-heading h2:focus-visible {outline:2px solid var(--docker-accent);outline-offset:4px;border-radius:3px}
 .docker-detail-heading {display:flex; align-items:flex-start; justify-content:space-between; gap:16px}
 .docker-detail-heading h2 {margin:7px 0; overflow-wrap:anywhere; font-size:22px; letter-spacing:-.03em}
 .docker-detail-heading p {font:11px ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap:anywhere}
+.docker-detail .fh-tabs__trigger {appearance:none;border:0;border-bottom:2px solid transparent;background:transparent;color:var(--docker-muted)}
+.docker-detail .fh-tabs__trigger[aria-selected="true"] {border-bottom-color:var(--docker-accent);color:var(--docker-accent)}
+.docker-detail .fh-tabs__trigger:hover {background:var(--docker-panel-raised);color:var(--docker-ink)}
 .docker-badge {max-width:170px; border:1px solid var(--docker-line); border-radius:7px; background:var(--docker-panel-raised); padding:6px 9px; color:var(--docker-accent); font-size:11px; text-align:right}
 .docker-badge.is-unused {color:var(--docker-muted)}
 .docker-actions {display:flex; flex-wrap:wrap; gap:7px; margin:20px 0}
@@ -115,6 +122,9 @@
 .docker-prune-targets small {grid-column:1/-1; font:10px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace}
 .docker-log-tools {display:flex; align-items:center; flex-wrap:wrap; gap:9px}
 .docker-log-tools .fh-input {min-width:140px; flex:1}
+.docker-log-status {display:flex;justify-content:space-between;align-items:center;gap:10px;min-height:36px;margin-top:10px;color:var(--docker-muted);font-size:11px}
+.docker-log-error {display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-top:8px;color:var(--docker-danger);font-size:12px;line-height:1.7}
+.docker-log-error > button {flex-shrink:0}
 .docker-log-output {height:300px; min-height:260px; margin-top:13px; resize:vertical; background:var(--docker-panel)!important; color:var(--docker-ink)!important; font:11px/1.8 ui-monospace, SFMono-Regular, Menlo, monospace!important}
 .docker-terminal {min-width:0; padding-top:12px}
 .docker-terminal-toolbar {display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:8px}
