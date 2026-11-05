@@ -22,7 +22,11 @@ export interface SourceOrigin {name:string;appPath:string|null;evidence:string}
 export interface Presentation {name:string|null;sources:SourceOrigin[];services?:Array<{name:string;label:string;evidence:string}>}
 export interface Instance {id:string;root:Identity;count:number;memory:number|null;footprint:number|null;cpu:number|null;incomplete:boolean;footprintIncomplete:boolean;canTerminate:boolean;presentation?:Presentation|null}
 export interface SystemInfo {totalMemory?:number|null;swapUsed?:number|null;pressure?:string|null}
-export interface Snapshot {at:number;groups:Group[];system:SystemInfo;error?:string|null;memoryMetric:'footprint';interval:number}
+export interface SnapshotState {at:number;revision?:number;sampling?:boolean;stale?:boolean;system:SystemInfo;error?:string|null;memoryMetric:'footprint';interval:number}
+export interface Snapshot extends SnapshotState {groups:Group[]}
+export interface GroupSummary extends Omit<Group,'processes'|'instances'> {processCount:number;instanceCount:number;onlyInstanceId?:string|null;permissionLimited:boolean;hasRestrictedProcesses:boolean}
+export interface RankingSnapshot extends SnapshotState {groups:GroupSummary[];includeSystem:boolean;hasRestrictedProcesses:boolean;query:string;matchedGroupIds:string[]}
+export interface GroupDetail extends SnapshotState {groupId:string;group:Group|null;elsewhere:Identity[];contextProcesses:Process[]}
 export interface StatusRow {id:string;name:string;appPath?:string|null;origin?:SourceOrigin|null;presentation?:Presentation|null;iconKey?:ToolIconKey|null;at:number;status:string;summary:string;values:{memory:number|null;footprint:number|null;rss:number|null;cpu:number|null};count:number;instanceCount?:number;incomplete:boolean}
 export interface StatusSnapshot {at:number;rows:StatusRow[];system:SystemInfo;error?:string|null}
 export type Sort = 'footprint'|'memory'|'cpu';

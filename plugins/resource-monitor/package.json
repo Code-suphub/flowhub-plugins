@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite --config vite.config.mjs --host 127.0.0.1 --port 5186",
     "typecheck": "tsc --noEmit",
-    "build:ui": "vite build --config vite.config.mjs",
+    "build:ui": "node scripts/build-ui.mjs",
     "build": "node scripts/build.mjs",
     "test": "cargo test --manifest-path backend/Cargo.toml && pnpm run typecheck && node --test tests/*.test.mjs"
   },

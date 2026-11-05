@@ -1,5 +1,5 @@
-import {sampleContexts,sampleSnapshot,statusFrom} from './model';
-import type {Api,Config,Context} from './types';
+import {detailFrom,rankingFrom,sampleContexts,sampleSnapshot,statusFrom} from './model';
+import type {Api,Config,Context,GroupDetail} from './types';
 
 export function createApi(host:Window):Api {
   const surface=host.document.body.dataset.surface;
@@ -35,6 +35,8 @@ export function createApi(host:Window):Api {
       if(widget&&hosted&&token&&!context)return Promise.reject(new Error('组件上下文尚未就绪'));
       if(api.preview){
         if(method==='snapshot'||method==='refresh')return Promise.resolve(sampleSnapshot() as T);
+        if(method==='ranking_snapshot'||method==='refresh_summary')return Promise.resolve(rankingFrom(sampleSnapshot(),String(params.query??''),params.includeSystem!==false) as T);
+        if(method==='group_detail')return Promise.resolve(detailFrom(sampleSnapshot(),String(params.groupId??''),params.trackedPids as number[]|undefined,params.contextPids as number[]|undefined) as T);
         if(method==='contexts')return Promise.resolve(sampleContexts(params.groupId==='app:arc'?'arc':'codex') as T);
         if(method==='application_state')return Promise.resolve({canQuit:false,quitInstances:[],message:'预览模式不执行退出操作。',contextKind:params.groupId==='app:arc'?'arc':params.groupId==='app:codex'?'codex':null} as T);
         return Promise.reject(new Error('浏览器预览不执行清理操作'));
@@ -51,7 +53,7 @@ export function createApi(host:Window):Api {
       if(disposed)throw new Error('插件连接已关闭');
       if(widget&&hosted&&token&&!context)throw new Error('组件上下文尚未就绪');
       if(api.preview)return statusFrom(sampleSnapshot());
-      if(!widget)return statusFrom(await api.invoke('snapshot'));
+      if(!widget)return api.invoke('status_snapshot');
       return new Promise((resolve,reject)=>{
         const id=requestId(),timer=setTimeout(()=>{pending.delete(id);reject(new Error('状态读取超时'));},20000);
         pending.set(id,{resolve:value=>resolve(value as Awaited<ReturnType<Api['status']>>),reject,timer});
@@ -69,4 +71,22 @@ export function createApi(host:Window):Api {
     dispose(){disposed=true;host.removeEventListener('message',receive);listeners.clear();for(const p of pending.values()){clearTimeout(p.timer);p.reject(new Error('插件连接已关闭'));}pending.clear();}
   };
   return api;
+}
+
+// Keep detail requests below the native 64 KiB request limit, even after a very
+// large group accumulates fixed historical rows. Only the first chunk includes
+// group data; subsequent chunks must come from that same publication revision.
+export async function readGroupDetail(api:Api,groupId:string,trackedPids:number[]=[],contextPids:number[]=[]):Promise<GroupDetail> {
+  const tracked=new Set(trackedPids),contexts=new Set(contextPids),pids=[...new Set([...tracked,...contexts])];
+  const chunks:Array<{trackedPids:number[];contextPids:number[]}>=[];
+  for(let offset=0;offset<pids.length;offset+=2048){const chunk=pids.slice(offset,offset+2048);chunks.push({trackedPids:chunk.filter(pid=>tracked.has(pid)),contextPids:chunk.filter(pid=>contexts.has(pid))});}
+  if(!chunks.length)chunks.push({trackedPids:[],contextPids:[]});
+  for(let attempt=0;;attempt++){
+    const first=await api.invoke<GroupDetail>('group_detail',{groupId,...chunks[0]});
+    if(chunks.length===1)return first;
+    try{
+      const rest=await Promise.all(chunks.slice(1).map(chunk=>api.invoke<GroupDetail>('group_detail',{groupId,...chunk,includeGroup:false,revision:first.revision})));
+      return {...first,elsewhere:[...first.elsewhere,...rest.flatMap(part=>part.elsewhere)],contextProcesses:[...first.contextProcesses,...rest.flatMap(part=>part.contextProcesses)]};
+    }catch(error){if(attempt>=2||!String(error).includes('详情采样版本已更新'))throw error;}
+  }
 }

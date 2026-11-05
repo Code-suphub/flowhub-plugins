@@ -1,0 +1,294 @@
+{
+  "date": "2026-11-05",
+  "timezone": "Asia/Shanghai",
+  "baselineCommit": "7b3dcc521f9410a1986ee05dbffb4d3cbba58dc4",
+  "profile": "cargo dev, debug=0; baseline built before backend edits and copied to a separate temporary binary",
+  "methodology": {
+    "refreshesPerRun": 5,
+    "readsPerMethod": 9,
+    "ordinaryPollingIntervalMs": 5000,
+    "ordinaryPollingDurationSeconds": 15.5,
+    "usage": "ps cumulative CPU delta and ending RSS for the benchmark-owned backend only; startup and initial measurements excluded from the CPU delta",
+    "payload": "UTF-8 JSON result body bytes; no RPC envelope",
+    "scope": "Local live processes fluctuate between sequential runs; optional root collector and installed FlowHub were not changed"
+  },
+  "ordinaryPolling": {
+    "before": {
+      "binary": "/tmp/flowhub-resource-monitor-perf/before",
+      "processes": 717,
+      "groups": 404,
+      "refreshMedianMs": 279.582,
+      "refreshMs": [
+        279.582,
+        214.982,
+        314.368,
+        395.734,
+        258.095
+      ],
+      "methods": {
+        "status": {
+          "medianMs": 3.039,
+          "maxMs": 4.094,
+          "bytes": 42615
+        },
+        "full": {
+          "medianMs": 51.291,
+          "maxMs": 81.91,
+          "bytes": 751884
+        }
+      },
+      "usage": {
+        "durationSeconds": 15.51,
+        "pollIntervalMs": 5000,
+        "polls": 4,
+        "cpuSeconds": 0.39,
+        "rssKiB": 19520
+      }
+    },
+    "after": {
+      "binary": "plugins/resource-monitor/backend/target/debug/flowhub-resource-monitor",
+      "processes": 724,
+      "groups": 406,
+      "refreshMedianMs": 221.783,
+      "refreshMs": [
+        381.569,
+        221.783,
+        201.989,
+        300.824,
+        200.141
+      ],
+      "methods": {
+        "status": {
+          "medianMs": 4.226,
+          "maxMs": 5.205,
+          "bytes": 41874
+        },
+        "full": {
+          "medianMs": 42.782,
+          "maxMs": 77.502,
+          "bytes": 760391
+        },
+        "ranking": {
+          "medianMs": 3.372,
+          "maxMs": 10.197,
+          "bytes": 52553
+        },
+        "search": {
+          "medianMs": 3.387,
+          "maxMs": 6.641,
+          "bytes": 53870
+        },
+        "detail": {
+          "medianMs": 6.205,
+          "maxMs": 9.431,
+          "bytes": 100720
+        }
+      },
+      "usage": {
+        "durationSeconds": 15.51,
+        "pollIntervalMs": 5000,
+        "polls": 4,
+        "cpuSeconds": 0.21,
+        "rssKiB": 16256
+      }
+    }
+  },
+  "additionalOrdinaryPollingRuns": {
+    "before": {
+      "binary": "/tmp/flowhub-resource-monitor-perf/before",
+      "processes": 798,
+      "groups": 480,
+      "refreshMedianMs": 243.691,
+      "methods": {
+        "status": {
+          "medianMs": 3.709,
+          "maxMs": 4.85,
+          "bytes": 45877
+        },
+        "full": {
+          "medianMs": 48.446,
+          "maxMs": 80.857,
+          "bytes": 863242
+        }
+      },
+      "usage": {
+        "durationSeconds": 15.65,
+        "pollIntervalMs": 5000,
+        "polls": 4,
+        "cpuSeconds": 0.56,
+        "rssKiB": 24464
+      }
+    },
+    "after": {
+      "binary": "plugins/resource-monitor/backend/target/debug/flowhub-resource-monitor",
+      "processes": 780,
+      "groups": 460,
+      "refreshMedianMs": 619.892,
+      "methods": {
+        "status": {
+          "medianMs": 5.715,
+          "maxMs": 23.612,
+          "bytes": 45143
+        },
+        "full": {
+          "medianMs": 49.922,
+          "maxMs": 62.826,
+          "bytes": 837761
+        },
+        "ranking": {
+          "medianMs": 4.675,
+          "maxMs": 9.041,
+          "bytes": 56970
+        },
+        "search": {
+          "medianMs": 5.67,
+          "maxMs": 11.694,
+          "bytes": 58287
+        },
+        "detail": {
+          "medianMs": 6.524,
+          "maxMs": 8.731,
+          "bytes": 98532
+        }
+      },
+      "usage": {
+        "durationSeconds": 15.5,
+        "pollIntervalMs": 5000,
+        "polls": 4,
+        "cpuSeconds": 0.26,
+        "rssKiB": 18240
+      }
+    }
+  },
+  "acceleratedPolling": {
+    "before": {
+      "binary": "/tmp/flowhub-resource-monitor-perf/before",
+      "processes": 772,
+      "groups": 477,
+      "refreshMedianMs": 187.925,
+      "methods": {
+        "status": {
+          "medianMs": 2.964,
+          "maxMs": 4.21,
+          "bytes": 41286
+        },
+        "full": {
+          "medianMs": 38.745,
+          "maxMs": 47.064,
+          "bytes": 843244
+        }
+      },
+      "usage": {
+        "durationSeconds": 15.7,
+        "polls": 28,
+        "cpuSeconds": 1.57,
+        "rssKiB": 20528
+      },
+      "pollIntervalMs": 500
+    },
+    "after": {
+      "binary": "plugins/resource-monitor/backend/target/debug/flowhub-resource-monitor",
+      "processes": 751,
+      "groups": 438,
+      "refreshMedianMs": 214.471,
+      "methods": {
+        "status": {
+          "medianMs": 3.761,
+          "maxMs": 4.116,
+          "bytes": 42706
+        },
+        "full": {
+          "medianMs": 42.781,
+          "maxMs": 45.764,
+          "bytes": 801577
+        },
+        "ranking": {
+          "medianMs": 3.247,
+          "maxMs": 5.198,
+          "bytes": 53820
+        },
+        "search": {
+          "medianMs": 3.727,
+          "maxMs": 5.377,
+          "bytes": 54991
+        },
+        "detail": {
+          "medianMs": 4.868,
+          "maxMs": 5.797,
+          "bytes": 99227
+        }
+      },
+      "usage": {
+        "durationSeconds": 15.52,
+        "pollIntervalMs": 500,
+        "polls": 31,
+        "cpuSeconds": 0.32,
+        "rssKiB": 12912
+      }
+    }
+  },
+  "controlledSlowCollector": {
+    "cacheRpcCount": 6,
+    "totalElapsedMs": 2.502583,
+    "collectorHeldUntilReadsCompleted": true,
+    "manualRefreshQueuedBehindCollector": true,
+    "orderedFinalPublicationVerified": true
+  },
+  "liveConcurrentSample": {
+    "result": "PASS",
+    "groups": 457,
+    "processes": 773,
+    "fullBytes": 828199,
+    "rankingBytes": 52774,
+    "detailBytes": 99183,
+    "detailProcesses": 175,
+    "readsDuringRealSample": 35,
+    "maxConcurrentStatusMs": 6.152
+  },
+  "validation": {
+    "rustTestsPassed": 54,
+    "clientTestsPassed": 58,
+    "typecheck": "passed",
+    "diffWhitespace": "passed",
+    "nativeSmoke": [
+      "smoke.mjs",
+      "projects-smoke.mjs",
+      "terminals-smoke.mjs",
+      "quit-smoke.mjs",
+      "cache-smoke.mjs"
+    ],
+    "browser": "headless Chrome desktop CSP test for management, selected detail, card and editor passed; built only into isolated temporary test directories",
+    "safety": "Signals and application quit were restricted to test-created fixtures"
+  },
+  "changedFiles": [
+    "backend/src/main.rs",
+    "backend/src/cache.rs",
+    "backend/src/rpc.rs",
+    "backend/src/services.rs",
+    "backend/src/cache_tests.rs",
+    "backend/src/service_budget_tests.rs",
+    "src/App.tsx",
+    "src/api.ts",
+    "src/model.ts",
+    "src/types.ts",
+    "tests/cache-app.test.mjs",
+    "tests/cache-client.test.mjs",
+    "tests/cache-smoke.mjs",
+    "tests/cache-performance.mjs",
+    "tests/cache-performance-results.json",
+    "tests/quit-smoke.mjs",
+    "tests/fixtures/card-browser.js"
+  ],
+  "interfaces": {
+    "ranking_snapshot": "Cache-only summaries; query matches all original process/project/service fields; includeSystem:false omits system rows while global restricted-process flag remains available",
+    "group_detail": "Selected full group; full identities for tracked PIDs elsewhere; explicitly requested cross-group context processes; revision-checked presence-only chunks for requests over 2048 distinct PIDs",
+    "refresh_summary": "Serial fresh collection returning ranking summaries; compatible legacy refresh/snapshot and mutation response snapshots retained"
+  },
+  "limits": [
+    "Live dev-profile measurements vary with system load and process count; additional runs are retained rather than treated as thresholds",
+    "Optional display enrichment waits on one shared 800 ms budget; at most one late worker is retained, late results are discarded, and raw names remain when optional evidence is unavailable",
+    "Actions still serialize with fresh collection on the main thread for AppKit and identity validation; they do not use ranking summaries to authorize signals or application quit",
+    "JSON serialization and stdout backpressure still cost time; legacy full snapshot remains intentionally available",
+    "No shared build packaging, installation, installed-app restart or Git staging/commit/push was performed"
+  ]
+}

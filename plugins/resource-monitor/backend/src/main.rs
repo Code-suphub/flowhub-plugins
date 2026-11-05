@@ -2,6 +2,10 @@ mod accessibility;
 mod attribution;
 mod applications;
 mod model;
+mod cache;
+mod rpc;
+#[cfg(test)]
+mod cache_tests;
 mod projects;
 mod instances;
 mod origins;
@@ -13,12 +17,12 @@ mod surfaces;
 #[cfg(not(target_os = "macos"))]
 compile_error!("应用资源监控第一版仅支持 macOS");
 
-use model::{Group, Identity, Process};
+use model::{Identity, Process};
+use cache::{Cache, Snapshot};
 use serde_json::{json, Value};
 use std::{
     collections::HashMap,
-    io::{BufRead, Read, Write},
-    sync::{Arc, Mutex},
+    sync::Arc,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -27,29 +31,6 @@ fn now() -> u64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64
-}
-
-#[derive(Clone)]
-struct Snapshot {
-    at: u64,
-    groups: Vec<Group>,
-    system: Value,
-    error: Option<String>,
-}
-impl Snapshot {
-    fn full(&self) -> Value {
-        json!({"at":self.at,"groups":self.groups,"system":self.system,"error":self.error,"memoryMetric":"footprint","interval":5})
-    }
-    fn status(&self) -> Value {
-        // Status includes app bundle paths for icons, but no process paths, argv, cwd or PIDs.
-        let stale = now().saturating_sub(self.at) > 20_000;
-        let rows: Vec<_> = self.groups.iter().filter(|g| !g.system).map(|g| {
-            json!({"id":g.id,"name":g.name,"appPath":g.app_path,"origin":g.origin,"iconKey":g.icon_key,"presentation":g.presentation.as_ref().map(|p|json!({"name":p.name,"sources":p.sources})),"at":self.at,"status":if self.at == 0 {"unknown"} else if stale || self.error.is_some() {"stale"} else {"healthy"},
-                "summary":format!("{} · CPU {} · {} 个进程",g.footprint.map(|v|format!("{:.0} MiB 足迹{}",v as f64/1048576.,if g.footprint_incomplete {"（部分）"} else {""})).unwrap_or("足迹未知".into()),g.cpu.map(|v|format!("{v:.1}%")).unwrap_or("采样中".into()),g.processes.len()),
-                "values":{"memory":g.memory,"footprint":g.footprint,"rss":g.memory,"cpu":g.cpu},"count":g.processes.len(),"instanceCount":g.instances.len(),"incomplete":g.footprint_incomplete})
-        }).collect();
-        json!({"title":"应用资源","monitoring":true,"at":self.at,"rows":rows,"system":self.system,"error":self.error,"memoryMetric":"footprint"})
-    }
 }
 
 #[derive(Clone)]
@@ -62,7 +43,8 @@ struct Plan {
     force: bool,
 }
 struct Monitor {
-    snapshot: Snapshot,
+    snapshot: Arc<Snapshot>,
+    cache: Cache,
     previous: HashMap<i32, (Identity, u64)>,
     sampled: Option<Instant>,
     plans: HashMap<String, Plan>,
@@ -72,13 +54,10 @@ struct Monitor {
 }
 impl Monitor {
     fn new() -> Self {
+        let cache = Cache::new();
         Self {
-            snapshot: Snapshot {
-                at: 0,
-                groups: vec![],
-                system: json!({}),
-                error: None,
-            },
+            snapshot: cache.get(),
+            cache,
             previous: HashMap::new(),
             sampled: None,
             plans: HashMap::new(),
@@ -88,13 +67,17 @@ impl Monitor {
         }
     }
     fn refresh(&mut self) -> Result<(), String> {
-        let mut processes = match native::collect() {
-            Ok(p) => p,
-            Err(e) => {
-                self.snapshot.error = Some(e.clone());
-                return Err(e);
-            }
-        };
+        self.refresh_with(Self::collect)
+    }
+    fn refresh_with(&mut self, collect:impl FnOnce(&mut Self)->Result<Snapshot,String>) -> Result<(),String> {
+        self.cache.begin();
+        let result = collect(self);
+        let error = result.as_ref().err().cloned();
+        self.snapshot = self.cache.finish(result);
+        error.map_or(Ok(()), Err)
+    }
+    fn collect(&mut self) -> Result<Snapshot, String> {
+        let mut processes = native::collect()?;
         let at = Instant::now();
         for p in &mut processes {
             if let (Some(previous_at), Some((id, time))) =
@@ -121,13 +104,7 @@ impl Monitor {
             |identity| native::identity(identity.pid).as_ref()==Some(identity),native::parent_matches);
         let mut groups = model::group_processes(processes, native::uid());
         self.services.enrich(&mut groups);
-        self.snapshot = Snapshot {
-            at: now(),
-            groups,
-            system: native::system(),
-            error: None,
-        };
-        Ok(())
+        Ok(Snapshot::new(now(), groups, native::system()))
     }
     fn preview(&mut self, params: &Value) -> Result<Value, String> {
         self.refresh()?;
@@ -261,6 +238,12 @@ impl Monitor {
             "health" => Ok(json!({"protocol":2,"name":"resource-monitor"})),
             "status_snapshot" => Ok(self.snapshot.status()),
             "snapshot" => Ok(self.snapshot.full()),
+            "ranking_snapshot" => Ok(self.snapshot.ranking(params)),
+            "group_detail" => self.snapshot.detail(params),
+            "refresh_summary" => {
+                self.refresh()?;
+                Ok(self.snapshot.ranking(params))
+            }
             "refresh" => {
                 self.refresh()?;
                 Ok(self.snapshot.full())
@@ -315,6 +298,9 @@ impl Monitor {
                     let method = params["method"].as_str().unwrap_or("");
                     if ![
                         "snapshot",
+                        "ranking_snapshot",
+                        "group_detail",
+                        "refresh_summary",
                         "refresh",
                         "terminate_preview",
                         "terminate_confirm",
@@ -349,44 +335,9 @@ fn validate_plan(plan: &Plan) -> Result<(), String> {
 }
 
 fn main() {
-    let monitor = Arc::new(Mutex::new(Monitor::new()));
-    let background = monitor.clone();
-    std::thread::spawn(move || loop {
-        if let Ok(mut monitor) = background.lock() {
-            let _ = monitor.refresh();
-        }
-        std::thread::sleep(Duration::from_secs(5));
-    });
-    let stdin = std::io::stdin();
-    let mut input = stdin.lock();
-    let mut output = std::io::stdout().lock();
-    loop {
-        let mut line = String::new();
-        match (&mut input).take(65537).read_line(&mut line) {
-            Ok(0) | Err(_) => break,
-            _ => {}
-        }
-        if line.len() > 65536 {
-            break;
-        }
-        let Ok(req) = serde_json::from_str::<Value>(&line) else {
-            continue;
-        };
-        let result = monitor
-            .lock()
-            .map_err(|_| "监控缓存不可用".to_string())
-            .and_then(|mut m| m.dispatch(req["method"].as_str().unwrap_or(""), &req["params"]));
-        let response = match result {
-            Ok(value) => json!({"id":req["id"],"result":value}),
-            Err(error) => json!({"id":req["id"],"error":error}),
-        };
-        if writeln!(output, "{response}")
-            .and_then(|_| output.flush())
-            .is_err()
-        {
-            break;
-        }
-    }
+    // Keep AppKit's run loop, collection and action state on this one thread.
+    // rpc's input thread serves immutable cache reads independently.
+    rpc::serve(Monitor::new(), std::io::BufReader::new(std::io::stdin()));
 }
 
 #[cfg(test)]

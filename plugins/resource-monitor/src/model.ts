@@ -1,4 +1,4 @@
-import type {ApplicationState,Config,ContextEntry,Group,Identity,PageContexts,Process,Snapshot,StatusSnapshot,Sort} from './types';
+import type {ApplicationState,Config,ContextEntry,Group,GroupDetail,GroupSummary,Identity,PageContexts,Process,RankingSnapshot,Snapshot,StatusSnapshot,Sort} from './types';
 
 export function detailControls(group:Group|undefined,state?:ApplicationState,selectedId?:string) {
   const instances=group?.instances??[];
@@ -22,7 +22,7 @@ export function widgetRows(snapshot:StatusSnapshot|undefined,config:Config={}) {
   return config.display==='top'?rows.slice(0,limit):rows;
 }
 export const processKey=(p:Identity)=>`${p.pid}:${p.started}:${p.uid}:${p.executable}`;
-export function contextRows(contexts:PageContexts,snapshot:Snapshot|undefined,now=Date.now()) {
+export function contextRows(contexts:PageContexts,snapshot:{groups:readonly {processes:readonly Process[]}[]}|undefined,now=Date.now()) {
   const current=new Map((snapshot?.groups??[]).flatMap(g=>g.processes).map(p=>[processKey(p),p]));
   const expired=now-(contexts.diagnostics?.at??contexts.at)>=300000;
   return contexts.entries.map(entry=>{
@@ -49,16 +49,40 @@ export const processName = (p:Process) => p.displayName || p.name;
 export function matchesProcess(p:Process,q:string) {
   return [p.name,p.displayName??'',p.executable,p.launchExecutable??'',p.terminalOwner?.executable??'',p.cwd,p.parentName,String(p.pid),String(p.ppid),p.avd,p.runtimeProject?.name??'',p.runtimeProject?.root??'',p.runtimeProject?.entry??''].some(s=>s.toLocaleLowerCase().includes(q));
 }
+export function matchesGroup(g:Omit<Group,'processes'|'instances'>,q:string) {
+  return [g.name,g.source,g.appPath??'',g.origin?.name??'',g.origin?.appPath??'',g.presentation?.name??'',...(g.presentation?.sources??[]).flatMap(source=>[source.name,source.appPath??'']),...(g.presentation?.services??[]).flatMap(service=>[service.name,service.label])].some(s=>s.toLocaleLowerCase().includes(q));
+}
+function sortGroups<T extends Pick<Group,'id'|'memory'|'footprint'|'cpu'>>(groups:T[],sort:Sort,order:'ascend'|'descend') {
+  return groups.sort((a,b)=>{const left=a[sort],right=b[sort];if(left==null||right==null)return left==null?(right==null?a.id.localeCompare(b.id):1):-1;return (order==='ascend'?left-right:right-left)||a.id.localeCompare(b.id);});
+}
 export function filterGroups(groups:Group[],query:string,system:boolean,sort:Sort,order:'ascend'|'descend'='descend') {
   const q=query.trim().toLocaleLowerCase();
-  return groups.filter(g=>(system||!g.system)&&(!q||[g.name,g.source,g.origin?.name??'',g.origin?.appPath??'',g.presentation?.name??'',...(g.presentation?.sources??[]).flatMap(source=>[source.name,source.appPath??'']),...(g.presentation?.services??[]).flatMap(service=>[service.name,service.label])].some(s=>s.toLocaleLowerCase().includes(q))||g.processes.some(p=>matchesProcess(p,q))))
-    .sort((a,b)=>{
-      const left=a[sort],right=b[sort];
-      if(left==null||right==null)return left==null?(right==null?a.id.localeCompare(b.id):1):-1;
-      return (order==='ascend'?left-right:right-left)||a.id.localeCompare(b.id);
-    });
+  return sortGroups(groups.filter(g=>(system||!g.system)&&(!q||matchesGroup(g,q)||g.processes.some(p=>matchesProcess(p,q)))),sort,order);
 }
-export function updateDetail(previous:Group,latest:Group|undefined,live:readonly Process[]=[]):Group {
+export function filterRanking(groups:GroupSummary[],query:string,matchedGroupIds:readonly string[],system:boolean,sort:Sort,order:'ascend'|'descend'='descend') {
+  const q=query.trim().toLocaleLowerCase(),matched=new Set(matchedGroupIds);
+  // Backend matches include all process/project/service fields. Locally resolved
+  // application names and descriptions remain searchable as well.
+  return sortGroups(groups.filter(g=>(system||!g.system)&&(!q||matched.has(g.id)||matchesGroup(g,q))),sort,order);
+}
+export function rankingFrom(snapshot:Snapshot,query='',includeSystem=true):RankingSnapshot {
+  const q=query.trim().toLocaleLowerCase();
+  const groups=snapshot.groups.map(({processes,instances,presentation,...group}):GroupSummary=>({...group,
+    presentation:presentation?{name:presentation.name,sources:presentation.sources}:presentation,
+    processCount:processes.length,instanceCount:instances?.length??0,onlyInstanceId:instances?.length===1?instances[0].id:null,
+    permissionLimited:processes.length>0&&processes.every(p=>p.protection.startsWith('当前用户权限不足')),
+    hasRestrictedProcesses:processes.some(p=>p.protection==='其他用户或系统账户'||p.protection.startsWith('当前用户权限不足'))}));
+  return {...snapshot,groups:groups.filter(g=>includeSystem||!g.system),includeSystem,hasRestrictedProcesses:groups.some(g=>g.hasRestrictedProcesses),query:q,matchedGroupIds:q?filterGroups(snapshot.groups,q,true,'footprint').map(g=>g.id):[]};
+}
+export function detailFrom(snapshot:Snapshot,groupId:string,trackedPids:readonly number[]=[],contextPids:readonly number[]=[]):GroupDetail {
+  const tracked=new Set(trackedPids),contexts=new Set(contextPids),other=snapshot.groups.filter(g=>g.id!==groupId).flatMap(g=>g.processes);
+  return {at:snapshot.at,revision:snapshot.revision,sampling:snapshot.sampling,stale:snapshot.stale,system:snapshot.system,error:snapshot.error,memoryMetric:snapshot.memoryMetric,interval:snapshot.interval,
+    groupId,group:snapshot.groups.find(g=>g.id===groupId)??null,elsewhere:other.filter(p=>tracked.has(p.pid)).map(({pid,started,uid,executable})=>({pid,started,uid,executable})),contextProcesses:other.filter(p=>contexts.has(p.pid))};
+}
+export function newerSnapshot(next:{at:number;revision?:number},previous:{at:number;revision?:number}|undefined) {
+  return !previous||(next.revision!=null&&previous.revision!=null?next.revision>=previous.revision:next.at>=previous.at);
+}
+export function updateDetail(previous:Group,latest:Group|undefined,live:readonly (Identity&{groupId?:string})[]=[]):Group {
   const key=processKey;
   const elsewhere=new Set(live.filter(p=>p.groupId!==previous.id).map(key));
   const fresh=new Map((latest?.processes??[]).map(p=>[key(p),p]));

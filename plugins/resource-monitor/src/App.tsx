@@ -4,10 +4,11 @@ import type {TableColumnsType,TableProps} from 'antd';
 import {StyleProvider} from '@ant-design/cssinjs';
 import {createCommonAntdTheme} from '@local/common-components/react/antd';
 import {Button,HelpPopover,Input} from '@flowhub/plugin-common/react';
-import {bytes,contextRows,cpu,detailControls,filterGroups,matchesProcess,processKey,processName,updateDetail} from './model';
+import {bytes,contextRows,cpu,detailControls,detailFrom,filterRanking,matchesProcess,newerSnapshot,rankingFrom,processKey,processName,updateDetail} from './model';
 import {AppMark,applicationIdentity,sourceNames,useApplications} from './applications';
+import {readGroupDetail} from './api';
 import type {ContextRow} from './model';
-import type {Api,ApplicationState,Context,Group,Instance,PageContexts,Plan,Process,QuitPlan,Snapshot,Sort,SortOrder,TerminateResult} from './types';
+import type {Api,ApplicationState,Context,Group,GroupDetail,GroupSummary,Instance,PageContexts,Plan,Process,QuitPlan,RankingSnapshot,Snapshot,Sort,SortOrder,TerminateResult} from './types';
 
 export function Theme({children}:{children:React.ReactNode}) {
   const [dark,setDark]=useState(document.documentElement.dataset.theme!=='light');
@@ -23,14 +24,19 @@ const permissionLimited=(p:Process)=>p.protection.startsWith('当前用户权限
 type PrivilegedStatus={ok:boolean;status:string;message:string};
 
 export function App({api,context}:{api:Api;context:Context}) {
-  const [data,setData]=useState<Snapshot>();
+  const [data,setData]=useState<RankingSnapshot>();
+  const dataRef=useRef<RankingSnapshot|undefined>(undefined);
   const [error,setError]=useState('');const [notice,setNotice]=useState('');
   const [query,setQuery]=useState('');const deferredQuery=useDeferredValue(query);
   const [sorting,setSorting]=useState<{key:Sort;order:SortOrder}>({key:'footprint',order:'descend'});const [system,setSystem]=useState(false);
-  const [detail,setDetail]=useState<Group>();const [processQuery,setProcessQuery]=useState('');
+  const [detail,setDetail]=useState<Group>();const [detailId,setDetailId]=useState<string>();const [processQuery,setProcessQuery]=useState('');
+  const [contextProcesses,setContextProcesses]=useState<Process[]>([]);
+  const detailRef=useRef<Group|undefined>(undefined);const detailSelection=useRef({id:'',generation:0,revision:-1,request:0,initialSearch:''});
+  const contextsRef=useRef<PageContexts|undefined>(undefined);
   const [source,setSource]=useState<Process>();const [tab,setTab]=useState('processes');
   const [selectedInstance,setSelectedInstance]=useState<string>();
   const [contexts,setContexts]=useState<PageContexts>();const [contextError,setContextError]=useState('');
+  contextsRef.current=contexts;
   const [contextQuery,setContextQuery]=useState('');const [linkedOnly,setLinkedOnly]=useState(false);
   const [contextDetail,setContextDetail]=useState<string>();const [unmappedOnly,setUnmappedOnly]=useState(false);
   const [linksBusy,setLinksBusy]=useState(false);const contextGeneration=useRef(0);
@@ -39,24 +45,45 @@ export function App({api,context}:{api:Api;context:Context}) {
   const [expires,setExpires]=useState(0);const [remaining,setRemaining]=useState(0);
   const [busy,setBusy]=useState(false);const [refreshing,setRefreshing]=useState(false);
   const [privilegedStatus,setPrivilegedStatus]=useState<PrivilegedStatus>();const [privilegedBusy,setPrivilegedBusy]=useState(false);
-  const alive=useRef(true);const operation=useRef(false);const reading=useRef(false);
+  const alive=useRef(true);const operation=useRef(false);const reading=useRef(false);const readAgain=useRef(false);
+  const queryRef=useRef(deferredQuery);queryRef.current=deferredQuery;
+  const systemRef=useRef(system);systemRef.current=system;
+  const searchSelection=useRef({query:deferredQuery,system});
   const openedSelection=useRef('');const selected=context.config?.selection?.groupId;
-  const hasOtherUserProcesses=!!data?.groups.some(g=>g.processes.some(p=>p.protection==='其他用户或系统账户'||permissionLimited(p)));
+  const hasOtherUserProcesses=!!data?.hasRestrictedProcesses;
   const helperMissing=privilegedStatus?.status==='missingHelper'||privilegedStatus?.status==='unsupported';
   const helperInstalled=['enabled','needsRepair','needsUpdate'].includes(privilegedStatus?.status??'');
   const actionNotice=notice===privilegedStatus?.message?'':notice;
   const applications=useApplications(api,data?.groups??[]);
   const sourcePresentation=detail?.instances?.find(instance=>instance.id===source?.instanceId)?.presentation;
 
-  function openDetail(group:Group,search=''){
-    const processSearch=search.trim()&&group.processes.some(p=>matchesProcess(p,search.trim().toLocaleLowerCase()))?search:'';
-    contextGeneration.current++;setLinksBusy(false);setDetail({...group,processes:[...group.processes]});
-    setProcessQuery(processSearch);setContexts(undefined);setContextError('');setTab(processSearch?'processes':(group.instances?.length??0)>1?'instances':'processes');setSelectedInstance(undefined);setSource(undefined);setApplicationState(undefined);
+  function openDetail(group:Group|GroupSummary,search=''){
+    detailSelection.current={id:group.id,generation:detailSelection.current.generation+1,revision:-1,request:0,initialSearch:search};
+    const full='processes' in group?{...group,processes:[...group.processes]}:undefined;
+    detailRef.current=full;setDetail(full);setDetailId(group.id);setContextProcesses([]);
+    contextGeneration.current++;setLinksBusy(false);
+    setProcessQuery(search);setContexts(undefined);setContextError('');setTab('processes');setSelectedInstance(undefined);setSource(undefined);setApplicationState(undefined);
     setContextQuery('');setLinkedOnly(false);setContextDetail(undefined);setUnmappedOnly(false);
   }
-  function closeDetail(){contextGeneration.current++;setDetail(undefined);setSource(undefined);setContextDetail(undefined);setLinksBusy(false);}
-  useEffect(()=>{if(selected&&selected!==openedSelection.current){const group=data?.groups.find(g=>g.id===selected);if(group){openedSelection.current=selected;openDetail(group);}}},[selected,data]);
-  useEffect(()=>{if(data)setDetail(previous=>previous?updateDetail(previous,data.groups.find(g=>g.id===previous.id),data.groups.flatMap(g=>g.processes)):previous);},[data]);
+  function closeDetail(){detailSelection.current={id:'',generation:detailSelection.current.generation+1,revision:-1,request:0,initialSearch:''};detailRef.current=undefined;contextGeneration.current++;setDetailId(undefined);setDetail(undefined);setContextProcesses([]);setSource(undefined);setContextDetail(undefined);setLinksBusy(false);}
+  function acceptDetail(next:GroupDetail,generation:number,request=detailSelection.current.request){
+    const selection=detailSelection.current;
+    if(!alive.current||selection.id!==next.groupId||selection.generation!==generation||selection.request!==request||(next.revision??next.at)<selection.revision)return;
+    const first=selection.revision===-1;selection.revision=next.revision??next.at;
+    const previous=detailRef.current;
+    const updated=previous?.id===next.groupId?updateDetail(previous,next.group??undefined,next.elsewhere):next.group??undefined;
+    detailRef.current=updated;setDetail(updated);setContextProcesses(next.contextProcesses);
+    if(first){const search=selection.initialSearch.trim().toLocaleLowerCase();const matches=!!search&&!!next.group?.processes.some(p=>matchesProcess(p,search));setProcessQuery(matches?selection.initialSearch:'');setTab(matches?'processes':(next.group?.instances?.length??0)>1?'instances':'processes');}
+  }
+  async function readDetail(){
+    const selection=detailSelection.current;const {id,generation}=selection;if(!id)return;const request=++selection.request;
+    const trackedPids=[...new Set((detailRef.current?.processes??[]).filter(p=>!p.exited).map(p=>p.pid))];
+    const contextPids=[...new Set((contextsRef.current?.entries??[]).flatMap(entry=>entry.processes.map(p=>p.pid)))];
+    try{const next=await readGroupDetail(api,id,trackedPids,contextPids);acceptDetail(next,generation,request);}
+    catch(reason){if(alive.current&&generation===detailSelection.current.generation)setError(String(reason));}
+  }
+  useEffect(()=>{if(selected&&selected!==openedSelection.current&&data){openedSelection.current=selected;const group=data.groups.find(g=>g.id===selected);if(group)openDetail(group);else{detailSelection.current={id:selected,generation:detailSelection.current.generation+1,revision:-1,request:0,initialSearch:''};setDetailId(selected);}}},[selected,data]);
+  useEffect(()=>{if(detailId)void readDetail();},[api,detailId,contexts]);
   useEffect(()=>{
     const groupId=detail?.id;if(!groupId)return;
     let current=true;
@@ -75,7 +102,15 @@ export function App({api,context}:{api:Api;context:Context}) {
     const timer=setInterval(check,5000);
     return()=>{current=false;clearInterval(timer);};
   },[api,hasOtherUserProcesses,privilegedBusy]);
-  function accept(next:Snapshot){setData(previous=>!previous||next.at>=previous.at?next:previous);}
+  function accept(next:RankingSnapshot){
+    if(next.query!==queryRef.current.trim().toLocaleLowerCase()||next.includeSystem!==systemRef.current||!newerSnapshot(next,dataRef.current))return false;
+    dataRef.current=next;setData(next);return true;
+  }
+  function acceptFull(next:Snapshot){
+    accept(rankingFrom(next,queryRef.current,systemRef.current));
+    const selection=detailSelection.current;
+    if(selection.id){selection.request++;acceptDetail(detailFrom(next,selection.id,(detailRef.current?.processes??[]).map(p=>p.pid),(contextsRef.current?.entries??[]).flatMap(entry=>entry.processes.map(p=>p.pid))),selection.generation);}
+  }
   async function managePrivileged(action:'enable'|'disable'){
     setPrivilegedBusy(true);setError('');setNotice('');
     try{
@@ -96,14 +131,26 @@ export function App({api,context}:{api:Api;context:Context}) {
     });
   }
   async function refresh(manual=false){
-    if(reading.current)return;reading.current=true;if(manual)setRefreshing(true);
-    try{const next=await api.invoke<Snapshot>(manual?'refresh':'snapshot');if(alive.current){accept(next);setError(next.error??'');}}
+    if(manual){
+      setRefreshing(true);
+      try{const next=await api.invoke<RankingSnapshot>('refresh_summary',{query:queryRef.current,includeSystem:systemRef.current});if(alive.current){if(accept(next))setError(next.error??'');await Promise.all([refresh(),readDetail()]);}}
+      catch(e){if(alive.current)setError(String(e));}
+      finally{if(alive.current)setRefreshing(false);}
+      return;
+    }
+    if(reading.current){readAgain.current=true;return;}reading.current=true;
+    try{const next=await api.invoke<RankingSnapshot>('ranking_snapshot',{query:queryRef.current,includeSystem:systemRef.current});if(alive.current&&accept(next))setError(next.error??'');}
     catch(e){if(alive.current)setError(String(e));}
-    finally{reading.current=false;if(alive.current)setRefreshing(false);}
+    finally{reading.current=false;if(alive.current&&readAgain.current){readAgain.current=false;void refresh();}}
   }
   useEffect(()=>{
+    if(searchSelection.current.query===deferredQuery&&searchSelection.current.system===system)return;
+    searchSelection.current={query:deferredQuery,system};
+    const timer=setTimeout(()=>{if(!document.hidden)void refresh();},120);return()=>clearTimeout(timer);
+  },[api,deferredQuery,system]);
+  useEffect(()=>{
     alive.current=true;let timer:ReturnType<typeof setTimeout>|undefined;let running=false;
-    async function tick(){if(running)return;running=true;clearTimeout(timer);try{if(!document.hidden)await refresh();}finally{running=false;if(alive.current)timer=setTimeout(tick,5000);}}
+    async function tick(){if(running)return;running=true;clearTimeout(timer);try{if(!document.hidden)await Promise.all([refresh(),readDetail()]);}finally{running=false;if(alive.current)timer=setTimeout(tick,5000);}}
     const visible=()=>{if(!document.hidden){clearTimeout(timer);void tick();}};
     void tick();document.addEventListener('visibilitychange',visible);
     return()=>{alive.current=false;contextGeneration.current++;clearTimeout(timer);document.removeEventListener('visibilitychange',visible);};
@@ -124,7 +171,7 @@ export function App({api,context}:{api:Api;context:Context}) {
     try{
       const result=await api.invoke<{requested:boolean;results:Array<{pid:number;requested:boolean}>;snapshot:Snapshot;refreshError?:string|null}>('quit_confirm',{token:quitPlan.token,confirmed:true});
       if(alive.current){
-        accept(result.snapshot);setQuitPlan(undefined);
+        acceptFull(result.snapshot);setQuitPlan(undefined);
         if(result.requested)setNotice('已发送正常退出请求。请在应用中处理可能出现的保存提示；后台服务可能继续运行。');
         const rejected=result.results.filter(item=>!item.requested);
         setError([rejected.length?`以下实例未接受退出请求（PID ${rejected.map(item=>item.pid).join('、')}），请从应用菜单退出或处理保存提示。`:'',result.refreshError].filter(Boolean).join(' '));
@@ -133,12 +180,12 @@ export function App({api,context}:{api:Api;context:Context}) {
     finally{operation.current=false;if(alive.current)setBusy(false);}
   }
 
-  async function prepare(target:Group|Process,instanceId?:string){
+  async function prepare(target:Group|GroupSummary|Process,instanceId?:string){
     if(api.preview||operation.current||plan)return;
-    if('processes' in target&&!instanceId&&(target.instances?.length??0)>1){openDetail(target);setTab('instances');return;}
+    if('id' in target&&!instanceId&&('processes' in target?(target.instances?.length??0):target.instanceCount)>1){openDetail(target);setTab('instances');return;}
     operation.current=true;setBusy(true);setError('');setNotice('');
     try{
-      const params='processes' in target?{groupId:target.id,instanceId:instanceId??target.instances?.[0]?.id,force:false}:{identity:identity(target),force:false};
+      const params='id' in target?{groupId:target.id,instanceId:instanceId??('processes' in target?target.instances?.[0]?.id:target.onlyInstanceId),force:false}:{identity:identity(target),force:false};
       const next=await api.invoke<Plan>('terminate_preview',params);
       if(alive.current){setPlan(next);setForce(false);setExpires(Date.now()+next.expiresIn*1000);}
     }catch(e){if(alive.current)setError(String(e));}
@@ -149,7 +196,7 @@ export function App({api,context}:{api:Api;context:Context}) {
     operation.current=true;setBusy(true);
     try{
       const result=await api.invoke<TerminateResult>('terminate_confirm',{token:plan.token,confirmed:true,force});
-      if(!alive.current)return;accept(result.snapshot);setPlan(undefined);
+      if(!alive.current)return;acceptFull(result.snapshot);setPlan(undefined);
       const exited=result.results.filter(r=>r.exited).length;
       const waiting=result.results.filter(r=>r.sent&&!r.exited).length;
       setNotice(`${exited} 个进程已退出${waiting?`，${waiting} 个已发送信号、等待退出`:''}。`);
@@ -172,18 +219,18 @@ export function App({api,context}:{api:Api;context:Context}) {
     finally{if(alive.current&&generation===contextGeneration.current)setLinksBusy(false);}
   }
 
-  const groups=useMemo(()=>filterGroups((data?.groups??[]).map(group=>{
+  const groups=useMemo(()=>filterRanking((data?.groups??[]).map(group=>{
     const identity=applicationIdentity(group,applications);
     return {...group,name:identity.name,source:identity.description};
-  }),deferredQuery,system,sorting.key,sorting.order),[data,applications,deferredQuery,system,sorting]);
-  const changeSort:TableProps<Group>['onChange']=(_pagination,_filters,sorter,extra)=>{
+  }),deferredQuery,data?.query===deferredQuery.trim().toLocaleLowerCase()?data.matchedGroupIds:[],system,sorting.key,sorting.order),[data,applications,deferredQuery,system,sorting]);
+  const changeSort:TableProps<GroupSummary>['onChange']=(_pagination,_filters,sorter,extra)=>{
     if(extra.action!=='sort')return;
     const active=Array.isArray(sorter)?sorter[0]:sorter;
     const key=active?.columnKey;
     if(key==='footprint'||key==='memory'||key==='cpu')setSorting({key,order:active.order==='ascend'?'ascend':'descend'});
   };
   const sortable=(key:Sort)=>({sorter:true,sortOrder:sorting.key===key?sorting.order:null});
-  const linkedRows=useMemo(()=>contexts?contextRows(contexts,data):[],[contexts,data]);
+  const linkedRows=useMemo(()=>contexts?contextRows(contexts,{groups:[{processes:[...(detail?.processes??[]).filter(p=>!p.exited&&!p.moved),...contextProcesses]}]}):[],[contexts,detail,contextProcesses]);
   const rowDetail=linkedRows.find(row=>row.id===contextDetail);
   const processLabels=useMemo(()=>{
     const labels=new Map<string,string[]>();
@@ -199,12 +246,12 @@ export function App({api,context}:{api:Api;context:Context}) {
   const shownStats=selectedInstance?activeInstance:detail;
   const detailHint=controls.stopHint||(detail?.appPath&&!controls.canQuit?(selectedInstance&&(applicationState?.quitInstances?.length??0)>0?'当前选择的是后台或辅助实例，可按此实例单独结束。':applicationState?.message):'');
   const maxMemory=Math.max(1,...groups.map(g=>g.footprint??0));
-  const columns:TableColumnsType<Group>=[
-    {title:'应用 / 工具',key:'name',render:(_,g)=><div className="app-identity"><AppMark name={applicationIdentity(g,applications).name} iconKey={g.iconKey} application={g.appPath?applications[g.appPath]:undefined}/><div className="min-w-0"><button className="name-link" aria-label={`查看 ${applicationIdentity(g,applications).name} 进程`} onClick={()=>openDetail(g,query)}>{applicationIdentity(g,applications).name}</button><div className="muted text-xs mt-1">{g.processes.length} 个进程{(g.instances?.length??0)>1?` · ${g.instances!.length} 个实例`:''} · {g.source}</div></div></div>},
+  const columns:TableColumnsType<GroupSummary>=[
+    {title:'应用 / 工具',key:'name',render:(_,g)=><div className="app-identity"><AppMark name={applicationIdentity(g,applications).name} iconKey={g.iconKey} application={g.appPath?applications[g.appPath]:undefined}/><div className="min-w-0"><button className="name-link" aria-label={`查看 ${applicationIdentity(g,applications).name} 进程`} onClick={()=>openDetail(g,query)}>{applicationIdentity(g,applications).name}</button><div className="muted text-xs mt-1">{g.processCount} 个进程{g.instanceCount>1?` · ${g.instanceCount} 个实例`:''} · {g.source}</div></div></div>},
     {title:'内存足迹',key:'footprint',...sortable('footprint'),width:125,align:'right',render:(_,g)=><div className="memory-cell"><strong>{bytes(g.footprint)}</strong><div className="meter" aria-hidden="true"><i style={{width:`${(g.footprint??0)/maxMemory*100}%`}}/></div>{g.footprintIncomplete?<span className="muted text-xs">部分不可读取</span>:null}</div>},
     {title:'RSS',key:'memory',...sortable('memory'),width:100,align:'right',render:(_,g)=><span className="numeric">{bytes(g.memory)}{g.incomplete?' *':''}</span>},
-    {title:'CPU',key:'cpu',...sortable('cpu'),width:75,align:'right',render:(_,g)=><span className="numeric">{g.processes.length>0&&g.processes.every(permissionLimited)?'—':cpu(g.cpu)}</span>},
-    {title:'操作',key:'actions',width:100,render:(_,g)=>(g.instances?.length??0)>1?<Button size="sm" className="compact-button" onClick={()=>openDetail(g)}>选择实例</Button>:<Button size="sm" className="compact-button" disabled={api.preview||busy||!!plan||!g.canTerminate} title={!g.canTerminate?'含受保护进程，请从所属应用正常退出':undefined} onClick={()=>void prepare(g)}>结束实例</Button>}
+    {title:'CPU',key:'cpu',...sortable('cpu'),width:75,align:'right',render:(_,g)=><span className="numeric">{g.permissionLimited?'—':cpu(g.cpu)}</span>},
+    {title:'操作',key:'actions',width:100,render:(_,g)=>g.instanceCount>1?<Button size="sm" className="compact-button" onClick={()=>openDetail(g)}>选择实例</Button>:<Button size="sm" className="compact-button" disabled={api.preview||busy||!!plan||!g.canTerminate} title={!g.canTerminate?'含受保护进程，请从所属应用正常退出':undefined} onClick={()=>void prepare(g)}>结束实例</Button>}
   ];
   const instanceColumns:TableColumnsType<Instance>=[
     {title:'运行实例',key:'root',render:(_,instance)=>{const process=detail?.processes.find(p=>p.pid===instance.root.pid&&p.started===instance.root.started);return <div><strong>PID {instance.root.pid} · {instance.presentation?.name??process?.name??'根进程'}</strong>{instance.presentation?.sources.length?<div className="muted text-xs mt-1">来源线索：{sourceNames(instance.presentation.sources,applications)}</div>:null}<div className="muted text-xs mt-1">{instance.root.started?`${new Date(instance.root.started/1000).toLocaleString()} 启动`:'启动时间不可读取'}</div><div className="path muted text-xs mt-1">{process?.runtimeProject?.entry??instance.root.executable}</div></div>;}},
@@ -230,10 +277,10 @@ export function App({api,context}:{api:Api;context:Context}) {
   const visibleProcesses=detail?.processes.filter(p=>(!selectedInstance||p.instanceId===selectedInstance)&&(!unmappedOnly||!processLabels.has(processKey(p)))&&matchesProcess(p,processQuery.trim().toLocaleLowerCase()))??[];
   const pressure=data?.system.pressure;
   const pressureLabel=pressure==='normal'?'正常':pressure==='warning'?'偏高':pressure==='critical'?'高':'未知';
-  const stale=!!data?.at&&Date.now()-data.at>20000;
+  const stale=!!data&&(data.stale||!!data.at&&Date.now()-data.at>20000);
   return <main className="monitor p-3 md:p-4">
     <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
-      <div className="flex items-center gap-2"><span className={`live-dot ${stale?'stale':''}`}/><span className="muted text-xs">{api.preview?'只读预览 · 模拟数据':data?.at?`本机 · ${new Date(data.at).toLocaleTimeString()} 更新`:'正在等待首次采样'}</span><HelpPopover label="统计口径与监控范围">内存足迹为系统 phys_footprint，包含脏页、压缩及换出等记账，更适合观察应用负担；RSS 是当前常驻内存。两者口径不同，不能相加，也不等于结束后释放的内存。CPU 按单核 100% 计。页面与对话可能共享进程。</HelpPopover></div>
+      <div className="flex items-center gap-2"><span className={`live-dot ${stale?'stale':''}`}/><span className="muted text-xs">{api.preview?'只读预览 · 模拟数据':data?.at?`本机 · ${new Date(data.at).toLocaleTimeString()} 更新${data.sampling?' · 采样中':''}`:'正在等待首次采样'}</span><HelpPopover label="统计口径与监控范围">内存足迹为系统 phys_footprint，包含脏页、压缩及换出等记账，更适合观察应用负担；RSS 是当前常驻内存。两者口径不同，不能相加，也不等于结束后释放的内存。CPU 按单核 100% 计。页面与对话可能共享进程。</HelpPopover></div>
       <div className="flex items-center gap-2"><Button size="sm" className="compact-button" disabled={refreshing} onClick={()=>void refresh(true)}>{refreshing?'刷新中…':'刷新'}</Button>{!api.widget?<Button size="sm" className="compact-button" disabled={api.preview} onClick={()=>void api.invoke('flowhub_status').catch(e=>setError(String(e)))}>桌面与菜单栏</Button>:null}</div>
     </div>
     <div className="system-strip grid grid-cols-3 gap-3 mb-3">
@@ -247,14 +294,15 @@ export function App({api,context}:{api:Api;context:Context}) {
     {actionNotice?<Alert type="success" showIcon title={actionNotice} className="mb-3"/>:null}
     {stale?<Alert type="warning" showIcon title="数据已过期，请刷新后再操作。" className="mb-3"/>:null}
     <div className="flex flex-wrap items-center gap-3 mb-3">
-      <Input aria-label="搜索应用、进程、PID 或路径" placeholder="搜索应用、进程、PID 或路径" value={query} onChange={e=>setQuery(e.target.value)} className="search-input" style={searchStyle}/>
+      <Input aria-label="搜索应用、进程、PID 或路径" maxLength={4096} placeholder="搜索应用、进程、PID 或路径" value={query} onChange={e=>setQuery(e.target.value)} className="search-input" style={searchStyle}/>
       <label className="flex items-center gap-2 muted text-xs"><Switch size="small" checked={system} onChange={setSystem}/>包含系统进程</label>
       <span className="muted text-xs ml-auto">{groups.length} 个应用与工具</span>
     </div>
-    <Table<Group> size="small" rowKey="id" columns={columns} dataSource={groups} onChange={changeSort} sortDirections={['descend','ascend','descend']} showSorterTooltip={{target:'sorter-icon'}} loading={!data&&!error} scroll={{x:650}} pagination={{pageSize:20,hideOnSinglePage:true,showSizeChanger:false,size:'small'}} locale={{emptyText:query?'没有匹配的应用或进程':'暂无应用数据',triggerDesc:'点击降序',triggerAsc:'点击升序'}}/>
+    <Table<GroupSummary> size="small" rowKey="id" columns={columns} dataSource={groups} onChange={changeSort} sortDirections={['descend','ascend','descend']} showSorterTooltip={{target:'sorter-icon'}} loading={!data&&!error} scroll={{x:650}} pagination={{pageSize:20,hideOnSinglePage:true,showSizeChanger:false,size:'small'}} locale={{emptyText:query?'没有匹配的应用或进程':'暂无应用数据',triggerDesc:'点击降序',triggerAsc:'点击升序'}}/>
     <p className="muted text-xs mt-3">每 5 秒采样 · 点击应用名查看进程 · 足迹与 RSS 不相加</p>
 
-    <Modal title={detail?<div className="app-identity"><AppMark name={applicationIdentity(detail,applications).name} iconKey={detail.iconKey} application={detail.appPath?applications[detail.appPath]:undefined}/><span>{applicationIdentity(detail,applications).name} · 进程详情</span></div>:''} open={!!detail} onCancel={closeDetail} footer={<Button size="sm" className="compact-button" onClick={closeDetail}>关闭详情</Button>} width={1000} className="detail-modal" styles={{body:{height:'min(620px,calc(100dvh - 210px))',overflow:'auto'}}}>
+    <Modal title={detail?<div className="app-identity"><AppMark name={applicationIdentity(detail,applications).name} iconKey={detail.iconKey} application={detail.appPath?applications[detail.appPath]:undefined}/><span>{applicationIdentity(detail,applications).name} · 进程详情</span></div>:'进程详情'} open={!!detailId} onCancel={closeDetail} footer={<Button size="sm" className="compact-button" onClick={closeDetail}>关闭详情</Button>} width={1000} className="detail-modal" styles={{body:{height:'min(620px,calc(100dvh - 210px))',overflow:'auto'}}}>
+      {!detail&&detailId?<p className="muted">{error?'详情读取失败，请重试。':detailSelection.current.revision>=0?'应用已退出。':'正在读取进程详情…'}</p>:null}
       {detail?<>
         <div className="flex flex-wrap items-center gap-3 mb-3"><span className="numeric">{selectedInstance?'实例足迹':'合计足迹'} {bytes(shownStats?.footprint)}{shownStats?.footprintIncomplete?'（部分）':''} · RSS {bytes(shownStats?.memory)} · CPU {detail.processes.length>0&&detail.processes.every(permissionLimited)?'—':cpu(shownStats?.cpu)}</span>
           <div className="flex flex-wrap items-center gap-2 ml-auto">

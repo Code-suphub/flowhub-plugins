@@ -7,20 +7,29 @@ use crate::{
 use std::{
     collections::{HashMap, HashSet},
     io::Read,
+    os::fd::AsRawFd,
     path::{Path, PathBuf},
     process::{Command, Stdio},
+    sync::mpsc::{self, Receiver},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 #[derive(Default)]
-pub struct Catalog;
+pub struct Catalog {
+    pending: Option<Receiver<Vec<Group>>>,
+}
+const ENRICHMENT_BUDGET: Duration = Duration::from_millis(800);
 #[derive(Default)]
 struct Evidence {
     services: HashMap<i32, (Identity, ServiceInfo)>,
     mux: HashMap<i32, Identity>,
 }
 
-fn command(program: &str, args: &[&str]) -> Option<Vec<u8>> {
+fn command(program: &str, args: &[&str], deadline: Instant) -> Option<Vec<u8>> {
+    let deadline = deadline.min(Instant::now() + Duration::from_millis(600));
+    if Instant::now() >= deadline {
+        return None;
+    }
     let mut child = Command::new(program)
         .args(args)
         .stdin(Stdio::null())
@@ -28,31 +37,65 @@ fn command(program: &str, args: &[&str]) -> Option<Vec<u8>> {
         .stderr(Stdio::null())
         .spawn()
         .ok()?;
-    let stdout = child.stdout.take()?;
-    let reader = std::thread::spawn(move || {
-        let mut bytes = Vec::new();
-        stdout
-            .take(262145)
-            .read_to_end(&mut bytes)
-            .ok()
-            .map(|_| bytes)
-    });
-    let start = Instant::now();
-    let ok = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status.success(),
-            Ok(None) if start.elapsed() < Duration::from_millis(600) => {
-                std::thread::sleep(Duration::from_millis(10))
+    let mut stdout = child.stdout.take()?;
+    // Nonblocking reads also handle a child that exits after passing its pipe
+    // to a descendant. Joining a blocking reader would defeat the timeout.
+    let fd = stdout.as_raw_fd();
+    if unsafe { libc::fcntl(fd, libc::F_SETFL, libc::O_NONBLOCK) } < 0 {
+        let _ = child.kill();
+        let _ = child.wait();
+        return None;
+    }
+    let mut bytes = Vec::new();
+    let mut success = false;
+    let mut eof = false;
+    loop {
+        let mut buffer = [0u8; 8192];
+        loop {
+            match stdout.read(&mut buffer) {
+                Ok(0) => {
+                    eof = true;
+                    break;
+                }
+                Ok(n) => {
+                    bytes.extend_from_slice(&buffer[..n]);
+                    if bytes.len() > 262144 {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        return None;
+                    }
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(_) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return None;
+                }
             }
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                break false;
+            if Instant::now() >= deadline {
+                break;
             }
         }
-    };
-    let bytes = reader.join().ok()??;
-    (ok && bytes.len() <= 262144).then_some(bytes)
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                success = status.success();
+                if !success || eof {
+                    break;
+                }
+            }
+            Ok(None) => {}
+            Err(_) => break,
+        }
+        if Instant::now() >= deadline {
+            success = false;
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+    (success && eof).then_some(bytes)
 }
 
 fn service_name(label: &str) -> String {
@@ -262,64 +305,103 @@ fn real_tmux(path: &str) -> bool {
 
 impl Catalog {
     pub fn enrich(&mut self, groups: &mut [Group]) {
-        let by: HashMap<_, _> = groups
-            .iter()
-            .flat_map(|g| &g.processes)
-            .map(|p| (p.identity.pid, p))
-            .collect();
-        let current = |id: &Identity| native::identity(id.pid).as_ref() == Some(id);
-        let mut evidence = Evidence::default();
-        if let Some(bytes) = command("/bin/launchctl", &["list"]) {
-            evidence.services = launch_services(
-                &String::from_utf8_lossy(&bytes),
-                &by,
-                native::uid(),
-                &current,
-            );
-        }
-        if let Some(home) = std::env::var_os("HOME") {
-            evidence.services.extend(colima_services(
-                Path::new(&home),
-                &by,
-                native::uid(),
-                &current,
-            ));
-        }
-        for p in by.values().filter(|p| {
-            p.identity.uid == native::uid() && p.identity.executable.is_empty() && p.name == "tmux"
-        }) {
-            let id = &p.identity;
-            if id.started == 0 || !current(id) {
-                continue;
-            }
-            // Re-read the live mapping each sample: an unreadable executable
-            // cannot safely serve as a cached image identity across exec(). A
-            // mapped, deleted file is still evidence of this running process;
-            // it never fills Identity.executable or removes protection.
-            let path = native::launch_executable(id)
-                .filter(|path| real_tmux(path))
-                .or_else(|| {
-                    let pid = id.pid.to_string();
-                    let bytes = command("/usr/sbin/lsof", &["-a", "-p", &pid, "-d", "txt", "-Fn"])?;
-                    String::from_utf8_lossy(&bytes)
-                        .lines()
-                        .filter_map(|line| line.strip_prefix('n'))
-                        .find(|path| mapped_tmux(path))
-                        .map(str::to_owned)
-                });
-            if path.is_some() && current(id) {
-                evidence.mux.insert(id.pid, id.clone());
+        self.enrich_with(groups, ENRICHMENT_BUDGET, |groups, deadline| {
+            enrich(groups, deadline)
+        });
+    }
+    fn enrich_with(
+        &mut self,
+        groups: &mut [Group],
+        budget: Duration,
+        work: impl FnOnce(&mut [Group], Instant) + Send + 'static,
+    ) {
+        // At most one optional worker can outlive its budget. Late results are
+        // discarded, never applied to another sampling generation/identity.
+        if let Some(pending) = self.pending.take() {
+            if matches!(pending.try_recv(), Err(mpsc::TryRecvError::Empty)) {
+                self.pending = Some(pending);
+                return;
             }
         }
-        drop(by);
-        decorate(
-            groups,
-            &evidence,
+        let deadline = Instant::now() + budget;
+        let mut copy = groups.to_vec();
+        let (send, receive) = mpsc::sync_channel(1);
+        std::thread::spawn(move || {
+            work(&mut copy, deadline);
+            let _ = send.send(copy);
+        });
+        match receive.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+            Ok(copy) => groups.clone_from_slice(&copy),
+            Err(mpsc::RecvTimeoutError::Timeout) => self.pending = Some(receive),
+            Err(mpsc::RecvTimeoutError::Disconnected) => {}
+        }
+    }
+}
+fn enrich(groups: &mut [Group], deadline: Instant) {
+    let by: HashMap<_, _> = groups
+        .iter()
+        .flat_map(|g| &g.processes)
+        .map(|p| (p.identity.pid, p))
+        .collect();
+    let current = |id: &Identity| native::identity(id.pid).as_ref() == Some(id);
+    let mut evidence = Evidence::default();
+    if let Some(bytes) = command("/bin/launchctl", &["list"], deadline) {
+        evidence.services = launch_services(
+            &String::from_utf8_lossy(&bytes),
+            &by,
             native::uid(),
-            current,
-            native::parent_matches,
+            &current,
         );
     }
+    if let Some(home) = std::env::var_os("HOME").filter(|_| Instant::now() < deadline) {
+        evidence.services.extend(colima_services(
+            Path::new(&home),
+            &by,
+            native::uid(),
+            &current,
+        ));
+    }
+    for p in by.values().filter(|p| {
+        p.identity.uid == native::uid() && p.identity.executable.is_empty() && p.name == "tmux"
+    }) {
+        if Instant::now() >= deadline {
+            break;
+        }
+        let id = &p.identity;
+        if id.started == 0 || !current(id) {
+            continue;
+        }
+        // Re-read the live mapping each sample: an unreadable executable
+        // cannot safely serve as a cached image identity across exec(). A
+        // mapped, deleted file is still evidence of this running process;
+        // it never fills Identity.executable or removes protection.
+        let path = native::launch_executable(id)
+            .filter(|path| real_tmux(path))
+            .or_else(|| {
+                let pid = id.pid.to_string();
+                let bytes = command(
+                    "/usr/sbin/lsof",
+                    &["-a", "-p", &pid, "-d", "txt", "-Fn"],
+                    deadline,
+                )?;
+                String::from_utf8_lossy(&bytes)
+                    .lines()
+                    .filter_map(|line| line.strip_prefix('n'))
+                    .find(|path| mapped_tmux(path))
+                    .map(str::to_owned)
+            });
+        if path.is_some() && current(id) {
+            evidence.mux.insert(id.pid, id.clone());
+        }
+    }
+    drop(by);
+    decorate(
+        groups,
+        &evidence,
+        native::uid(),
+        current,
+        native::parent_matches,
+    );
 }
 
 fn push_source(sources: &mut Vec<SourceOrigin>, source: SourceOrigin) {
@@ -941,3 +1023,7 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 }
+
+#[cfg(test)]
+#[path = "service_budget_tests.rs"]
+mod budget_tests;

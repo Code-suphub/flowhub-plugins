@@ -72,8 +72,17 @@ app.run()
   assert.equal(stale.targets.length,1);
   const originalPid=stale.targets[0].pid;
   const externalPid=Number(readFileSync(root+'/job-'+originalPid,'utf8'));externalPids.add(externalPid);
+  // Launch Services can register the GUI before its fixture children appear in
+  // the first process enumeration. Wait for a post-startup sample rather than
+  // asserting child attribution against that earlier cached snapshot.
+  for(let attempt=0;attempt<30;attempt++){
+    await read();
+    if(snapshot.groups.some(g=>g.processes.some(p=>p.pid===externalPid)))break;
+    await new Promise(resolve=>setTimeout(resolve,60));
+  }
   assert.ok(!group.processes.some(p=>p.pid===externalPid),'external jobs must not enter application totals or action scopes');
   const independentGroup=snapshot.groups.find(g=>g.processes.some(p=>p.pid===externalPid));
+  assert.ok(independentGroup,'fixture child must appear in a post-startup sample');
   assert.equal(independentGroup.appPath,null);assert.equal(independentGroup.origin.appPath,appPath);
   assert.ok(independentGroup.presentation.sources.some(source=>source.appPath===appPath));
   const secondJobPid=Number(readFileSync(root+'/job-second-'+originalPid,'utf8'));externalPids.add(secondJobPid);
