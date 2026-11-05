@@ -61,6 +61,7 @@ pub fn assign(group: &mut Group) {
             incomplete: false,
             footprint_incomplete: false,
             can_terminate: true,
+            presentation: None,
         });
         instance.count += 1;
         instance.incomplete |= process.memory.is_none();

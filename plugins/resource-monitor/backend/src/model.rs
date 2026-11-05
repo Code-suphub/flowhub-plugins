@@ -84,9 +84,12 @@ pub struct Group {
     pub instances: Vec<Instance>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon_key: Option<String>,
+    // Added after grouping. Never read by instance/quit/termination code.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub presentation: Option<Presentation>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SourceOrigin {
     pub name: String,
@@ -94,8 +97,32 @@ pub struct SourceOrigin {
     pub evidence: String,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServiceInfo {
+    pub name: String,
+    pub label: String,
+    pub evidence: String,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Presentation {
+    pub name: Option<String>,
+    pub sources: Vec<SourceOrigin>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub services: Vec<ServiceInfo>,
+}
+
 fn runtime_icon(executable: &str) -> Option<&'static str> {
     let name=std::path::Path::new(executable).file_name()?.to_str()?.to_ascii_lowercase();
+    match name.as_str() {
+        "mysql" | "mysqld" | "mysqld_safe" => return Some("mysql"),
+        "redis-server" | "redis-cli" | "redis-sentinel" => return Some("redis"),
+        "tmux" => return Some("tmux"),
+        "adb" => return Some("android"),
+        _ => {},
+    }
     if name=="postgres" { return Some("postgresql"); }
     let suffix=name.strip_prefix("python")?;
     if suffix.is_empty() || (suffix.split('.').count()<=2 && suffix.split('.').all(|part| !part.is_empty() && part.bytes().all(|c|c.is_ascii_digit()))) {
@@ -115,6 +142,8 @@ pub struct Instance {
     pub incomplete: bool,
     pub footprint_incomplete: bool,
     pub can_terminate: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub presentation: Option<Presentation>,
 }
 
 pub fn app_bundle(executable: &str) -> Option<(String, String)> {
@@ -312,6 +341,7 @@ pub fn group_processes(mut processes: Vec<Process>, own_uid: u32) -> Vec<Group> 
             can_terminate: true,
             instances: vec![],
             icon_key,
+            presentation: None,
         });
         if hosted { group.source = "应用包及系统托管进程".into(); }
         if p.attribution=="应用登记归属" {group.source="应用包及登记的后台服务".into();}
@@ -404,6 +434,11 @@ pub(crate) mod tests {
         assert!(groups.iter().all(|g|g.app_path.is_none()));
         assert!(runtime_icon("/usr/bin/python3.12-config").is_none());
         assert!(runtime_icon("").is_none());
+        for (name, icon) in [("mysqld","mysql"),("mysql","mysql"),("mysqld_safe","mysql"),("tmux","tmux"),("adb","android"),("redis-server","redis"),("redis-cli","redis")] {
+            assert_eq!(runtime_icon(&format!("/runtime/bin/{name}")),Some(icon));
+        }
+        assert!(runtime_icon("/runtime/bin/mysql-helper-unrelated").is_none());
+        assert!(runtime_icon("/runtime/bin/redis-server-backup").is_none());
         let mut fake=process(30,1,"/bin/sleep");fake.name="python3.12".into();
         assert!(group_processes(vec![fake],501)[0].icon_key.is_none());
     }

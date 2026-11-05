@@ -11,6 +11,47 @@ const model=await moduleAt('../src/model.ts');
 const {createApi}=await moduleAt('../src/api.ts');
 const {applicationIdentity,applicationIcon}=await moduleAt('../src/applications.tsx');
 
+test('independent process details expose one selected instance without application or context actions',()=>{
+  const group=model.sampleSnapshot().groups.find(group=>group.id==='android:410');
+  const instance={id:'emulator-one',root:group.processes[0],count:1,canTerminate:true};
+  group.instances=[instance];
+  let controls=model.detailControls(group,{canQuit:false});
+  assert.equal(controls.canStop,true);assert.equal(controls.instance.id,instance.id);
+  assert.equal(controls.canOpen,false);assert.equal(controls.canQuit,false);assert.equal(controls.contextLabel,undefined);
+  assert.equal(controls.stopLabel,'结束此实例');
+  const second={...instance,id:'emulator-two',root:{...instance.root,pid:999}};
+  group.instances.push(second);
+  controls=model.detailControls(group);
+  assert.equal(controls.chooseInstance,true);assert.equal(controls.instance,undefined);
+  assert.equal(controls.stopLabel,'选择实例结束');
+  assert.equal(model.detailControls(group,undefined,second.id).instance,second);
+  controls=model.detailControls(group,undefined,'no-longer-running');
+  assert.equal(controls.canStop,false);assert.equal(controls.instance,undefined);
+  assert.match(controls.stopHint,/已退出/);
+  second.canTerminate=false;
+  controls=model.detailControls(group,undefined,second.id);
+  assert.equal(controls.canStop,false);assert.match(controls.stopHint,/受保护/);
+});
+
+test('normal quit and context tabs require actual application capabilities, never source hints',()=>{
+  const group=model.sampleSnapshot().groups[0];
+  group.instances=[{id:'main',root:group.processes[0],count:3,canTerminate:true}];
+  const state={canQuit:true,quitInstances:['main'],contextKind:'codex'};
+  const controls=model.detailControls(group,state);
+  assert.equal(controls.canOpen,true);assert.equal(controls.canQuit,true);
+  assert.equal(controls.contextLabel,'对话与任务');
+  assert.equal(model.detailControls(group,{...state,contextKind:'arc'}).contextLabel,'标签页');
+  assert.equal(model.detailControls(group,{...state,contextKind:'unsupported'}).contextLabel,undefined);
+  assert.equal(model.detailControls(group).contextLabel,undefined);
+  assert.equal(model.detailControls(group,state,'exited-instance').canQuit,false);
+  assert.equal(model.detailControls(group,{canQuit:false,quitInstances:[]}).canQuit,false);
+  const independent={...group,appPath:null,origin:{name:'Codex',appPath:group.appPath,evidence:'parent'}};
+  assert.equal(model.detailControls(independent,state).canQuit,false);
+  assert.equal(model.detailControls(independent,state).canOpen,false);
+  assert.equal(model.detailControls(independent,state).contextLabel,undefined);
+  assert.equal(model.detailControls({...group,origin:independent.origin},state).contextLabel,undefined);
+});
+
 test('application labels use matched paths while system services retain their identity',()=>{
   const apps={'/Applications/pcsuite.app':{path:'/Applications/pcsuite.app',name:'pcsuite',bundleId:'com.vivo.pcsuite',iconUrl:'data:image/png;base64,example'}};
   assert.equal(applicationIdentity({name:'pcsuite',appPath:'/Applications/pcsuite.app'},apps).name,'vivo办公套件');
@@ -24,10 +65,16 @@ test('runtime icons are bundled while native application icons retain priority a
   const python=applicationIcon('python'),postgresql=applicationIcon('postgresql');
   assert.ok(python.startsWith('data:image/svg+xml'));assert.ok(postgresql.startsWith('data:image/svg+xml'));
   assert.notEqual(python,postgresql);assert.equal(applicationIcon('unrecognized'),'');
+  const tools=['mysql','tmux','redis','android'].map(key=>applicationIcon(key));
+  assert.ok(tools.every(url=>url.startsWith('data:image/svg+xml')));
+  assert.equal(new Set(tools).size,4);
+  assert.equal(applicationIcon('__proto__'),'');
+  assert.equal(applicationIcon('toString'),'');
   const native={path:'/Applications/App.app',name:'App',bundleId:'app',iconUrl:'data:image/png;base64,native'};
   assert.equal(applicationIcon('python',native),native.iconUrl);
   assert.equal(applicationIcon('python',native,[native.iconUrl]),python);
   assert.equal(applicationIcon('python',native,[native.iconUrl,python]),'');
+  assert.equal(applicationIcon('mysql',native),native.iconUrl);
 });
 
 test('related helper labels and icons never replace the independent application path or process scope',()=>{
@@ -114,6 +161,26 @@ test('source application metadata never replaces an independent task name or app
   assert.equal(model.statusFrom({...model.sampleSnapshot(),groups:[group]}).rows[0].origin.appPath,'/Applications/Terminal.app');
 });
 
+test('service names and multiple source hints remain presentation metadata and status omits detailed service registrations',()=>{
+  const seed=model.sampleSnapshot().groups[0];
+  const source={name:'InternalLauncher',appPath:'/Applications/ChatGPT.app',evidence:'verified parent'};
+  const presentation={name:'Mycelia 服务',sources:[source],services:[{name:'Mycelia 服务',label:'local.fixture.private-service-label',evidence:'launchd'}]};
+  const group={...seed,name:'python3.11',appPath:null,presentation};
+  const original=structuredClone(group);
+  const apps={[source.appPath]:{path:source.appPath,name:'ChatGPT',bundleId:'com.example.chatgpt',iconUrl:'data:image/png;base64,fixture'}};
+  const label=applicationIdentity(group,apps);
+  assert.equal(label.name,'Mycelia 服务');assert.equal(label.sourceText,'ChatGPT');assert.equal(label.app,undefined);
+  assert.match(label.description,/独立服务/);assert.deepEqual(group,original);
+  for(const query of ['Mycelia','InternalLauncher','private-service-label','ChatGPT.app'])assert.equal(model.filterGroups([group],query,false,'memory')[0],group);
+  const status=model.statusFrom({...model.sampleSnapshot(),groups:[group]});
+  assert.equal(status.rows[0].presentation.name,'Mycelia 服务');
+  assert.equal(JSON.stringify(status).includes('private-service-label'),false);
+  assert.equal(JSON.stringify(status).includes('verified parent'),true);
+  const mixed={...group,presentation:{name:null,sources:[source,{name:'Warp',appPath:null,evidence:'another independent instance'}],services:presentation.services}};
+  assert.equal(applicationIdentity(mixed,apps).name,'python3.11');
+  assert.equal(applicationIdentity(mixed,apps).sourceText,'ChatGPT、Warp');
+});
+
 test('a live process moving to an independent task is not reported as exited or actionable from its old group',()=>{
   const group=model.sampleSnapshot().groups[0],process=group.processes[0];
   const detail=model.updateDetail(group,{...group,processes:group.processes.slice(1)},[{...process,groupId:'independent-task'}]);
@@ -180,6 +247,10 @@ test('context usage deduplicates identities, rejects reused PIDs, preserves unkn
 test('standalone preview blocks mutations and host settings without posting',async()=>{
   const h=host(),api=createApi(h.window);
   assert.equal(api.preview,true);assert.ok((await api.invoke('snapshot')).groups.length);
+  assert.equal((await api.invoke('application_state',{groupId:'app:arc'})).contextKind,'arc');
+  assert.equal((await api.invoke('application_state',{groupId:'app:codex'})).contextKind,'codex');
+  assert.equal((await api.invoke('application_state',{groupId:'android:410'})).contextKind,null);
+  assert.equal((await api.invoke('application_state',{groupId:'app:codex'})).canQuit,false);
   await assert.rejects(api.invoke('terminate_preview'),/预览/);
   await assert.rejects(api.invoke('quit_confirm',{confirmed:true,token:'fake'}),/预览/);
   await assert.rejects(api.invoke('flowhub_status'),/预览/);

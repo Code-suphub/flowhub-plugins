@@ -324,7 +324,7 @@ impl Quitter {
                     .map(|p| p.instance_id.clone())
                     .collect();
                 json!({"canQuit":ids.len()==1,"instances":found.len(),"quitInstances":ids,
-                    "message":if ids.len()>1 {"检测到多个界面实例，请在“启动实例”中选择要退出的实例。"} else {"向选中实例发送正常退出请求，应用可能提示保存内容。后台服务可能继续运行。"}})
+                    "message":if ids.len()>1 {"检测到多个界面实例，请在“运行实例”中选择要退出的实例。"} else {"向选中实例发送正常退出请求，应用可能提示保存内容。后台服务可能继续运行。"}})
             }
             Err(reason) => {
                 json!({"canQuit":false,"instances":0,"quitInstances":[],"message":reason})

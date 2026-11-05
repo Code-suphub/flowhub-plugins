@@ -36,6 +36,7 @@ export function createApi(host:Window):Api {
       if(api.preview){
         if(method==='snapshot'||method==='refresh')return Promise.resolve(sampleSnapshot() as T);
         if(method==='contexts')return Promise.resolve(sampleContexts(params.groupId==='app:arc'?'arc':'codex') as T);
+        if(method==='application_state')return Promise.resolve({canQuit:false,quitInstances:[],message:'预览模式不执行退出操作。',contextKind:params.groupId==='app:arc'?'arc':params.groupId==='app:codex'?'codex':null} as T);
         return Promise.reject(new Error('浏览器预览不执行清理操作'));
       }
       return new Promise<T>((resolve,reject)=>{

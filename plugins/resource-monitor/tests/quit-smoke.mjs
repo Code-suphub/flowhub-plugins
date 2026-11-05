@@ -5,7 +5,7 @@ import {createInterface} from 'node:readline';
 import {once} from 'node:events';
 import assert from 'node:assert/strict';
 const root=realpathSync(mkdtempSync('/tmp/flowhub-quit-')),appPath=root+'/FlowHubQuitSmoke.app';
-const independent=root+'/independent-sleep',externalPids=new Set();
+const independent=root+'/independent-sleep',externalPids=new Set(),stoppedJobs=new Set();
 const contents=appPath+'/Contents',executable=contents+'/MacOS/Fixture';
 let backend,helper,sequence=0;const pending=new Map(),apps=[],fixturePids=new Set();
 const bundleId=`local.flowhub.quit-smoke.${process.pid}`;
@@ -34,6 +34,14 @@ external.standardOutput = FileHandle.nullDevice
 external.standardError = FileHandle.nullDevice
 try external.run()
 try String(external.processIdentifier).write(toFile: "${root}/job-\\(ProcessInfo.processInfo.processIdentifier)", atomically: true, encoding: .utf8)
+let secondJob = Process()
+secondJob.executableURL = URL(fileURLWithPath: "${independent}")
+secondJob.arguments = ["180"]
+secondJob.currentDirectoryURL = URL(fileURLWithPath: "${root}")
+secondJob.standardOutput = FileHandle.nullDevice
+secondJob.standardError = FileHandle.nullDevice
+try secondJob.run()
+try String(secondJob.processIdentifier).write(toFile: "${root}/job-second-\\(ProcessInfo.processInfo.processIdentifier)", atomically: true, encoding: .utf8)
 let delegate = Delegate()
 app.delegate = delegate
 app.run()
@@ -67,6 +75,16 @@ app.run()
   assert.ok(!group.processes.some(p=>p.pid===externalPid),'external jobs must not enter application totals or action scopes');
   const independentGroup=snapshot.groups.find(g=>g.processes.some(p=>p.pid===externalPid));
   assert.equal(independentGroup.appPath,null);assert.equal(independentGroup.origin.appPath,appPath);
+  assert.ok(independentGroup.presentation.sources.some(source=>source.appPath===appPath));
+  const secondJobPid=Number(readFileSync(root+'/job-second-'+originalPid,'utf8'));externalPids.add(secondJobPid);
+  const secondJobInstance=independentGroup.instances.find(instance=>instance.root.pid===secondJobPid);
+  assert.ok(secondJobInstance,'same-source jobs must retain separate instances');
+  const jobPlan=await rpc('terminate_preview',{groupId:independentGroup.id,instanceId:secondJobInstance.id,force:false});
+  assert.deepEqual(jobPlan.targets.map(p=>p.pid),[secondJobPid]);
+  const jobResult=await rpc('terminate_confirm',{token:jobPlan.token,confirmed:true});
+  assert.equal(jobResult.results[0].sent,true);
+  stoppedJobs.add(secondJobPid);
+  process.kill(externalPid,0);process.kill(originalPid,0);
   await assert.rejects(rpc('quit_preview',{groupId:independentGroup.id}),/独立任务|应用|界面/);
   const named=group.processes.find(p=>p.pid===originalPid);
   assert.equal(named.name,'Fixture','keep executable basename for search and diagnostics');
@@ -113,7 +131,7 @@ app.run()
   for(const child of apps.slice(0,2)){assert.equal(child.exitCode,0);assert.equal(child.signalCode,null);}
   for(const target of [...plan.targets,...secondPlan.targets])assert.equal((await import('node:fs')).readFileSync(`${root}/quit-received-${target.pid}`,'utf8'),'normal quit');
   assert.equal(helper.exitCode,null);assert.equal(helper.signalCode,null,'background service must remain running');
-  for(const pid of externalPids)process.kill(pid,0);
+  for(const pid of externalPids)if(!stoppedJobs.has(pid))process.kill(pid,0);
   process.kill(backgroundPid,0);
   await assert.rejects(rpc('quit_confirm',{token:plan.token,confirmed:true}),/失效/);
   await read();assert.equal(state.canQuit,false);assert.match(state.message,/无界面|后台模式/);

@@ -97,6 +97,16 @@ fn app_path(group: &Group) -> Result<&str, String> {
     Ok(path)
 }
 
+/// Capability discovery only: never reads titles, databases or Apple Events.
+pub fn context_kind(group: &Group) -> Option<&'static str> {
+    if group.origin.is_some() { return None; }
+    let path = group.app_path.as_deref()?;
+    if path.ends_with("/Arc.app") { Some("arc") }
+    else if path.ends_with("/Codex.app") || (path.ends_with("/ChatGPT.app")
+        && group.processes.iter().any(|p| p.identity.executable.to_lowercase().contains("codex"))) { Some("codex") }
+    else { None }
+}
+
 pub fn focus_app(group: &Group) -> Result<Value, String> {
     let path = app_path(group)?;
     run("/usr/bin/open", &["-a", path])?;
@@ -326,7 +336,7 @@ impl Links {
             .retain(|_, snapshot| crate::now().saturating_sub(snapshot.at) < 300_000);
         let mut entries = vec![];
         let mut diagnostics = Value::Null;
-        let (kind, hint) = if path.ends_with("/Arc.app") {
+        let (kind, hint) = if context_kind(group) == Some("arc") {
             let tabs: Vec<ArcTab> = serde_json::from_slice(&run(
                 "/usr/bin/osascript",
                 &["-l", "AppleScript", "-e", ARC_LIST, path],
@@ -365,13 +375,7 @@ impl Links {
                 diagnostics = json!({"state":snapshot.state,"hint":snapshot.hint,"at":snapshot.at,"unmatchedTasks":unmatched,"readTasks":snapshot.tasks.len(),"partial":true});
             }
             ("arc","普通窗口标签最多 500 项。读取任务管理器可关联当前标签进程；同一 PID 可能承载多个标签，不能重复相加。未关联不代表零占用。映射五分钟失效，导航或新开标签后请重新读取。")
-        } else if path.ends_with("/Codex.app")
-            || (path.ends_with("/ChatGPT.app")
-                && group
-                    .processes
-                    .iter()
-                    .any(|p| p.identity.executable.to_lowercase().contains("codex")))
-        {
+        } else if context_kind(group) == Some("codex") {
             let database = codex_database().ok_or("没有找到本机 Codex 对话索引")?;
             let mut linked = attribution::codex_processes(group, groups, native::codex_thread);
             for (id, title, cwd) in codex_titles(&database)? {
@@ -500,6 +504,26 @@ impl Links {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn context_capability_is_limited_to_supported_applications_not_source_associations() {
+        use crate::model::{group_processes, tests::process, SourceOrigin};
+        let group_for = |path| group_processes(vec![process(10, 1, path)], 501).remove(0);
+        assert_eq!(context_kind(&group_for("/Applications/Arc.app/Contents/MacOS/Arc")), Some("arc"));
+        assert_eq!(context_kind(&group_for("/Applications/Codex.app/Contents/MacOS/Codex")), Some("codex"));
+        let mut chatgpt = group_for("/Applications/ChatGPT.app/Contents/MacOS/ChatGPT");
+        assert_eq!(context_kind(&chatgpt), None);
+        chatgpt.processes.push(process(11, 10, "/Applications/ChatGPT.app/Contents/Resources/codex"));
+        assert_eq!(context_kind(&chatgpt), Some("codex"));
+        for path in ["/Applications/QQ.app/Contents/MacOS/QQ", "/opt/homebrew/bin/redis-server", "/Users/demo/Android/sdk/emulator/qemu/qemu-system-aarch64"] {
+            assert_eq!(context_kind(&group_for(path)), None);
+        }
+        let mut independent = group_for("/usr/bin/ssh");
+        independent.origin = Some(SourceOrigin {name: "Codex".into(), app_path: Some("/Applications/Codex.app".into()), evidence: "parent".into()});
+        assert_eq!(context_kind(&independent), None);
+        independent.app_path = Some("/Applications/Codex.app".into());
+        assert_eq!(context_kind(&independent), None);
+    }
+
     #[test]
     fn arc_shares_one_pid_without_duplicating_identity_and_rejects_private_ambiguous_and_recycled_links(
     ) {

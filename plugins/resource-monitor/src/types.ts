@@ -1,4 +1,5 @@
 export interface Identity {pid:number;started:number;executable:string;uid:number}
+export type ToolIconKey = 'python'|'postgresql'|'mysql'|'tmux'|'redis'|'android';
 export interface Process extends Identity {
   displayName?:string|null;
   launchExecutable?:string|null;
@@ -10,22 +11,24 @@ export interface Process extends Identity {
   protected:boolean;protection:string;parentName:string;groupId:string;attribution:string;
 }
 export interface Group {
+  presentation?:Presentation|null;
   origin?:SourceOrigin|null;
-  iconKey?:'python'|'postgresql'|null;
+  iconKey?:ToolIconKey|null;
   id:string;name:string;source:string;memory:number|null;footprint:number|null;footprintIncomplete:boolean;appPath:string|null;cpu:number|null;incomplete:boolean;
   system:boolean;processes:Process[];canTerminate:boolean;
   instances?:Instance[];
 }
 export interface SourceOrigin {name:string;appPath:string|null;evidence:string}
-export interface Instance {id:string;root:Identity;count:number;memory:number|null;footprint:number|null;cpu:number|null;incomplete:boolean;footprintIncomplete:boolean;canTerminate:boolean}
+export interface Presentation {name:string|null;sources:SourceOrigin[];services?:Array<{name:string;label:string;evidence:string}>}
+export interface Instance {id:string;root:Identity;count:number;memory:number|null;footprint:number|null;cpu:number|null;incomplete:boolean;footprintIncomplete:boolean;canTerminate:boolean;presentation?:Presentation|null}
 export interface SystemInfo {totalMemory?:number|null;swapUsed?:number|null;pressure?:string|null}
 export interface Snapshot {at:number;groups:Group[];system:SystemInfo;error?:string|null;memoryMetric:'footprint';interval:number}
-export interface StatusRow {id:string;name:string;appPath?:string|null;origin?:SourceOrigin|null;iconKey?:'python'|'postgresql'|null;at:number;status:string;summary:string;values:{memory:number|null;footprint:number|null;rss:number|null;cpu:number|null};count:number;instanceCount?:number;incomplete:boolean}
+export interface StatusRow {id:string;name:string;appPath?:string|null;origin?:SourceOrigin|null;presentation?:Presentation|null;iconKey?:ToolIconKey|null;at:number;status:string;summary:string;values:{memory:number|null;footprint:number|null;rss:number|null;cpu:number|null};count:number;instanceCount?:number;incomplete:boolean}
 export interface StatusSnapshot {at:number;rows:StatusRow[];system:SystemInfo;error?:string|null}
 export type Sort = 'footprint'|'memory'|'cpu';
 export type SortOrder = 'ascend'|'descend';
 export interface Config {title?:string;sort?:Sort;display?:'all'|'top';limit?:number;groupId?:string;selection?:{groupId?:string}}
-export interface ApplicationState {canQuit:boolean;message:string;instances?:number;quitInstances?:string[]}
+export interface ApplicationState {canQuit:boolean;message:string;instances?:number;quitInstances?:string[];contextKind?:'arc'|'codex'|null}
 export interface QuitPlan {token:string;expiresIn:number;name:string;appPath:string;targets:Identity[];instanceId?:string;root?:Identity}
 export interface ContextEntry {id:string;token:string|null;title:string;detail:string;processes:Identity[];source:string;shared:boolean;ambiguous:boolean}
 export interface PageContexts {

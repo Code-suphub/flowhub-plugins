@@ -1,4 +1,19 @@
-import type {Config,ContextEntry,Group,Identity,PageContexts,Process,Snapshot,StatusSnapshot,Sort} from './types';
+import type {ApplicationState,Config,ContextEntry,Group,Identity,PageContexts,Process,Snapshot,StatusSnapshot,Sort} from './types';
+
+export function detailControls(group:Group|undefined,state?:ApplicationState,selectedId?:string) {
+  const instances=group?.instances??[];
+  const instance=selectedId?instances.find(item=>item.id===selectedId):instances.length===1?instances[0]:undefined;
+  const chooseInstance=!selectedId&&instances.length>1;
+  const application=!!group?.appPath&&!group.origin;
+  const contextKind=application&&(state?.contextKind==='arc'||state?.contextKind==='codex')?state.contextKind:null;
+  const canStop=chooseInstance||!!instance?.canTerminate;
+  const stopHint=selectedId&&!instance?'所选运行实例已退出，请重新选择。':!instances.length?'当前没有仍在运行的实例。':!chooseInstance&&!canStop?'此实例含受保护进程，可在进程列表中查看允许单独处理的进程。':
+    !application?'独立进程可通过“结束此实例”停止；确认框会先列出本次目标进程。':'';
+  return {instance,chooseInstance,canStop,canOpen:application,stopHint,stopLabel:chooseInstance?'选择实例结束':'结束此实例',
+    canQuit:application&&(selectedId?!!instance&&!!state?.quitInstances?.includes(selectedId):!!state?.canQuit||(state?.quitInstances?.length??0)>1),
+    quitLabel:selectedId?'正常退出此实例':(state?.quitInstances?.length??0)>1?'选择实例退出':'正常退出应用',
+    contextKind,contextLabel:contextKind==='arc'?'标签页':contextKind==='codex'?'对话与任务':undefined};
+}
 export function widgetRows(snapshot:StatusSnapshot|undefined,config:Config={}) {
   const sort=config.sort==='cpu'?'cpu':config.sort==='memory'?'rss':'footprint';
   const rows=[...(snapshot?.rows??[])].filter(row=>!config.groupId||row.id===config.groupId)
@@ -36,7 +51,7 @@ export function matchesProcess(p:Process,q:string) {
 }
 export function filterGroups(groups:Group[],query:string,system:boolean,sort:Sort,order:'ascend'|'descend'='descend') {
   const q=query.trim().toLocaleLowerCase();
-  return groups.filter(g=>(system||!g.system)&&(!q||[g.name,g.source,g.origin?.name??'',g.origin?.appPath??''].some(s=>s.toLocaleLowerCase().includes(q))||g.processes.some(p=>matchesProcess(p,q))))
+  return groups.filter(g=>(system||!g.system)&&(!q||[g.name,g.source,g.origin?.name??'',g.origin?.appPath??'',g.presentation?.name??'',...(g.presentation?.sources??[]).flatMap(source=>[source.name,source.appPath??'']),...(g.presentation?.services??[]).flatMap(service=>[service.name,service.label])].some(s=>s.toLocaleLowerCase().includes(q))||g.processes.some(p=>matchesProcess(p,q))))
     .sort((a,b)=>{
       const left=a[sort],right=b[sort];
       if(left==null||right==null)return left==null?(right==null?a.id.localeCompare(b.id):1):-1;
@@ -51,7 +66,7 @@ export function updateDetail(previous:Group,latest:Group|undefined,live:readonly
   return {...(latest??previous),memory:latest?.memory??null,footprint:latest?.footprint??null,cpu:latest?.cpu??null,canTerminate:latest?.canTerminate??false,instances:latest?.instances??[],processes:[...processes,...fresh.values()]};
 }
 export function statusFrom(snapshot:Snapshot):StatusSnapshot {
-  return {at:snapshot.at,system:snapshot.system,error:snapshot.error,rows:snapshot.groups.filter(g=>!g.system).map(g=>({id:g.id,name:g.name,appPath:g.appPath,origin:g.origin,iconKey:g.iconKey,at:snapshot.at,status:'healthy',summary:`${bytes(g.footprint)} 足迹 · CPU ${cpu(g.cpu)}`,values:{memory:g.memory,footprint:g.footprint,rss:g.memory,cpu:g.cpu},count:g.processes.length,instanceCount:g.instances?.length,incomplete:g.footprintIncomplete}))};
+  return {at:snapshot.at,system:snapshot.system,error:snapshot.error,rows:snapshot.groups.filter(g=>!g.system).map(g=>({id:g.id,name:g.name,appPath:g.appPath,origin:g.origin,iconKey:g.iconKey,presentation:g.presentation?{name:g.presentation.name,sources:g.presentation.sources}:undefined,at:snapshot.at,status:'healthy',summary:`${bytes(g.footprint)} 足迹 · CPU ${cpu(g.cpu)}`,values:{memory:g.memory,footprint:g.footprint,rss:g.memory,cpu:g.cpu},count:g.processes.length,instanceCount:g.instances?.length,incomplete:g.footprintIncomplete}))};
 }
 export function sampleSnapshot():Snapshot {
   const appPath=(processes:Process[])=>{const exe=processes.find(p=>p.executable.includes('.app/'))?.executable;return exe?exe.split('.app/')[0]+'.app':null;};

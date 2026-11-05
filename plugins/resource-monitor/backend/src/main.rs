@@ -6,6 +6,7 @@ mod projects;
 mod instances;
 mod origins;
 mod terminals;
+mod services;
 #[cfg(target_os = "macos")]
 mod native;
 mod surfaces;
@@ -43,7 +44,7 @@ impl Snapshot {
         // Status includes app bundle paths for icons, but no process paths, argv, cwd or PIDs.
         let stale = now().saturating_sub(self.at) > 20_000;
         let rows: Vec<_> = self.groups.iter().filter(|g| !g.system).map(|g| {
-            json!({"id":g.id,"name":g.name,"appPath":g.app_path,"origin":g.origin,"iconKey":g.icon_key,"at":self.at,"status":if self.at == 0 {"unknown"} else if stale || self.error.is_some() {"stale"} else {"healthy"},
+            json!({"id":g.id,"name":g.name,"appPath":g.app_path,"origin":g.origin,"iconKey":g.icon_key,"presentation":g.presentation.as_ref().map(|p|json!({"name":p.name,"sources":p.sources})),"at":self.at,"status":if self.at == 0 {"unknown"} else if stale || self.error.is_some() {"stale"} else {"healthy"},
                 "summary":format!("{} · CPU {} · {} 个进程",g.footprint.map(|v|format!("{:.0} MiB 足迹{}",v as f64/1048576.,if g.footprint_incomplete {"（部分）"} else {""})).unwrap_or("足迹未知".into()),g.cpu.map(|v|format!("{v:.1}%")).unwrap_or("采样中".into()),g.processes.len()),
                 "values":{"memory":g.memory,"footprint":g.footprint,"rss":g.memory,"cpu":g.cpu},"count":g.processes.len(),"instanceCount":g.instances.len(),"incomplete":g.footprint_incomplete})
         }).collect();
@@ -67,6 +68,7 @@ struct Monitor {
     plans: HashMap<String, Plan>,
     links: surfaces::Links,
     quitter: applications::Quitter,
+    services: services::Catalog,
 }
 impl Monitor {
     fn new() -> Self {
@@ -82,6 +84,7 @@ impl Monitor {
             plans: HashMap::new(),
             links: surfaces::Links::default(),
             quitter: applications::Quitter::default(),
+            services: services::Catalog::default(),
         }
     }
     fn refresh(&mut self) -> Result<(), String> {
@@ -116,9 +119,11 @@ impl Monitor {
         projects::resolve(&mut processes, native::uid(), native::node_entry);
         terminals::resolve(&mut processes,native::uid(),native::responsibility_owner,
             |identity| native::identity(identity.pid).as_ref()==Some(identity),native::parent_matches);
+        let mut groups = model::group_processes(processes, native::uid());
+        self.services.enrich(&mut groups);
         self.snapshot = Snapshot {
             at: now(),
-            groups: model::group_processes(processes, native::uid()),
+            groups,
             system: native::system(),
             error: None,
         };
@@ -266,7 +271,11 @@ impl Monitor {
                 if method=="quit_preview" {self.refresh()?;}
                 let id=params["groupId"].as_str().ok_or("应用标识无效")?;
                 let group=self.snapshot.groups.iter().find(|group|group.id==id);
-                if method=="application_state" {Ok(group.map(applications::Quitter::state).unwrap_or_else(||json!({"canQuit":false,"message":"应用已退出。"})))}
+                if method=="application_state" {Ok(group.map(|group| {
+                    let mut state=applications::Quitter::state(group);
+                    state["contextKind"]=json!(surfaces::context_kind(group));
+                    state
+                }).unwrap_or_else(||json!({"canQuit":false,"contextKind":null,"message":"应用已退出。"})))}
                 else{self.quitter.preview(group.ok_or("应用已退出，请刷新")?,params["instanceId"].as_str())}
             }
             "quit_confirm" => {
