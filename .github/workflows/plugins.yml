@@ -26,6 +26,7 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
+          package-manager-cache: false
       - run: node --test scripts/*.test.mjs
       - run: node scripts/check-plugins.mjs
       - id: plan
@@ -118,6 +119,7 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
+          package-manager-cache: false
       - uses: actions/download-artifact@v4
         with:
           path: release-output
