@@ -3,6 +3,8 @@ mod attribution;
 mod applications;
 mod model;
 mod cache;
+mod diagnostics;
+mod accounting;
 mod rpc;
 #[cfg(test)]
 mod cache_tests;
@@ -70,14 +72,17 @@ impl Monitor {
         self.refresh_with(Self::collect)
     }
     fn refresh_with(&mut self, collect:impl FnOnce(&mut Self)->Result<Snapshot,String>) -> Result<(),String> {
+        diagnostics::sample_started();
         self.cache.begin();
         let result = collect(self);
         let error = result.as_ref().err().cloned();
         self.snapshot = self.cache.finish(result);
+        diagnostics::sample_finished(error.as_deref(),self.snapshot.groups.iter().map(|g|g.processes.len()).sum(),self.snapshot.groups.len());
         error.map_or(Ok(()), Err)
     }
     fn collect(&mut self) -> Result<Snapshot, String> {
         let mut processes = native::collect()?;
+        diagnostics::phase("cpu");
         let at = Instant::now();
         for p in &mut processes {
             if let (Some(previous_at), Some((id, time))) =
@@ -96,14 +101,24 @@ impl Monitor {
             .map(|p| (p.identity.pid, (p.identity.clone(), p.cpu_time)))
             .collect();
         self.sampled = Some(at);
+        diagnostics::phase("applications");
         applications::resolve_bundle_paths(&mut processes);
+        diagnostics::phase("origins");
         origins::resolve(&mut processes, native::uid(), native::launch_executable,
             |identity| native::identity(identity.pid).as_ref()==Some(identity));
+        diagnostics::phase("projects");
         projects::resolve(&mut processes, native::uid(), native::node_entry);
+        diagnostics::phase("terminals");
         terminals::resolve(&mut processes,native::uid(),native::responsibility_owner,
             |identity| native::identity(identity.pid).as_ref()==Some(identity),native::parent_matches);
+        diagnostics::phase("grouping");
         let mut groups = model::group_processes(processes, native::uid());
+        diagnostics::phase("services");
         self.services.enrich(&mut groups);
+        diagnostics::phase("accounting");
+        let roots=applications::accounting_roots(&groups);
+        accounting::enrich(&mut groups,roots,native::resource_accounting);
+        diagnostics::phase("system");
         Ok(Snapshot::new(now(), groups, native::system()))
     }
     fn preview(&mut self, params: &Value) -> Result<Value, String> {
@@ -240,6 +255,7 @@ impl Monitor {
             "snapshot" => Ok(self.snapshot.full()),
             "ranking_snapshot" => Ok(self.snapshot.ranking(params)),
             "group_detail" => self.snapshot.detail(params),
+            "diagnostic_event" => diagnostics::client(params),
             "refresh_summary" => {
                 self.refresh()?;
                 Ok(self.snapshot.ranking(params))
@@ -300,6 +316,7 @@ impl Monitor {
                         "snapshot",
                         "ranking_snapshot",
                         "group_detail",
+                        "diagnostic_event",
                         "refresh_summary",
                         "refresh",
                         "terminate_preview",
@@ -335,9 +352,12 @@ fn validate_plan(plan: &Plan) -> Result<(), String> {
 }
 
 fn main() {
+    diagnostics::init();
     // Keep AppKit's run loop, collection and action state on this one thread.
     // rpc's input thread serves immutable cache reads independently.
     rpc::serve(Monitor::new(), std::io::BufReader::new(std::io::stdin()));
+    diagnostics::event("backend_stopped",json!({}));
+    diagnostics::flush();
 }
 
 #[cfg(test)]

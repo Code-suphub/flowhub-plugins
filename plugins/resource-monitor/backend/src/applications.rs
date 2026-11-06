@@ -190,6 +190,29 @@ fn targets(group: &Group) -> Result<Vec<Target>, String> {
         find_targets(group)
     })
 }
+
+/// Only registered main applications anchor a resource ledger. A helper-only
+/// group or a source hint must never borrow another application's ledger.
+pub fn accounting_roots(groups:&[Group])->HashMap<String,Vec<Identity>> {
+    autoreleasepool(|_| {
+        let by_pid:HashMap<_,_>=groups.iter().filter(|g|g.app_path.is_some()&&g.origin.is_none())
+            .flat_map(|g|g.processes.iter().map(move |p|(p.identity.pid,(g,p)))).collect();
+        let mut roots=HashMap::<String,Vec<Identity>>::new();
+        let apps=NSWorkspace::sharedWorkspace().runningApplications();
+        for index in 0..apps.count() {
+            let app=apps.objectAtIndex(index);
+            let Some((group,process))=by_pid.get(&app.processIdentifier()) else {continue;};
+            let id=&process.identity;
+            if id.uid!=native::uid()||app.isTerminated()||native::identity(id.pid).as_ref()!=Some(id){continue;}
+            let Some(bundle)=app.bundleURL().and_then(|url|url.path()).and_then(|p|Path::new(&p.to_string()).canonicalize().ok()) else {continue;};
+            if group.app_path.as_deref().and_then(|p|Path::new(p).canonicalize().ok()).as_ref()!=Some(&bundle){continue;}
+            let Some(executable)=app.executableURL().and_then(|url|url.path()).map(|p|PathBuf::from(p.to_string())) else {continue;};
+            let matches=executable.to_str()==Some(&id.executable)||app.bundleIdentifier().is_some_and(|bundle_id|signing_clone_root(&id.executable,&bundle,&executable,&bundle_id.to_string()).is_some());
+            if matches&&native::identity(id.pid).as_ref()==Some(id){roots.entry(group.id.clone()).or_default().push(id.clone());}
+        }
+        roots
+    })
+}
 fn find_targets(group: &Group) -> Result<Vec<Target>, String> {
     if group.origin.is_some() {
         return Err("这是独立任务，来源关联不能用于退出应用".into());

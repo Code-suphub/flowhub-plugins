@@ -8,18 +8,36 @@ export function createApi(host:Window):Api {
   let context:Context|undefined,disposed=false,editor:(()=>Config)|undefined;
   const hosted=host.parent!==host;
   const listeners=new Set<(context:Context)=>void>();
-  const pending=new Map<string,{resolve(value:unknown):void;reject(error:Error):void;timer:ReturnType<typeof setTimeout>}>();
+  type Request={resolve(value:unknown):void;reject(error:Error):void;timer:ReturnType<typeof setTimeout>;method:string;started:number;hidden:boolean};
+  const pending=new Map<string,Request>(),expired=new Map<string,Pick<Request,'method'|'started'|'hidden'>>(),failed=new Set<string>();
   let sequence=0;
   const requestId=()=>host.crypto.randomUUID?.()??`resource-${Date.now()}-${++sequence}`;
   function send(message:object) {host.parent.postMessage({...message,...(widget?{token}:{})},'*');}
+  function diagnose(code:string,item:Pick<Request,'method'|'started'|'hidden'>,reason?:string){
+    if(disposed||api.preview)return;
+    const params={code,method:item.method,surface,elapsedMs:Math.max(0,Date.now()-item.started),hidden:!!host.document.hidden,hiddenAtStart:item.hidden,...(reason?{reason}:{})};
+    // Best effort, with no pending request or retry. A broken transport must not
+    // recursively report itself. Never include original params or error text.
+    try{send(widget?{type:'flowhub:widget-rpc',id:requestId(),params:{action:'management',method:'diagnostic_event',params}}:{type:'flowhub:request',id:requestId(),method:'diagnostic_event',params});}catch{}
+  }
+  function timedOut(id:string,item:Request,message:string){
+    pending.delete(id);expired.set(id,{method:item.method,started:item.started,hidden:item.hidden});if(expired.size>32)expired.delete(expired.keys().next().value!);
+    failed.add(item.method);diagnose('timeout',item);item.reject(new Error(message));
+  }
   function receive(event:MessageEvent) {
     if(event.source!==host.parent||disposed)return;
     const d=event.data;
     if(!d||typeof d!=='object'||(widget&&(!token||d.token!==token)))return;
     if(widget&&d.type==='flowhub:widget-init') {context=d.context;listeners.forEach(fn=>fn(context??{}));}
     if(d.type===(widget?'flowhub:widget-result':'flowhub:response')) {
-      const item=pending.get(d.id);if(!item)return;
-      pending.delete(d.id);clearTimeout(item.timer);d.error?item.reject(new Error(String(d.error))):item.resolve(d.result);
+      const item=pending.get(d.id);
+      if(!item){const late=expired.get(d.id);if(late){expired.delete(d.id);diagnose('late_response',late);}return;}
+      pending.delete(d.id);clearTimeout(item.timer);
+      if(d.error){
+        const text=String(d.error),reason=text.includes('组件刷新已暂停')?'paused':/插件进程已退出|插件连接已关闭|插件连接已断开/.test(text)?'backend_closed':text.includes('超时')?'timeout':/请求过多|操作过多/.test(text)?'busy':text.includes('数据过大')?'oversized':text.includes('采样版本已更新')?'revision_changed':'request_failed';
+        failed.add(item.method);diagnose('response_error',item,reason);item.reject(new Error(text));
+      }
+      else{if(failed.delete(item.method))diagnose('recovered',item);item.resolve(d.result);}
     }
     if(widget&&d.type==='flowhub:widget-save') {
       try {if(!editor)throw Error('配置未就绪');send({type:'flowhub:widget-config',id:d.id,config:editor()});}
@@ -43,10 +61,10 @@ export function createApi(host:Window):Api {
       }
       return new Promise<T>((resolve,reject)=>{
         const timeout=method==='privileged_enable'||method==='privileged_disable'?300000:20000;
-        const id=requestId(),timer=setTimeout(()=>{pending.delete(id);reject(new Error('插件响应超时，请刷新核实状态'));},timeout);
-        pending.set(id,{resolve:value=>resolve(value as T),reject,timer});
+        const id=requestId(),timer=setTimeout(()=>{const item=pending.get(id);if(item)timedOut(id,item,'插件响应超时，请刷新核实状态');},timeout);
+        const item:Request={resolve:value=>resolve(value as T),reject,timer,method,started:Date.now(),hidden:!!host.document.hidden};pending.set(id,item);
         try {send(widget?{type:'flowhub:widget-rpc',id,params:{action:'management',method,params}}:{type:'flowhub:request',id,method,params});}
-        catch {clearTimeout(timer);pending.delete(id);reject(new Error('无法连接 FlowHub'));}
+        catch {clearTimeout(timer);pending.delete(id);failed.add(method);diagnose('send_failed',item);reject(new Error('无法连接 FlowHub'));}
       });
     },
     async status(){
@@ -55,9 +73,10 @@ export function createApi(host:Window):Api {
       if(api.preview)return statusFrom(sampleSnapshot());
       if(!widget)return api.invoke('status_snapshot');
       return new Promise((resolve,reject)=>{
-        const id=requestId(),timer=setTimeout(()=>{pending.delete(id);reject(new Error('状态读取超时'));},20000);
-        pending.set(id,{resolve:value=>resolve(value as Awaited<ReturnType<Api['status']>>),reject,timer});
-        send({type:'flowhub:widget-rpc',id,params:{action:'snapshot'}});
+        const id=requestId(),timer=setTimeout(()=>{const item=pending.get(id);if(item)timedOut(id,item,'状态读取超时');},20000);
+        const item:Request={resolve:value=>resolve(value as Awaited<ReturnType<Api['status']>>),reject,timer,method:'status_snapshot',started:Date.now(),hidden:!!host.document.hidden};pending.set(id,item);
+        try{send({type:'flowhub:widget-rpc',id,params:{action:'snapshot'}});}
+        catch{clearTimeout(timer);pending.delete(id);failed.add(item.method);diagnose('send_failed',item);reject(new Error('无法连接 FlowHub'));}
       });
     },
     subscribe(fn){listeners.add(fn);if(context)fn(context);return()=>{listeners.delete(fn);};},
@@ -68,7 +87,7 @@ export function createApi(host:Window):Api {
       else {context={preview:true,config:{sort:'memory',limit:5},snapshot:statusFrom(sampleSnapshot())};listeners.forEach(fn=>fn(context!));}
     },
     navigate(groupId){if(!api.preview&&widget)send({type:'flowhub:widget-navigate',action:'detail',selection:groupId?{groupId}:{}});},
-    dispose(){disposed=true;host.removeEventListener('message',receive);listeners.clear();for(const p of pending.values()){clearTimeout(p.timer);p.reject(new Error('插件连接已关闭'));}pending.clear();}
+    dispose(){disposed=true;host.removeEventListener('message',receive);listeners.clear();for(const p of pending.values()){clearTimeout(p.timer);p.reject(new Error('插件连接已关闭'));}pending.clear();expired.clear();failed.clear();}
   };
   return api;
 }

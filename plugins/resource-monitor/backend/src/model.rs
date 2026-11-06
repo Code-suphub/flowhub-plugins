@@ -87,6 +87,9 @@ pub struct Group {
     // Added after grouping. Never read by instance/quit/termination code.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub presentation: Option<Presentation>,
+    // Display-only resource ledger; never used for instance membership/actions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system_accounting: Option<crate::accounting::SystemAccounting>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -342,6 +345,7 @@ pub fn group_processes(mut processes: Vec<Process>, own_uid: u32) -> Vec<Group> 
             instances: vec![],
             icon_key,
             presentation: None,
+            system_accounting: None,
         });
         if hosted { group.source = "应用包及系统托管进程".into(); }
         if p.attribution=="应用登记归属" {group.source="应用包及登记的后台服务".into();}

@@ -4,8 +4,8 @@ import type {TableColumnsType,TableProps} from 'antd';
 import {StyleProvider} from '@ant-design/cssinjs';
 import {createCommonAntdTheme} from '@local/common-components/react/antd';
 import {Button,HelpPopover,Input} from '@flowhub/plugin-common/react';
-import {bytes,contextRows,cpu,detailControls,detailFrom,filterRanking,matchesProcess,newerSnapshot,rankingFrom,processKey,processName,updateDetail} from './model';
-import {AppMark,applicationIdentity,sourceNames,useApplications} from './applications';
+import {accountingDisplay,bytes,contextRows,cpu,detailControls,detailFrom,filterRanking,matchesProcess,newerSnapshot,rankingFrom,processKey,processName,updateDetail} from './model';
+import {AppMark,applicationIdentity,useApplications} from './applications';
 import {readGroupDetail} from './api';
 import type {ContextRow} from './model';
 import type {Api,ApplicationState,Context,Group,GroupDetail,GroupSummary,Instance,PageContexts,Plan,Process,QuitPlan,RankingSnapshot,Snapshot,Sort,SortOrder,TerminateResult} from './types';
@@ -56,6 +56,7 @@ export function App({api,context}:{api:Api;context:Context}) {
   const actionNotice=notice===privilegedStatus?.message?'':notice;
   const applications=useApplications(api,data?.groups??[]);
   const sourcePresentation=detail?.instances?.find(instance=>instance.id===source?.instanceId)?.presentation;
+  const sourceClues=sourcePresentation?applicationIdentity({name:detail?.name??source?.name??'',appPath:detail?.appPath,origin:detail?.origin,presentation:sourcePresentation},applications).sourceText:'';
 
   function openDetail(group:Group|GroupSummary,search=''){
     detailSelection.current={id:group.id,generation:detailSelection.current.generation+1,revision:-1,request:0,initialSearch:search};
@@ -227,7 +228,7 @@ export function App({api,context}:{api:Api;context:Context}) {
     if(extra.action!=='sort')return;
     const active=Array.isArray(sorter)?sorter[0]:sorter;
     const key=active?.columnKey;
-    if(key==='footprint'||key==='memory'||key==='cpu')setSorting({key,order:active.order==='ascend'?'ascend':'descend'});
+    if(key==='footprint'||key==='memory'||key==='cpu'||key==='accounting')setSorting({key,order:active.order==='ascend'?'ascend':'descend'});
   };
   const sortable=(key:Sort)=>({sorter:true,sortOrder:sorting.key===key?sorting.order:null});
   const linkedRows=useMemo(()=>contexts?contextRows(contexts,{groups:[{processes:[...(detail?.processes??[]).filter(p=>!p.exited&&!p.moved),...contextProcesses]}]}):[],[contexts,detail,contextProcesses]);
@@ -240,6 +241,14 @@ export function App({api,context}:{api:Api;context:Context}) {
   const contextSearch=contextQuery.trim().toLocaleLowerCase();
   const visibleContexts=linkedRows.filter(row=>(!linkedOnly||row.processes.length>0)&&(!contextSearch||[row.title,row.detail,...row.processes.map(p=>String(p.pid))].some(text=>text.toLocaleLowerCase().includes(contextSearch))));
   const controls=detailControls(detail,applicationState,selectedInstance);
+  const detailIdentity=detail?applicationIdentity(detail,applications):undefined;
+  const registeredServices=[...new Map((detail?.presentation?.services??[]).map(service=>[service.label,service])).values()];
+  const groupingBasis=[
+    detail?(data?.groups.find(group=>group.id===detail.id)?.source??detail.source):'',
+    detailIdentity?.sourceText?`来源线索：${detailIdentity.sourceText}`:'',
+    registeredServices.length?`服务登记：${registeredServices.length} 项`:'',
+    detailIdentity?.related?`关联应用：${detailIdentity.related.name}（独立辅助应用）`:'',
+  ].filter(Boolean).join(' · ');
   const activeTab=tab==='pages'&&!controls.contextKind?'processes':tab;
   const isArc=controls.contextKind==='arc';
   const activeInstance=detail?.instances?.find(instance=>instance.id===selectedInstance);
@@ -248,13 +257,14 @@ export function App({api,context}:{api:Api;context:Context}) {
   const maxMemory=Math.max(1,...groups.map(g=>g.footprint??0));
   const columns:TableColumnsType<GroupSummary>=[
     {title:'应用 / 工具',key:'name',render:(_,g)=><div className="app-identity"><AppMark name={applicationIdentity(g,applications).name} iconKey={g.iconKey} application={g.appPath?applications[g.appPath]:undefined}/><div className="min-w-0"><button className="name-link" aria-label={`查看 ${applicationIdentity(g,applications).name} 进程`} onClick={()=>openDetail(g,query)}>{applicationIdentity(g,applications).name}</button><div className="muted text-xs mt-1">{g.processCount} 个进程{g.instanceCount>1?` · ${g.instanceCount} 个实例`:''} · {g.source}</div></div></div>},
-    {title:'内存足迹',key:'footprint',...sortable('footprint'),width:125,align:'right',render:(_,g)=><div className="memory-cell"><strong>{bytes(g.footprint)}</strong><div className="meter" aria-hidden="true"><i style={{width:`${(g.footprint??0)/maxMemory*100}%`}}/></div>{g.footprintIncomplete?<span className="muted text-xs">部分不可读取</span>:null}</div>},
-    {title:'RSS',key:'memory',...sortable('memory'),width:100,align:'right',render:(_,g)=><span className="numeric">{bytes(g.memory)}{g.incomplete?' *':''}</span>},
-    {title:'CPU',key:'cpu',...sortable('cpu'),width:75,align:'right',render:(_,g)=><span className="numeric">{g.permissionLimited?'—':cpu(g.cpu)}</span>},
-    {title:'操作',key:'actions',width:100,render:(_,g)=>g.instanceCount>1?<Button size="sm" className="compact-button" onClick={()=>openDetail(g)}>选择实例</Button>:<Button size="sm" className="compact-button" disabled={api.preview||busy||!!plan||!g.canTerminate} title={!g.canTerminate?'含受保护进程，请从所属应用正常退出':undefined} onClick={()=>void prepare(g)}>结束实例</Button>}
+    {title:'活跃进程足迹',key:'footprint',...sortable('footprint'),width:120,align:'right',render:(_,g)=><div className="memory-cell"><strong>{bytes(g.footprint)}</strong><div className="meter" aria-hidden="true"><i style={{width:`${(g.footprint??0)/maxMemory*100}%`}}/></div>{g.footprintIncomplete?<span className="muted text-xs">部分不可读取</span>:null}</div>},
+    {title:'系统归属记账',key:'accounting',...sortable('accounting'),width:130,align:'right',render:(_,g)=>{const accounting=accountingDisplay(g);return <div className={accounting.available?'numeric':'muted text-xs'} title={accounting.hint}>{accounting.text}{accounting.available&&g.systemAccounting?.shared?<div className="muted text-xs">共享资源组</div>:null}</div>;}},
+    {title:'RSS',key:'memory',...sortable('memory'),width:85,align:'right',render:(_,g)=><span className="numeric">{bytes(g.memory)}{g.incomplete?' *':''}</span>},
+    {title:'CPU',key:'cpu',...sortable('cpu'),width:65,align:'right',render:(_,g)=><span className="numeric">{g.permissionLimited?'—':cpu(g.cpu)}</span>},
+    {title:'操作',key:'actions',width:90,render:(_,g)=>g.instanceCount>1?<Button size="sm" className="compact-button" onClick={()=>openDetail(g)}>选择实例</Button>:<Button size="sm" className="compact-button" disabled={api.preview||busy||!!plan||!g.canTerminate} title={!g.canTerminate?'含受保护进程，请从所属应用正常退出':undefined} onClick={()=>void prepare(g)}>结束实例</Button>}
   ];
   const instanceColumns:TableColumnsType<Instance>=[
-    {title:'运行实例',key:'root',render:(_,instance)=>{const process=detail?.processes.find(p=>p.pid===instance.root.pid&&p.started===instance.root.started);return <div><strong>PID {instance.root.pid} · {instance.presentation?.name??process?.name??'根进程'}</strong>{instance.presentation?.sources.length?<div className="muted text-xs mt-1">来源线索：{sourceNames(instance.presentation.sources,applications)}</div>:null}<div className="muted text-xs mt-1">{instance.root.started?`${new Date(instance.root.started/1000).toLocaleString()} 启动`:'启动时间不可读取'}</div><div className="path muted text-xs mt-1">{process?.runtimeProject?.entry??instance.root.executable}</div></div>;}},
+    {title:'运行实例',key:'root',render:(_,instance)=>{const process=detail?.processes.find(p=>p.pid===instance.root.pid&&p.started===instance.root.started);const clues=applicationIdentity({name:instance.presentation?.name??process?.name??detail?.name??'',appPath:detail?.appPath,presentation:instance.presentation},applications).sourceText;return <div><strong>PID {instance.root.pid} · {instance.presentation?.name??process?.name??'根进程'}</strong>{clues?<div className="muted text-xs mt-1">来源线索：{clues}</div>:null}<div className="muted text-xs mt-1">{instance.root.started?`${new Date(instance.root.started/1000).toLocaleString()} 启动`:'启动时间不可读取'}</div><div className="path muted text-xs mt-1">{process?.runtimeProject?.entry??instance.root.executable}</div></div>;}},
     {title:'进程',dataIndex:'count',width:60,align:'right'},
     {title:'内存足迹',key:'footprint',width:100,align:'right',render:(_,instance)=>bytes(instance.footprint)},
     {title:'CPU',key:'cpu',width:65,align:'right',render:(_,instance)=>cpu(instance.cpu)},
@@ -280,7 +290,7 @@ export function App({api,context}:{api:Api;context:Context}) {
   const stale=!!data&&(data.stale||!!data.at&&Date.now()-data.at>20000);
   return <main className="monitor p-3 md:p-4">
     <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
-      <div className="flex items-center gap-2"><span className={`live-dot ${stale?'stale':''}`}/><span className="muted text-xs">{api.preview?'只读预览 · 模拟数据':data?.at?`本机 · ${new Date(data.at).toLocaleTimeString()} 更新${data.sampling?' · 采样中':''}`:'正在等待首次采样'}</span><HelpPopover label="统计口径与监控范围">内存足迹为系统 phys_footprint，包含脏页、压缩及换出等记账，更适合观察应用负担；RSS 是当前常驻内存。两者口径不同，不能相加，也不等于结束后释放的内存。CPU 按单核 100% 计。页面与对话可能共享进程。</HelpPopover></div>
+      <div className="flex items-center gap-2"><span className={`live-dot ${stale?'stale':''}`}/><span className="muted text-xs">{api.preview?'只读预览 · 模拟数据':data?.at?`本机 · ${new Date(data.at).toLocaleTimeString()} 更新${data.sampling?' · 采样中':''}`:'正在等待首次采样'}</span><HelpPopover label="统计口径与监控范围">活跃进程足迹是当前分组内进程的 phys_footprint 合计，包含脏页、压缩及换出等记账；RSS 是当前常驻内存。系统归属记账读取应用的系统资源组账本，可包含独立任务和已退出任务的余额，各行可能重叠。三者不能相加，也不等于结束后释放的内存。CPU 按单核 100% 计。页面与对话可能共享进程。</HelpPopover></div>
       <div className="flex items-center gap-2"><Button size="sm" className="compact-button" disabled={refreshing} onClick={()=>void refresh(true)}>{refreshing?'刷新中…':'刷新'}</Button>{!api.widget?<Button size="sm" className="compact-button" disabled={api.preview} onClick={()=>void api.invoke('flowhub_status').catch(e=>setError(String(e)))}>桌面与菜单栏</Button>:null}</div>
     </div>
     <div className="system-strip grid grid-cols-3 gap-3 mb-3">
@@ -298,13 +308,13 @@ export function App({api,context}:{api:Api;context:Context}) {
       <label className="flex items-center gap-2 muted text-xs"><Switch size="small" checked={system} onChange={setSystem}/>包含系统进程</label>
       <span className="muted text-xs ml-auto">{groups.length} 个应用与工具</span>
     </div>
-    <Table<GroupSummary> size="small" rowKey="id" columns={columns} dataSource={groups} onChange={changeSort} sortDirections={['descend','ascend','descend']} showSorterTooltip={{target:'sorter-icon'}} loading={!data&&!error} scroll={{x:650}} pagination={{pageSize:20,hideOnSinglePage:true,showSizeChanger:false,size:'small'}} locale={{emptyText:query?'没有匹配的应用或进程':'暂无应用数据',triggerDesc:'点击降序',triggerAsc:'点击升序'}}/>
-    <p className="muted text-xs mt-3">每 5 秒采样 · 点击应用名查看进程 · 足迹与 RSS 不相加</p>
+    <Table<GroupSummary> size="small" rowKey="id" columns={columns} dataSource={groups} onChange={changeSort} sortDirections={['descend','ascend','descend']} showSorterTooltip={{target:'sorter-icon'}} loading={!data&&!error} scroll={{x:700}} pagination={{pageSize:20,hideOnSinglePage:true,showSizeChanger:false,size:'small'}} locale={{emptyText:query?'没有匹配的应用或进程':'暂无应用数据',triggerDesc:'点击降序',triggerAsc:'点击升序'}}/>
+    <p className="muted text-xs mt-3">每 5 秒采样 · 活跃足迹与 RSS 不相加 · 系统归属记账仅供参考，可能与其他行重叠</p>
 
     <Modal title={detail?<div className="app-identity"><AppMark name={applicationIdentity(detail,applications).name} iconKey={detail.iconKey} application={detail.appPath?applications[detail.appPath]:undefined}/><span>{applicationIdentity(detail,applications).name} · 进程详情</span></div>:'进程详情'} open={!!detailId} onCancel={closeDetail} footer={<Button size="sm" className="compact-button" onClick={closeDetail}>关闭详情</Button>} width={1000} className="detail-modal" styles={{body:{height:'min(620px,calc(100dvh - 210px))',overflow:'auto'}}}>
       {!detail&&detailId?<p className="muted">{error?'详情读取失败，请重试。':detailSelection.current.revision>=0?'应用已退出。':'正在读取进程详情…'}</p>:null}
       {detail?<>
-        <div className="flex flex-wrap items-center gap-3 mb-3"><span className="numeric">{selectedInstance?'实例足迹':'合计足迹'} {bytes(shownStats?.footprint)}{shownStats?.footprintIncomplete?'（部分）':''} · RSS {bytes(shownStats?.memory)} · CPU {detail.processes.length>0&&detail.processes.every(permissionLimited)?'—':cpu(shownStats?.cpu)}</span>
+        <div className="flex flex-wrap items-center gap-3 mb-3"><span className="numeric">{selectedInstance?'实例活跃足迹':'活跃进程足迹'} {bytes(shownStats?.footprint)}{shownStats?.footprintIncomplete?'（部分）':''} · RSS {bytes(shownStats?.memory)} · CPU {detail.processes.length>0&&detail.processes.every(permissionLimited)?'—':cpu(shownStats?.cpu)}</span>
           <div className="flex flex-wrap items-center gap-2 ml-auto">
             {controls.canOpen?<Button size="sm" className="compact-button" disabled={api.preview||linksBusy||!!plan||!!quitPlan} onClick={()=>void openApp(detail)}>打开应用 ↗</Button>:null}
             {controls.canQuit?<Button size="sm" className="compact-button" disabled={api.preview||busy||!!plan||!!quitPlan} onClick={()=>void prepareQuit(selectedInstance)}>{controls.quitLabel}</Button>:null}
@@ -312,10 +322,12 @@ export function App({api,context}:{api:Api;context:Context}) {
             {controls.canQuit?<HelpPopover label="正常退出与结束实例的区别">正常退出使用应用自身的退出流程，可能提示保存。结束实例会先列出目标进程供确认，再发送退出信号，可能中断正在执行的任务。</HelpPopover>:null}
           </div>
         </div>
-        <p className="muted text-xs mb-3">归组依据：{data?.groups.find(group=>group.id===detail.id)?.source??detail.source}。{detail.appPath?(applications[detail.appPath]?'应用名和图标来自本机应用扫描；进程原名保留在下表。':'应用名和图标尚未匹配到本机应用索引。'):'原始进程名保留在下表，可点击查看路径、工作目录和当前父进程。'}</p>
-        {detail.origin?<Alert type="info" showIcon title={`独立任务 · 来源线索：${applicationIdentity(detail,applications).originName}`} description="监控不会把此任务加入来源应用的结束名单。来源信息只解释启动线索；应用自身退出时，仍可能影响其管理的连接或子任务。" className="mb-3"/>:null}
-        {detail.presentation&&!detail.origin?<Alert type="info" showIcon title={`服务与来源线索${applicationIdentity(detail,applications).sourceText?`：${applicationIdentity(detail,applications).sourceText}`:''}`} description="服务名和来源仅用于识别。结束操作仍按所选运行实例核对，不会把来源应用的其他进程加入结束名单。来源应用自身退出时，仍可能影响它管理的连接或子任务。" className="mb-3"/>:null}
-        {applicationIdentity(detail,applications).related?<Alert type="info" showIcon title={`关联应用：${applicationIdentity(detail,applications).related!.name} · 独立辅助应用`} description="此辅助应用独立统计，结束操作按当前运行实例确认。关联名称不会把其他应用的进程加入本次结束名单。" className="mb-3"/>:null}
+        <p className="muted text-xs mb-3">系统归属记账（应用级参考）：<strong className="numeric">{accountingDisplay(detail).text}</strong>。{accountingDisplay(detail).hint}{accountingDisplay(detail).available?'不能分摊给当前实例，结束操作仍只核对所选独立实例。':''}{detail.systemAccounting?.shared?'此资源组还被其他应用条目引用，不可跨行相加。':''}</p>
+        <div className="muted text-xs mb-3 flex items-start gap-2"><span className="min-w-0">归组依据：{groupingBasis}</span><HelpPopover label="归组依据与结束范围">
+          <p>服务登记、来源线索和关联应用只用于识别。结束操作仍按所选独立实例核对，不会把来源应用或其他实例加入结束名单。应用自身退出时，仍可能影响它管理的连接或子任务。</p>
+          {registeredServices.length?<p className="mt-2">服务登记：{registeredServices.map(service=>service.label===service.name?service.name:`${service.name}（${service.label}）`).join('；')}。</p>:null}
+          <p className="mt-2">应用名和图标来自本机应用扫描；原始进程名、路径、工作目录和父进程可在进程信息中查看。</p>
+        </HelpPopover></div>
         {detailHint?<p className="muted text-xs mb-3">{detailHint}</p>:null}
         {detail.processes.some(permissionLimited)?<Alert type="warning" showIcon title="部分进程受系统权限限制：可查看名称与路径，内存和 CPU 数据不可读取，也不能结束进程。" className="mb-3"/>:null}
         <Tabs activeKey={activeTab} onChange={key=>{setTab(key);if(key!=='processes')setSelectedInstance(undefined);}} items={[{key:'instances',label:`运行实例${detail.instances?.length?` (${detail.instances.length})`:''}`},{key:'processes',label:'进程'},...(controls.contextLabel?[{key:'pages',label:controls.contextLabel}]:[])]}/>
@@ -358,7 +370,7 @@ export function App({api,context}:{api:Api;context:Context}) {
         {key:'role',label:'类型 / 归属',children:`${source.role} · ${source.attribution}`},
         ...(sourcePresentation?.name?[{key:'service-name',label:'服务名称',children:sourcePresentation.name}]:[]),
         ...(sourcePresentation?.services?.length?[{key:'service-registration',label:'服务登记',children:sourcePresentation.services.map(service=>`${service.label} · ${service.evidence}`).join('；')}]:[]),
-        ...(sourcePresentation?.sources.length?[{key:'source-hints',label:'来源线索',children:sourceNames(sourcePresentation.sources,applications)}]:[]),
+        ...(sourceClues?[{key:'source-hints',label:'来源线索',children:sourceClues}]:[]),
         {key:'path',label:'可执行文件',children:<span className="path">{source.executable||'不可读取'}</span>},
         ...(source.launchExecutable?[{key:'launch-path',label:'启动路径',children:<span className="path">{source.launchExecutable}</span>}]:[]),
         ...(source.terminalOwner?[{key:'terminal-owner',label:'终端来源线索',children:<span className="path">{source.terminalOwner.executable} · PID {source.terminalOwner.pid}</span>}]:[]),

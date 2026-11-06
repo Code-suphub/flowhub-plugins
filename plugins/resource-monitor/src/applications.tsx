@@ -26,7 +26,9 @@ export function applicationIdentity(group:AppGroup,applications:ApplicationMap) 
   const componentName=app?.path.split('/').at(-1)?.replace(/\.app$/i,'')||group.name;
   const ownName=related&&app?.name===related.name?componentName:app?.bundleId==='com.vivo.pcsuite'&&app.name==='pcsuite'?'vivo办公套件':app?.name||group.name;
   const name=group.presentation?.name||(related?`${related.name} · ${ownName}`:ownName);
-  const sources=[...new Map([...(group.presentation?.sources??[]),...(group.origin?[group.origin]:[])].map(source=>[source.appPath||source.name,source])).values()];
+  const normalize=(value:string)=>value.trim().toLocaleLowerCase();
+  const sources=[...new Map([...(group.presentation?.sources??[]),...(group.origin?[group.origin]:[])].map(source=>[source.appPath||source.name,source])).values()]
+    .filter(source=>source.appPath?source.appPath!==group.appPath:normalize(source.name)!==normalize(name));
   const sourceText=sourceNames(sources,applications);
   const description=group.presentation?.name?'独立服务 · 按启动实例操作':
     group.presentation?.services?.length?'包含后台服务 · 按启动实例查看':

@@ -24,27 +24,31 @@ struct PrivilegedProcess {
     cpu_time: u64,
 }
 
-fn privileged_processes() -> Option<Vec<PrivilegedProcess>> {
-    let mut stream = UnixStream::connect("/var/run/cn.ac.camellia.flowhub.resource-monitor.sock").ok()?;
+fn privileged_processes() -> Result<Vec<PrivilegedProcess>, &'static str> {
+    let mut stream = UnixStream::connect("/var/run/cn.ac.camellia.flowhub.resource-monitor.sock").map_err(|error|if error.kind()==std::io::ErrorKind::NotFound {"not_installed"} else {"connect_failed"})?;
     let mut peer_uid = 0;
     let mut peer_gid = 0;
     if unsafe { libc::getpeereid(stream.as_raw_fd(), &mut peer_uid, &mut peer_gid) } != 0 || peer_uid != 0 {
-        return None;
+        return Err("untrusted_peer");
     }
-    stream.set_read_timeout(Some(Duration::from_secs(2))).ok()?;
-    stream.set_write_timeout(Some(Duration::from_secs(2))).ok()?;
-    stream.write_all(b"{\"method\":\"snapshot\"}\n").ok()?;
+    stream.set_read_timeout(Some(Duration::from_secs(2))).map_err(|_|"configure_failed")?;
+    stream.set_write_timeout(Some(Duration::from_secs(2))).map_err(|_|"configure_failed")?;
+    stream.write_all(b"{\"method\":\"snapshot\"}\n").map_err(|_|"write_failed")?;
     let mut response = String::new();
     stream
-        .take(4 * 1024 * 1024)
+        .take(4 * 1024 * 1024 + 1)
         .read_to_string(&mut response)
-        .ok()?;
-    let value: serde_json::Value = serde_json::from_str(&response).ok()?;
-    serde_json::from_value(value.get("processes")?.clone()).ok()
+        .map_err(|error|match error.kind(){std::io::ErrorKind::TimedOut|std::io::ErrorKind::WouldBlock=>"read_timeout",_=>"read_failed"})?;
+    if response.len()>4*1024*1024{return Err("response_too_large");}
+    let value: serde_json::Value = serde_json::from_str(&response).map_err(|_|"invalid_json")?;
+    serde_json::from_value(value.get("processes").ok_or("missing_processes")?.clone()).map_err(|_|"invalid_processes")
 }
 
 fn merge_privileged(result: &mut Vec<Process>, own_uid: u32) {
-    let Some(records) = privileged_processes() else {
+    let started=std::time::Instant::now();
+    let records=privileged_processes();
+    crate::diagnostics::helper(records.as_ref().map(Vec::len).map_err(|code|*code),started.elapsed().as_millis() as u64);
+    let Ok(records) = records else {
         return;
     };
     for record in records {
@@ -225,6 +229,30 @@ fn footprint(pid: i32) -> Option<u64> {
         )
     };
     (ok == 0).then_some(usage.ri_phys_footprint)
+}
+
+// Private read-only SPI used by loginwindow's low-memory panel. Optional and
+// confined to reference metadata; unavailable layouts never become zero usage.
+#[repr(C)]
+#[derive(Default)]
+struct CoalitionIds { ids:[u64;2], reserved:[u64;3] }
+#[repr(C)]
+struct CoalitionUsage { prefix:[u64;40], phys_footprint:u64, suffix:[u64;3] }
+const _:()={assert!(size_of::<CoalitionIds>()==40);assert!(size_of::<CoalitionUsage>()==352);assert!(std::mem::offset_of!(CoalitionUsage,phys_footprint)==320);};
+type CoalitionUsageFn=unsafe extern "C" fn(u64,*mut CoalitionUsage,usize)->i32;
+pub fn resource_accounting(id:&Identity)->Option<(u64,u64)> {
+    static LOOKUP:OnceLock<Option<CoalitionUsageFn>>=OnceLock::new();
+    let read=(*LOOKUP.get_or_init(||unsafe {
+        let symbol=libc::dlsym(libc::RTLD_DEFAULT,c"coalition_info_resource_usage".as_ptr());
+        if symbol.is_null(){None}else{Some(std::mem::transmute::<*mut libc::c_void,CoalitionUsageFn>(symbol))}
+    }))?;
+    if identity(id.pid).as_ref()!=Some(id){return None;}
+    let coal:CoalitionIds=info(id.pid,20)?;
+    if coal.ids[0]==0{return None;}
+    let mut usage=CoalitionUsage{prefix:[0;40],phys_footprint:u64::MAX,suffix:[0;3]};
+    if unsafe {read(coal.ids[0],&mut usage,size_of::<CoalitionUsage>())}!=0||usage.phys_footprint==u64::MAX||usage.prefix[23]!=7{return None;}
+    if identity(id.pid).as_ref()!=Some(id)||info::<CoalitionIds>(id.pid,20)?.ids[0]!=coal.ids[0]{return None;}
+    Some((coal.ids[0],usage.phys_footprint))
 }
 
 fn process_arguments(pid: i32) -> Option<Vec<u8>> {
@@ -613,6 +641,7 @@ pub fn collect() -> Result<Vec<Process>, String> {
             cpu_time,
         });
     }
+    crate::diagnostics::phase("privileged");
     merge_privileged(&mut result, own_uid);
     webkit_responsibility(&mut result, own_uid);
     if result.is_empty() {

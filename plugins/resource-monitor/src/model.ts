@@ -16,8 +16,9 @@ export function detailControls(group:Group|undefined,state?:ApplicationState,sel
 }
 export function widgetRows(snapshot:StatusSnapshot|undefined,config:Config={}) {
   const sort=config.sort==='cpu'?'cpu':config.sort==='memory'?'rss':'footprint';
+  const value=(row:StatusSnapshot['rows'][number])=>config.sort==='accounting'?row.systemAccounting?.footprint:row.values[sort];
   const rows=[...(snapshot?.rows??[])].filter(row=>!config.groupId||row.id===config.groupId)
-    .sort((a,b)=>(b.values[sort]??-1)-(a.values[sort]??-1)||a.id.localeCompare(b.id));
+    .sort((a,b)=>(value(b)??-1)-(value(a)??-1)||a.id.localeCompare(b.id));
   const limit=typeof config.limit==='number'&&Number.isFinite(config.limit)?Math.max(3,Math.min(10,Math.floor(config.limit))):5;
   return config.display==='top'?rows.slice(0,limit):rows;
 }
@@ -44,6 +45,14 @@ export const bytes = (value:number|null|undefined) => {
   if (value == null || !Number.isFinite(value)) return '—';
   return value >= 1073741824 ? `${(value/1073741824).toFixed(2)} GiB` : `${(value/1048576).toFixed(0)} MiB`;
 };
+export function accountingDisplay(group:Pick<Partial<Group>,'appPath'|'origin'|'systemAccounting'>) {
+  const reference='系统资源组账本可包含独立任务和已退出任务的记账余额；仅作应用级参考，不代表可释放内存。';
+  if(!group.appPath||group.origin)return {available:false,text:'不适用',hint:'独立进程或任务按活跃进程统计，不借用来源应用的系统归属记账。'};
+  const value=group.systemAccounting?.footprint;
+  if(value!=null&&Number.isFinite(value)&&value>=0)return {available:true,text:bytes(value),hint:reference};
+  if(group.systemAccounting)return {available:false,text:'暂不可读',hint:'已找到应用资源组，但本次未能读取完整记账；稍后采样会重试。'};
+  return {available:false,text:'未获取',hint:'尚未取得运行中主程序的资源组；可能仅有后台组件，或应用主程序无法核验。'};
+}
 export const cpu = (value:number|null|undefined) => value == null || !Number.isFinite(value) ? '采样中' : `${value.toFixed(1)}%`;
 export const processName = (p:Process) => p.displayName || p.name;
 export function matchesProcess(p:Process,q:string) {
@@ -52,8 +61,9 @@ export function matchesProcess(p:Process,q:string) {
 export function matchesGroup(g:Omit<Group,'processes'|'instances'>,q:string) {
   return [g.name,g.source,g.appPath??'',g.origin?.name??'',g.origin?.appPath??'',g.presentation?.name??'',...(g.presentation?.sources??[]).flatMap(source=>[source.name,source.appPath??'']),...(g.presentation?.services??[]).flatMap(service=>[service.name,service.label])].some(s=>s.toLocaleLowerCase().includes(q));
 }
-function sortGroups<T extends Pick<Group,'id'|'memory'|'footprint'|'cpu'>>(groups:T[],sort:Sort,order:'ascend'|'descend') {
-  return groups.sort((a,b)=>{const left=a[sort],right=b[sort];if(left==null||right==null)return left==null?(right==null?a.id.localeCompare(b.id):1):-1;return (order==='ascend'?left-right:right-left)||a.id.localeCompare(b.id);});
+function sortGroups<T extends Pick<Group,'id'|'memory'|'footprint'|'cpu'|'systemAccounting'>>(groups:T[],sort:Sort,order:'ascend'|'descend') {
+  const value=(g:T)=>sort==='accounting'?g.systemAccounting?.footprint:g[sort];
+  return groups.sort((a,b)=>{const left=value(a),right=value(b);if(left==null||right==null)return left==null?(right==null?a.id.localeCompare(b.id):1):-1;return (order==='ascend'?left-right:right-left)||a.id.localeCompare(b.id);});
 }
 export function filterGroups(groups:Group[],query:string,system:boolean,sort:Sort,order:'ascend'|'descend'='descend') {
   const q=query.trim().toLocaleLowerCase();
@@ -87,10 +97,10 @@ export function updateDetail(previous:Group,latest:Group|undefined,live:readonly
   const elsewhere=new Set(live.filter(p=>p.groupId!==previous.id).map(key));
   const fresh=new Map((latest?.processes??[]).map(p=>[key(p),p]));
   const processes=previous.processes.map(p=>{const current=fresh.get(key(p));fresh.delete(key(p));return current?{...current,exited:false,moved:false}:elsewhere.has(key(p))?{...p,exited:false,moved:true,protected:true,protection:'已移到其他分组，请重新打开对应条目',memory:null,footprint:null,cpu:null}:{...p,exited:true,moved:false,memory:null,footprint:null,cpu:null};});
-  return {...(latest??previous),memory:latest?.memory??null,footprint:latest?.footprint??null,cpu:latest?.cpu??null,canTerminate:latest?.canTerminate??false,instances:latest?.instances??[],processes:[...processes,...fresh.values()]};
+  return {...(latest??previous),systemAccounting:latest?.systemAccounting??null,memory:latest?.memory??null,footprint:latest?.footprint??null,cpu:latest?.cpu??null,canTerminate:latest?.canTerminate??false,instances:latest?.instances??[],processes:[...processes,...fresh.values()]};
 }
 export function statusFrom(snapshot:Snapshot):StatusSnapshot {
-  return {at:snapshot.at,system:snapshot.system,error:snapshot.error,rows:snapshot.groups.filter(g=>!g.system).map(g=>({id:g.id,name:g.name,appPath:g.appPath,origin:g.origin,iconKey:g.iconKey,presentation:g.presentation?{name:g.presentation.name,sources:g.presentation.sources}:undefined,at:snapshot.at,status:'healthy',summary:`${bytes(g.footprint)} 足迹 · CPU ${cpu(g.cpu)}`,values:{memory:g.memory,footprint:g.footprint,rss:g.memory,cpu:g.cpu},count:g.processes.length,instanceCount:g.instances?.length,incomplete:g.footprintIncomplete}))};
+  return {at:snapshot.at,system:snapshot.system,error:snapshot.error,rows:snapshot.groups.filter(g=>!g.system).map(g=>({id:g.id,name:g.name,systemAccounting:g.systemAccounting,appPath:g.appPath,origin:g.origin,iconKey:g.iconKey,presentation:g.presentation?{name:g.presentation.name,sources:g.presentation.sources}:undefined,at:snapshot.at,status:'healthy',summary:`${bytes(g.footprint)} 活跃足迹 · CPU ${cpu(g.cpu)}`,values:{memory:g.memory,footprint:g.footprint,rss:g.memory,cpu:g.cpu},count:g.processes.length,instanceCount:g.instances?.length,incomplete:g.footprintIncomplete}))};
 }
 export function sampleSnapshot():Snapshot {
   const appPath=(processes:Process[])=>{const exe=processes.find(p=>p.executable.includes('.app/'))?.executable;return exe?exe.split('.app/')[0]+'.app':null;};

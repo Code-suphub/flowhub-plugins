@@ -23,6 +23,7 @@ impl Snapshot {
         let summaries=groups.iter().map(|g|json!({
             "id":g.id,"name":g.name,"source":g.source,"memory":g.memory,"footprint":g.footprint,
             "footprintIncomplete":g.footprint_incomplete,"appPath":g.app_path,"origin":g.origin,
+            "systemAccounting":g.system_accounting,
             "iconKey":g.icon_key,"presentation":g.presentation.as_ref().map(|p|json!({"name":p.name,"sources":p.sources})),
             "cpu":g.cpu,"incomplete":g.incomplete,"system":g.system,"canTerminate":g.can_terminate,
             "processCount":g.processes.len(),"instanceCount":g.instances.len(),
@@ -134,6 +135,7 @@ impl Snapshot {
         let rows:Vec<_>=self.groups.iter().filter(|g|!g.system).map(|g|json!({
             "id":g.id,"name":g.name,"appPath":g.app_path,"origin":g.origin,"iconKey":g.icon_key,
             "presentation":g.presentation.as_ref().map(|p|json!({"name":p.name,"sources":p.sources})),"at":self.at,
+            "systemAccounting":g.system_accounting,
             "status":if self.at==0 {"unknown"} else if self.stale()||self.error.is_some() {"stale"} else {"healthy"},
             "summary":format!("{} · CPU {} · {} 个进程",g.footprint.map(|v|format!("{:.0} MiB 足迹{}",v as f64/1048576.,if g.footprint_incomplete {"（部分）"} else {""})).unwrap_or("足迹未知".into()),g.cpu.map(|v|format!("{v:.1}%")).unwrap_or("采样中".into()),g.processes.len()),
             "values":{"memory":g.memory,"footprint":g.footprint,"rss":g.memory,"cpu":g.cpu},

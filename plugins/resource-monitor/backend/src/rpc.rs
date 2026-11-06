@@ -13,10 +13,11 @@ pub fn read(cache: &Cache, method: &str, params: &Value) -> Option<Result<Value,
         "snapshot" => Some(Ok(cache.get().full())),
         "ranking_snapshot" => Some(Ok(cache.get().ranking(params))),
         "group_detail" => Some(cache.get().detail(params)),
+        "diagnostic_event" => Some(crate::diagnostics::client(params)),
         "widget_api" => match params["action"].as_str() {
             Some("snapshot") => Some(Ok(cache.get().status())),
             Some("management") => match params["method"].as_str() {
-                Some(method @ ("snapshot" | "ranking_snapshot" | "group_detail")) => {
+                Some(method @ ("snapshot" | "ranking_snapshot" | "group_detail" | "diagnostic_event")) => {
                     read(cache, method, &params["params"])
                 }
                 _ => None,
@@ -33,9 +34,17 @@ fn respond(output: &Mutex<impl Write>, id: &Value, result: Result<Value, String>
     };
     // Serialize outside the stdout lock so a large legacy response cannot hold
     // up serialization of a small status response. Each response remains a line.
-    let encoded = response.to_string();
+    let mut encoded = response.to_string();
+    // The host stops reading a session after a line exceeds 4 MiB. Return a
+    // bounded error instead of turning one oversized detail into later timeouts.
+    if encoded.len()>4*1024*1024 {
+        crate::diagnostics::event("rpc_response_too_large",json!({"bytes":encoded.len()}));
+        encoded=json!({"id":id,"error":"插件响应数据过大，请缩小查询范围"}).to_string();
+    }
     if let Ok(mut output) = output.lock() {
-        let _ = writeln!(output, "{encoded}").and_then(|_| output.flush());
+        if let Err(error)=writeln!(output, "{encoded}").and_then(|_| output.flush()) {
+            crate::diagnostics::event("rpc_write_failed",json!({"kind":format!("{:?}",error.kind()),"bytes":encoded.len()}));
+        }
     }
 }
 pub fn serve(mut monitor: Monitor, input: impl BufRead + Send + 'static) {
@@ -65,22 +74,31 @@ pub(super) fn serve_with(
     std::thread::spawn(move || loop {
         let mut line = String::new();
         match (&mut input).take(65537).read_line(&mut line) {
-            Ok(0) | Err(_) => break,
+            Ok(0) => break,
+            Err(error) => {crate::diagnostics::event("rpc_read_failed",json!({"kind":format!("{:?}",error.kind())}));break;},
             _ => {}
         }
         if line.len() > 65536 {
+            crate::diagnostics::event("rpc_request_too_large",json!({"bytes":line.len()}));
             break;
         }
         let Ok(req) = serde_json::from_str::<Value>(&line) else {
             continue;
         };
+        let started=std::time::Instant::now();
         if let Some(result) = read(
             &reader_cache,
             req["method"].as_str().unwrap_or(""),
             &req["params"],
         ) {
+            let failed=result.is_err();
             respond(&reader_output, &req["id"], result);
+            if failed||started.elapsed()>=std::time::Duration::from_secs(1) {
+                let method=if req["method"]=="widget_api" {req["params"]["method"].as_str().unwrap_or("status_snapshot")} else {req["method"].as_str().unwrap_or("")};
+                crate::diagnostics::event("rpc_read",json!({"method":crate::diagnostics::method(method),"elapsedMs":started.elapsed().as_millis() as u64,"failed":failed}));
+            }
         } else if let Err(error) = send.try_send(req) {
+            crate::diagnostics::event("rpc_queue_full",json!({}));
             let (mpsc::TrySendError::Full(req) | mpsc::TrySendError::Disconnected(req)) = error;
             respond(
                 &reader_output,
@@ -104,7 +122,12 @@ pub(super) fn serve_with(
         match request {
             Ok(req) => {
                 let revision = cache.get().revision;
+                let started=std::time::Instant::now();
                 let result = action(Some(&req));
+                if result.is_err()||started.elapsed()>=std::time::Duration::from_secs(1) {
+                    let method=if req["method"]=="widget_api" {req["params"]["method"].as_str()} else {req["method"].as_str()};
+                    crate::diagnostics::event("rpc_action",json!({"method":crate::diagnostics::method(method.unwrap_or("")),"elapsedMs":started.elapsed().as_millis() as u64,"failed":result.is_err()}));
+                }
                 // An action that sampled already satisfies this background tick.
                 if cache.get().revision != revision {
                     next_sample = std::time::Instant::now() + std::time::Duration::from_secs(5);
@@ -117,5 +140,20 @@ pub(super) fn serve_with(
             }
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn oversized_response_is_an_error_and_keeps_the_next_response_readable() {
+        let output=Mutex::new(Vec::new());
+        respond(&output,&json!(1),Ok(json!({"payload":"x".repeat(4*1024*1024)})));
+        respond(&output,&json!(2),Ok(json!({"ok":true})));
+        let bytes=output.into_inner().unwrap();let text=String::from_utf8(bytes).unwrap();
+        let lines:Vec<Value>=text.lines().map(|line|serde_json::from_str(line).unwrap()).collect();
+        assert_eq!(lines.len(),2);assert_eq!(lines[0]["id"],1);assert!(lines[0]["error"].as_str().unwrap().contains("过大"));
+        assert_eq!(lines[1]["id"],2);assert_eq!(lines[1]["result"]["ok"],true);assert!(text.len()<1024);
     }
 }

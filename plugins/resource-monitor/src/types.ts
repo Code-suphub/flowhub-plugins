@@ -1,5 +1,6 @@
 export interface Identity {pid:number;started:number;executable:string;uid:number}
 export type ToolIconKey = 'python'|'postgresql'|'mysql'|'tmux'|'redis'|'android';
+export interface SystemAccounting {footprint:number|null;coalitionCount:number;shared:boolean}
 export interface Process extends Identity {
   displayName?:string|null;
   launchExecutable?:string|null;
@@ -11,6 +12,7 @@ export interface Process extends Identity {
   protected:boolean;protection:string;parentName:string;groupId:string;attribution:string;
 }
 export interface Group {
+  systemAccounting?:SystemAccounting|null;
   presentation?:Presentation|null;
   origin?:SourceOrigin|null;
   iconKey?:ToolIconKey|null;
@@ -27,9 +29,9 @@ export interface Snapshot extends SnapshotState {groups:Group[]}
 export interface GroupSummary extends Omit<Group,'processes'|'instances'> {processCount:number;instanceCount:number;onlyInstanceId?:string|null;permissionLimited:boolean;hasRestrictedProcesses:boolean}
 export interface RankingSnapshot extends SnapshotState {groups:GroupSummary[];includeSystem:boolean;hasRestrictedProcesses:boolean;query:string;matchedGroupIds:string[]}
 export interface GroupDetail extends SnapshotState {groupId:string;group:Group|null;elsewhere:Identity[];contextProcesses:Process[]}
-export interface StatusRow {id:string;name:string;appPath?:string|null;origin?:SourceOrigin|null;presentation?:Presentation|null;iconKey?:ToolIconKey|null;at:number;status:string;summary:string;values:{memory:number|null;footprint:number|null;rss:number|null;cpu:number|null};count:number;instanceCount?:number;incomplete:boolean}
+export interface StatusRow {id:string;name:string;systemAccounting?:SystemAccounting|null;appPath?:string|null;origin?:SourceOrigin|null;presentation?:Presentation|null;iconKey?:ToolIconKey|null;at:number;status:string;summary:string;values:{memory:number|null;footprint:number|null;rss:number|null;cpu:number|null};count:number;instanceCount?:number;incomplete:boolean}
 export interface StatusSnapshot {at:number;rows:StatusRow[];system:SystemInfo;error?:string|null}
-export type Sort = 'footprint'|'memory'|'cpu';
+export type Sort = 'footprint'|'memory'|'cpu'|'accounting';
 export type SortOrder = 'ascend'|'descend';
 export interface Config {title?:string;sort?:Sort;display?:'all'|'top';limit?:number;groupId?:string;selection?:{groupId?:string}}
 export interface ApplicationState {canQuit:boolean;message:string;instances?:number;quitInstances?:string[];contextKind?:'arc'|'codex'|null}

@@ -45,6 +45,7 @@
   .widget-list:focus-visible {outline:2px solid var(--fh-accent);outline-offset:2px}
   .widget-row {display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;padding:10px 0;border:0;border-bottom:1px solid var(--fh-border);background:transparent;text-align:left;color:var(--fh-text);font-size:12px}
   .widget-row:disabled {cursor:default;opacity:1}
+  .widget-memory {display:grid;gap:4px;flex-shrink:0;text-align:right;min-width:92px}
   .widget-row:hover:not(:disabled) {background:var(--fh-surface-soft)}
   .text-link {border:0;padding:4px 0;background:transparent;color:var(--fh-accent);font-size:12px}
   .text-link:disabled {opacity:.5}

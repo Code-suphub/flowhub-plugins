@@ -5,8 +5,8 @@
   const frames=[];
   const token='card-test-token';
   const snapshot={at:Date.now(),system:{totalMemory:34359738368,swapUsed:1048576},rows:Array.from({length:28},(_,index)=>({
-    id:`app:${index}`,name:`Application ${index}`,appPath:index===27?'/Applications/Test.app':null,iconKey:index===26?'python':null,
-    at:Date.now(),count:index+1,instanceCount:2,incomplete:false,values:{memory:index*1048576,rss:index*1048576,footprint:index*2097152,cpu:index}
+    id:`app:${index}`,name:`Application ${index}`,appPath:index===27?'/Applications/Test.app':index===25?'/Applications/Unavailable.app':null,iconKey:index===26?'python':null,
+    at:Date.now(),count:index+1,instanceCount:2,incomplete:false,systemAccounting:index===27?{footprint:84*1073741824,coalitionCount:1,shared:false}:null,values:{memory:index*1048576,rss:index*1048576,footprint:index*2097152,cpu:index}
   }))};
   const nativeIcon='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aOWQAAAAASUVORK5CYII=';
   let current=snapshot;
@@ -49,6 +49,9 @@
     assert(doc(host).querySelector('.widget-header strong').textContent==='Configured title','configured title lost');
     assert(rows(host).every(row=>!row.disabled),'live card navigation disabled');
     assert(rows(host)[0].querySelector('img')?.src===nativeIcon,'native application icon missing');
+    assert(rows(host)[0].querySelector('.widget-memory').textContent.includes('活跃'),'active footprint label missing');
+    assert(rows(host)[0].querySelector('.widget-memory').textContent.includes('记账 84.00 GiB'),'system ledger missing or replaced active footprint');
+    assert(!rows(host).find(row=>row.textContent.includes('Application 25')).querySelector('.widget-memory').textContent.includes('记账'),'unavailable accounting should not leave a dash on the card');
     assert(rows(host)[1].querySelector('img')?.src.startsWith('data:image/svg+xml'),'bundled runtime icon missing');
     assert(rows(host).at(-1).querySelector('.app-mark').textContent==='A','initial fallback missing');
     const list=doc(host).querySelector('.widget-list');

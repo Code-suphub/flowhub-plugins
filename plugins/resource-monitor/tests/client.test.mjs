@@ -297,3 +297,16 @@ test('widget handshake, token validation, preview gating, editor save and naviga
   api.navigate('one-group');assert.deepEqual(h.messages.at(-1).selection,{groupId:'one-group'});
   api.dispose();
 });
+
+
+test('service self-labels are not displayed as external sources and original registration evidence remains intact',()=>{
+  const group={...model.sampleSnapshot().groups[0],name:'postgres',appPath:null,origin:null,presentation:{name:'PostgreSQL 14',sources:[{name:'PostgreSQL 14',appPath:null,evidence:'macOS 运行服务登记'}],services:[{name:'PostgreSQL 14',label:'homebrew.mxcl.postgresql@14',evidence:'launchd'}]}};
+  const before=structuredClone(group),label=applicationIdentity(group,{});
+  assert.equal(label.name,'PostgreSQL 14');assert.equal(label.sourceText,'');assert.match(label.description,/独立服务/);assert.deepEqual(group,before);
+  group.presentation.sources.push({name:'ChatGPT',appPath:'/Applications/ChatGPT.app',evidence:'verified external launcher'});
+  assert.equal(applicationIdentity(group,{}).sourceText,'ChatGPT');
+  const tmux={...group,name:'tmux',presentation:{name:null,sources:[{name:'tmux',appPath:null,evidence:'parent chain'}]}};
+  assert.equal(applicationIdentity(tmux,{}).sourceText,'');
+  const app={...group,name:'Same Name',appPath:'/Applications/A.app',presentation:{name:null,sources:[{name:'Same Name',appPath:'/Applications/B.app',evidence:'different application'}]}};
+  assert.equal(applicationIdentity(app,{}).sourceText,'Same Name','different applications with equal display names remain distinguishable by path');
+});
