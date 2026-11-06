@@ -35,7 +35,7 @@ export function formatImageBytes(bytes: number | null): string {
   return (bytes / 1000 ** unit).toFixed(unit ? 2 : 0) + ' ' + ['B', 'kB', 'MB', 'GB', 'TB'][unit];
 }
 
-export function filterContainers(containers: Container[], scope: Exclude<Scope, 'images' | 'settings'>, query: string, onlyIssues: boolean): Container[] {
+export function filterContainers(containers: Container[], scope: Scope, query: string, onlyIssues: boolean): Container[] {
   const normalized = query.trim().toLowerCase();
   return containers.filter((container) => {
     if (scope === 'compose' && !container.project) return false;

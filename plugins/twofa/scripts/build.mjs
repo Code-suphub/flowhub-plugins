@@ -8,4 +8,6 @@ copyFileSync('backend/target/release/flowhub-twofa','bin/flowhub-twofa');
 chmodSync('bin/flowhub-twofa',0o700);
 execFileSync(process.execPath,[fileURLToPath(new URL('../../../scripts/package-plugin.mjs',import.meta.url)),'twofa'],{stdio:'inherit'});
 execFileSync('npm',['run','build:ui'],{stdio:'inherit'});
+mkdirSync('build/ui/licenses',{recursive:true});
+copyFileSync('node_modules/jsqr/LICENSE','build/ui/licenses/jsqr.txt');
 execFileSync(process.execPath,['scripts/check-build.mjs'],{stdio:'inherit'});

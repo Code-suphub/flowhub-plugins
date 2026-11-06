@@ -1,14 +1,20 @@
-export interface Account { name: string; issuer?: string | null }
-export interface CodeResult { name: string; code: string; remaining: number }
+export interface OtpParameters {algorithm:'SHA1'|'SHA256'|'SHA512';digits:number;period:number}
+export interface Account extends Partial<OtpParameters> { name: string; issuer?: string | null }
+export interface ImportPreview extends OtpParameters {name:string;issuer:string|null}
+export interface CodeResult { name: string; code: string; remaining: number;period?:number }
 export interface SaveAccount extends Account { secret: string; previous?: string }
 export interface TwofaApi {
   preview: boolean;
   list(): Promise<Account[]>;
   code(name: string): Promise<CodeResult>;
   save(account: SaveAccount): Promise<void>;
+  previewImport(uri:string):Promise<ImportPreview>;
+  captureScreen?():Promise<{image?:string;cancelled?:boolean}>;
+  importAccount(uri:string,name:string):Promise<void>;
   remove(name: string): Promise<void>;
   dispose(): void;
 }
+export const demoImportUri='otpauth://totp/Example:demo%40example.com?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&issuer=Example&algorithm=SHA256&digits=8&period=60';
 
 /** One listener per page; only the embedding host may resolve RPC requests. */
 export function createTransport(host: Window, timeoutMs = 125_000) {
@@ -49,7 +55,8 @@ export function createApi(host: Window): TwofaApi {
       preview: true,
       list: async () => [{name: '示例账户', issuer: '模拟数据'}],
       code: async name => ({name, code: '123456', remaining: 30 - Math.floor(Date.now() / 1000) % 30}),
-      save: readonly, remove: readonly, dispose() {}
+      previewImport:async uri=>{if(uri!==demoImportUri)throw Error('浏览器预览仅解析示例链接，请在 FlowHub 中导入真实账户');return {name:'demo@example.com',issuer:'Example',algorithm:'SHA256',digits:8,period:60};},
+      importAccount:readonly,save: readonly, remove: readonly, dispose() {}
     };
   }
   const transport = createTransport(host);
@@ -58,6 +65,9 @@ export function createApi(host: Window): TwofaApi {
     list: async () => (await transport.invoke<{accounts: Account[]}>('list')).accounts,
     code: name => transport.invoke('code', {name}),
     save: async payload => { await transport.invoke('save', payload); },
+    previewImport:uri=>transport.invoke('preview_import',{uri}),
+    captureScreen:()=>transport.invoke('capture_screen',{confirmed:true}),
+    importAccount:async(uri,name)=>{await transport.invoke('import',{uri,name});},
     remove: async name => { await transport.invoke('remove', {name}); },
     dispose: transport.dispose
   };

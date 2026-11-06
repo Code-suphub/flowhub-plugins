@@ -8,8 +8,8 @@ import '@xterm/xterm/css/xterm.css';
 interface TerminalRead {bytes: number[]; closed: boolean; dropped: boolean}
 type Status = 'disconnected' | 'connecting' | 'connected' | 'ended';
 
-export function ContainerTerminal({api, context, containerId, containerState, readOnly}: {
-  api: ManagementApi; context: string; containerId: string; containerState: string; readOnly: boolean;
+export function ContainerTerminal({api, context, containerId, containerState, readOnly, blocked = false}: {
+  api: ManagementApi; context: string; containerId: string; containerState: string; readOnly: boolean; blocked?: boolean;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
@@ -151,7 +151,7 @@ export function ContainerTerminal({api, context, containerId, containerState, re
   }
 
   async function connect() {
-    if (readOnly || containerState !== 'running' || status === 'connecting' || sessionRef.current) return;
+    if (readOnly || blocked || containerState !== 'running' || status === 'connecting' || sessionRef.current) return;
     const terminal = ensureTerminal();
     terminal.reset();
     fitRef.current?.fit();
@@ -178,7 +178,7 @@ export function ContainerTerminal({api, context, containerId, containerState, re
     }
   }
 
-  const canConnect = !readOnly && containerState === 'running' && status !== 'connecting' && status !== 'connected';
+  const canConnect = !readOnly && !blocked && containerState === 'running' && status !== 'connecting' && status !== 'connected';
   return <section className="docker-terminal" aria-label="容器交互终端">
     <div className="docker-terminal-toolbar">
       <label htmlFor="docker-terminal-shell">Shell</label>
@@ -189,7 +189,7 @@ export function ContainerTerminal({api, context, containerId, containerState, re
       <span className="docker-terminal-status" role="status">{status === 'connected' ? '已连接' : status === 'connecting' ? '正在连接' : status === 'ended' ? '会话已结束' : '未连接'}</span>
     </div>
     <p className="docker-terminal-hint">命令在所选容器内执行，也可能影响其挂载的宿主资源；切换资源或离开此标签会断开会话。</p>
-    {readOnly ? <p className="docker-terminal-hint">只读模拟预览不连接终端。</p> : containerState !== 'running' ? <p className="docker-terminal-hint">请先启动容器，再连接终端。</p> : null}
+    {readOnly ? <p className="docker-terminal-hint">只读模拟预览不连接终端。</p> : blocked ? <p className="docker-terminal-hint">请先成功刷新资源列表，再连接终端。</p> : containerState !== 'running' ? <p className="docker-terminal-hint">请先启动容器，再连接终端。</p> : null}
     {error ? <p className="docker-error" role="alert">{error}</p> : null}
     <div className="docker-terminal-screen">
       <div ref={hostRef} className="docker-terminal-host"/>

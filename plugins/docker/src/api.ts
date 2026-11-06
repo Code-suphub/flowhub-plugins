@@ -27,11 +27,18 @@ export interface ImagePrunePlan {
   totalBytes: number | null;
 }
 export interface ImagePruneResult {removed: number; remaining: number; reclaimed: string | null}
-export type Scope = 'all' | 'compose' | 'standalone' | 'images' | 'settings';
+export interface ResourceContainer {id:string;name:string;state:string;project?:string|null;destination?:string|null;readOnly?:boolean|null}
+export interface VolumeSummary {name:string;driver:string;scope:string;references:number}
+export interface VolumeIdentity {name:string;driver:string;scope:string;createdAt:string|null;mountpoint:string}
+export interface VolumeDetail extends Omit<VolumeSummary,'references'> {createdAt:string|null;mountpoint:string;project?:string|null;containers:ResourceContainer[];removable:boolean;identity:VolumeIdentity}
+export interface NetworkSummary {id:string;name:string;driver:string;scope:string;references:number;internal:boolean;ipv6:boolean;createdAt:string;ingress:boolean;project?:string|null;ipam:Array<{subnet:string|null;gateway:string|null;range:string|null}>;containers:ResourceContainer[];removable:boolean}
+export type Scope = 'all' | 'compose' | 'standalone' | 'images' | 'volumes' | 'networks' | 'settings';
 export type Selection =
   | {kind: 'container'; id: string}
   | {kind: 'project'; project: string}
   | {kind: 'image'; id: string; reference: string}
+  | {kind:'volume';name:string}
+  | {kind:'network';id:string}
   | {kind: 'images'};
 export interface HostContext {
   preview?: boolean; title?: string; snapshot?: unknown;
@@ -63,12 +70,22 @@ const sampleImages: ImageSummary[] = [
   {ID: 'sha256:' + 'd'.repeat(64), Repository: 'redis', Tag: '7', Size: '117MB', CreatedSince: '2 天前'},
   {ID: 'sha256:' + 'e'.repeat(64), Repository: 'postgres', Tag: '16', Size: '432MB', CreatedSince: '5 天前'},
 ];
+const sampleVolumes:VolumeSummary[]=[{name:'web-app_postgres-data',driver:'local',scope:'local',references:1},{name:'cache-data',driver:'local',scope:'local',references:0}];
+const sampleNetworks:NetworkSummary[]=[{id:'f'.repeat(64),name:'web-app_default',driver:'bridge',scope:'local',references:2,internal:false,ipv6:false,createdAt:'2026-09-09T08:00:00Z',ingress:false,project:'web-app',ipam:[{subnet:'172.22.0.0/16',gateway:'172.22.0.1',range:null}],containers:samples.slice(0,2).map(row=>({id:row.id,name:row.name,state:row.state,project:row.project})),removable:true},{id:'0'.repeat(64),name:'bridge',driver:'bridge',scope:'local',references:0,internal:false,ipv6:false,createdAt:'2026-09-09T08:00:00Z',ingress:false,ipam:[],containers:[],removable:false}];
 
 async function previewResult<T>(method: string, params: Record<string, unknown>): Promise<T> {
   if (method === 'list') return {context: '本机 · 模拟数据', containers: samples} as T;
   if (method === 'detail') return {state: samples.find((row) => row.id === params.id)?.state, health: null, exitCode: 0, restarts: 2, started: '2026-09-10T08:00:00Z', mounts: [], stats: {CPUPerc: '2.1%', MemUsage: '128 MiB / 2 GiB'}} as T;
   if (method === 'logs') return {text: '[info] Starting application\n[error] Database connection refused\n[info] Retrying connection…'} as T;
   if (method === 'images') return {context: '本机 · 模拟数据', images: sampleImages} as T;
+  if(method==='volumes')return {context:'本机 · 模拟数据',volumes:sampleVolumes} as T;
+  if(method==='networks')return {context:'本机 · 模拟数据',networks:sampleNetworks} as T;
+  if(method==='volume_detail'){
+    const row=sampleVolumes.find(row=>row.name===params.name);if(!row)throw Error('卷已不存在');
+    const identity={name:row.name,driver:'local',scope:'local',createdAt:'2026-09-09T08:00:00Z',mountpoint:'/var/lib/docker/volumes/'+row.name+'/_data'};
+    return {...row,...identity,identity,removable:true,project:row.references?'web-app':null,containers:row.references?[{id:samples[1].id,name:samples[1].name,state:samples[1].state,project:'web-app',destination:'/var/lib/postgresql/data',readOnly:false}]:[]} as T;
+  }
+  if(method==='network_detail'){const row=sampleNetworks.find(row=>row.id===params.id);if(!row)throw Error('网络已不存在');return row as T;}
   if (method === 'image_detail') {
     const postgres = params.id === sampleImages[1].ID;
     return {id: params.id, tags: [postgres ? 'postgres:16' : 'redis:7'], digests: [], created: '2026-09-09T08:00:00Z', size: postgres ? 432000000 : 117000000, os: 'linux', architecture: 'arm64', containers: postgres ? [{id: samples[1].id, name: samples[1].name, state: samples[1].state}] : []} as T;

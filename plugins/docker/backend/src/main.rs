@@ -1,6 +1,8 @@
 use serde_json::{json, Value};
 mod management;
+mod resources;
 mod image_prune;
+mod image_pull;
 mod terminal;
 use std::{
     path::PathBuf,
@@ -313,6 +315,10 @@ async fn dispatch(method: &str, p: &Value) -> Result<Value, String> {
     manage(method, p).await
 }
 async fn manage(method: &str, p: &Value) -> Result<Value, String> {
+    if ["image_pull_start","image_pull_status","image_pull_cancel"].contains(&method){return image_pull::dispatch(method,p).await;}
+    if ["volumes","volume_detail","volume_create","volume_remove","networks","network_detail","network_create","network_remove"].contains(&method) {
+        return resources::dispatch(method,p).await;
+    }
     if ["image_prune_preview", "image_prune_confirm"].contains(&method) {
         return image_prune::dispatch(method, p).await;
     }
