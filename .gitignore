@@ -7,6 +7,7 @@
 /release-output/
 *.key
 credentials.key
+/plugins/device-center/screenshots/
 *.sqlite3*
 
 **/__pycache__/

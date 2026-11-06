@@ -1,0 +1,41 @@
+export type Category='bluetooth'|'usb'|'display';
+export interface Device {id:string;name:string;category:Category;kind:string;detail:string;status:string;battery?:string|null;vendor?:string|null;productId?:string|null;displayConnection?:string;pixelResolution?:string;logicalResolution?:string;refreshRate?:string}
+export interface DeviceEvent {at:number;name:string;category:string;action:string}
+export interface Power {adapterWatts?:string|number|null;inputWatts?:number|null;systemWatts?:number|null;batterySideWatts?:number|null;externalConnected?:boolean|null;batteryPresent?:boolean;source?:string|null;charging?:boolean|null;cableLimitWatts?:number|null;sampledAt?:number|null;note?:string;powerSourceError?:string;powerUnavailableReason?:string;telemetryError?:string;smcError?:string}
+export interface Snapshot {at:number;stale:boolean;devices:Device[];power:Power;events:DeviceEvent[];error?:string|null;intervalSeconds?:number;powerIntervalSeconds?:number}
+export interface Artwork {available:boolean;icons:Record<string,{dataUrl:string;typeIdentifier:string;source:string}>}
+export interface Context {config?:{powerIntervalSeconds?:number};selection?:{deviceId?:string;view?:string}}
+export const categories:{id:Category;label:string;short:string}[]=[{id:'bluetooth',label:'蓝牙设备',short:'蓝牙'},{id:'usb',label:'USB 与移动设备',short:'USB'},{id:'display',label:'显示器',short:'显示器'}];
+export const initial:Snapshot={at:0,stale:true,devices:[],power:{},events:[]};
+export const emptyArtwork:Artwork={available:false,icons:{}};
+export function batteryLevel(value:unknown):number|null {if(typeof value!=='string')return null;const match=/^(\d+(?:\.\d+)?)%$/.exec(value.trim());const n=match?Number(match[1]):NaN;return Number.isFinite(n)&&n>=0&&n<=100?n:null;}
+export function finite(value:unknown):number|null {return typeof value==='number'&&Number.isFinite(value)?value:null;}
+export function watts(value:unknown):string {const n=finite(value);return n===null?'未提供':Math.abs(n).toFixed(1);}
+export function time(value:unknown):string {const n=finite(value);return n!==null&&n>0?new Date(n).toLocaleTimeString('zh-CN',{hour12:false}):'尚未采集';}
+export function isStale(snapshot:Snapshot,now=Date.now()):boolean {return !snapshot.at||snapshot.stale||Boolean(snapshot.error)||now-snapshot.at>120_000;}
+export function family(device:Device):string|undefined {
+  const n=device.name.toLowerCase();
+  if(device.kind==='phone'&&/^iphone(?:\b|\d)/i.test(n))return 'iphone';
+  if(device.kind==='headphones'&&/^airpods\b/.test(n))return /\bpro\b/.test(n)?'airpods-pro':'airpods';
+  if(device.kind==='mouse'&&/\bmagic\s*mouse\b/.test(n))return 'apple-mouse';
+  if(device.kind==='keyboard'&&/^(?:magic|apple)\s+keyboard\b/.test(n))return 'apple-keyboard';
+  if(/^macbook\b/.test(n))return 'macbook';
+}
+export function displayType(device:Device):string {return device.displayConnection==='built-in'?'内置':device.displayConnection==='external'?'外接':'类型未提供';}
+export function displaySpec(device:Device):string {
+  if(!device.pixelResolution)return device.refreshRate||'显示模式未提供';
+  const values=device.pixelResolution.split(/\s*[×x]\s*/i).map(Number).sort((a,b)=>b-a);
+  const grades:Record<string,string>={'1280,720':'720P','1920,1080':'1080P','2560,1440':'2K','3840,2160':'4K','4096,2160':'4K','5120,2880':'5K','6016,3384':'6K','6144,3456':'6K','7680,4320':'8K'};
+  return [grades[values.join(',')]||device.pixelResolution,device.refreshRate].filter(Boolean).join(' · ');
+}
+export function source(power:Power):{label:string;state:string} {
+  if(power.source==='UPS')return {label:'UPS',state:'UPS 供电'};
+  if(power.externalConnected===false||['电池供电','Battery Power'].includes(power.source||''))return {label:'电池',state:power.batteryPresent===false?'供电状态未提供':'电池供电'};
+  if(power.externalConnected===true||['外接电源','AC Power'].includes(power.source||'')) {
+    if(power.batteryPresent===false)return {label:'外接电源',state:'无内置电池'};
+    const battery=finite(power.batterySideWatts);
+    if(battery!==null&&battery<0)return {label:'混合供电',state:'电池补充供电'};
+    return {label:'外接电源',state:power.charging===true?'充电中':power.charging===false?'未充电':'充电状态未提供'};
+  }
+  return {label:'未提供',state:'供电状态未提供'};
+}

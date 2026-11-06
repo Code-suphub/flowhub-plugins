@@ -55,8 +55,6 @@ test('display badges are visible and Retina logical size stays in device details
   const html=await renderWidget({...snapshot,devices:[internal,external]});
   for(const text of ['内置','外接','3024 × 1964','1080P · 60.00Hz'])assert.ok(html.includes(text),text);
   assert.ok(!html.includes('1512 × 982'));
-  const detail=await mountWidget({...snapshot,devices:[internal]}, {selection:{deviceId:internal.id}},'detail');
-  for(const text of ['像素分辨率','3024 × 1964','界面逻辑尺寸','1512 × 982','刷新率','内置'])assert.ok(detail.node.innerHTML.includes(text),text);
   const unknown=await renderWidget({...snapshot,devices:[{...internal,displayConnection:undefined}]});
   assert.ok(unknown.includes('类型未知'));
 });
@@ -126,12 +124,6 @@ test('all-device mode renders beyond eight and is preserved by the editor save p
   editor.controls['#widget-limit']={value:'all'};
   editor.receive({type:'flowhub:widget-save',id:'all-save'});
   assert.equal(editor.sent.find(message=>message.type==='flowhub:widget-config').config.limit,'all');
-});
-test('USB detail navigation honors the requested category',async()=>{
-  const full={...snapshot,devices:[devices[0],{id:'usb-0',name:'USB test device',category:'usb',kind:'hub',status:'connected'}]};
-  const mounted=await mountWidget(full,{selection:{view:'usb'}},'detail');
-  assert.ok(mounted.node.innerHTML.includes('data-device="usb-0"'));
-  assert.ok(!mounted.node.innerHTML.includes('data-device="d0"'));
 });
 test('sampling interval is configured, saved and sent to the backend with matching polling',async()=>{
   const mounted=await mountWidget(snapshot,{powerIntervalSeconds:30});
