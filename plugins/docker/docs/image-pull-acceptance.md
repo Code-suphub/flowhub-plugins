@@ -16,7 +16,17 @@
 ## 待验
 
 - [x] 2026-11-06 经 FlowHub 真实插件市场更新并重新打开 docker 0.4.0，安装清单保持启用并指向独立构建目录。真实 Colima 中只读载入 3 个已停止容器、11 个镜像；打开镜像拉取表单、键盘输入公开测试名称、不提交，Escape 关闭后焦点返回拉取按钮。证据在仓库外 `plugin-comparison/docker-installed-pull-form.png`。
-- [ ] 使用专用测试引擎拉取公开镜像；验证 Docker Desktop／Colima、网络中断恢复、真实镜像层与平台、刷新结果。日常业务镜像标签不用于更新测试，尚未向实际引擎提交拉取或变更资源。
+- [ ] Docker Desktop、网络中断恢复、其他平台与原生页面刷新继续待验；当前真实 Colima ARM64 的公开测试镜像下载见下方记录。日常业务镜像标签不用于更新测试。
 - [ ] 真实 WebKit 中文输入、系统主题、键盘、最小窗口、多屏及插件重新加载后的任务结束提示。重新加载／退出插件会结束客户端任务，已下载镜像层可能仍存在；任务记录仅存在当前插件进程内。
+
+## 真实 Colima 下载（2026-11-06）
+
+- [x] 通过安装清单核对 docker 0.4.0 和启用状态，启动安装目录的同一后端二进制，以独立 stdio RPC 进程连接当前真实 Colima（Docker 客户端 28.2.2／引擎 29.2.1，ARM64）。没有切换用户 context；此项是实际引擎功能验证，不是原生页面提交或模拟引擎。
+- [x] 测试前 hello-world:latest 不存在；显式 reference／linux/arm64／colima／confirmed 提交后返回 running，随后 health 返回 protocol 2，任务变为 succeeded，回读两条镜像层完成状态和完整镜像 ID。后端 images 列表能找到同一名称／标签／ID。
+- [x] 再通过真实 Docker inspect 独立核对 Linux／arm64、大小 15830 字节、镜像 ID `sha256:c567b231f65614688711a75f31518a064258a51d442117a3e771a3a8fdba78ef`。这是 Docker 官方公开 hello-world 测试镜像，仅拉取，没有运行容器，保留测试镜像用于原生列表回读。
+- [x] 下载前后 3 个原有容器的 ID／状态／运行标记／启停时间全部一致，镜像数 11→12；未启动、停止、创建或删除容器。独立测试进程在任务结束后退出，不影响宿主的插件进程。
+- 原始记录在仓库外 `plugin-comparison/docker-real-engine-pull.json`、`docker-native-pull-before.json`、`docker-native-pull-after.json`。采样读到了层完成状态，没有把快速下载记为完整中间进度动画验收。
+- [ ] 原生页面实际提交、任务反馈和刷新后的 hello-world 列表回读：电脑锁屏，待解锁继续。此独立进程的任务不会冒充宿主插件进程中的任务。
+- [ ] Docker Desktop、实际网络中断／恢复、实际停止请求和其他平台仍待验；不将当前 Colima ARM64 单次成功扩大为这些场景通过。
 
 镜像构建／推送、仓库登录管理、远程 context、卷备份恢复与网络连接／断开继续独立拆项，本批不计为完成。
