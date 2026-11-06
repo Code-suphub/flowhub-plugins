@@ -14,6 +14,7 @@ import {ResourceTable} from './ResourceTable';
 import {ResourceDetails} from './ResourceDetails';
 import {ResourceCreate} from './ResourceCreate';
 import {ResourceIcon} from './ResourceIcon';
+import {ImagePull} from './ImagePull';
 import {LogSessions,type LogState} from './log-state';
 import {resourceKey,useResourceNavigation,type BrowseView,type DetailTab} from './useResourceNavigation';
 import {actionAvailability, filterContainers, formatDate, formatImageBytes, groupContainers, imageDeleteLabel, imageLabel, imageReference, reorderGroups, sortGroups, statusLabels} from './model';
@@ -347,6 +348,7 @@ export function App({api, context}: {api: ManagementApi; context: HostContext}) 
       <header className="docker-header"><div><h1>{listTitle}</h1><p className="docker-muted">{scope==='volumes'?'持久数据与容器引用':scope==='networks'?'网络配置与容器连接':scope==='images'?'本地镜像与引用关系':scope==='compose'?'按项目组织和管理服务':scope==='settings'?'刷新、默认范围和外观':'查看状态、日志与运行操作'}</p></div><div className="docker-header-actions">
         {!selection && (scope==='volumes'||scope==='networks')?<Button variant="primary" disabled={actionsDisabled || !data.context} onClick={()=>setCreating(scope==='volumes'?'volume':'network')}>＋ 新建{scope==='volumes'?'卷':'网络'}</Button>:null}
         {!selection && scope==='images'?<Button disabled={actionsDisabled || !data.context} onClick={()=>void prepareImagePrune()}>清理未使用镜像</Button>:null}
+        <ImagePull api={activeApi} context={data.context} visible={!selection && scope==='images'} disabled={actionsDisabled || !data.context} onComplete={async()=>{await refresh();}}/>
         <Button size="sm" onClick={()=>{setNotice('');setDetailReload(value=>value+1);void refresh();}} disabled={loading || operationBusy}>{loading?'刷新中…':'↻ 刷新'}</Button>
       </div></header>
       {readOnly?<p className="docker-preview" role="status">只读模拟预览 · 不连接 Docker，不执行操作</p>:null}

@@ -6,6 +6,7 @@ const {JSDOM}=require('jsdom');
 const plugin=path.resolve(__dirname,'..');
 const code=buildSync({stdin:{contents:`import React from 'react';import{createRoot}from'react-dom/client';import{App}from'./src/App';import{createPreviewApi}from'./src/api';import{LogSessions,emptyLogs}from'./src/log-state';window.LogSessions=LogSessions;window.emptyLogs=emptyLogs;window.sampleApi=createPreviewApi;window.mount=api=>{const root=createRoot(document.getElementById('root'));root.render(React.createElement(App,{api,context:{}}));return root;};`,resolveDir:plugin,loader:'tsx'},loader:{'.css':'empty'},jsx:'automatic',bundle:true,write:false,format:'iife',define:{'process.env.NODE_ENV':'"production"'},alias:{react:path.join(plugin,'node_modules/react'),'react-dom':path.join(plugin,'node_modules/react-dom')},logLevel:'silent'}).outputFiles[0].text;
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+const pullJob={id:'pull-test',context:'local',reference:'nginx:stable',platform:'',state:'running',layers:[{id:'aaaaaaaaaaaa',status:'正在下载 1MB/2MB'}],error:null,imageId:null};
 async function wait(predicate){for(let i=0;i<150;i++){if(predicate())return;await delay(10);}assert.ok(predicate(),'Docker UI did not settle');}
 function setup(t,{narrow=false,preview=false}={}){
   const dom=new JSDOM('<div id="root"></div>',{url:'http://localhost',runScripts:'outside-only',pretendToBeVisual:true}),w=dom.window;
@@ -42,6 +43,27 @@ function setup(t,{narrow=false,preview=false}={}){
   const logs=async(id='a'.repeat(64))=>{await ready();click(select('container',id));await wait(()=>heading()?.includes(id[0]==='a'?'api':'postgres'));click(button('运行日志'));await wait(()=>doc.querySelector('textarea')?.value.includes('info ready'));};
   return {w,doc,state,calls,copies,intervals,sample,button,click,fill,type,nav,select,heading,ready,logs};
 }
+
+test('image pull keeps draft on failure, guards IME and duplicate start, and can continue behind resource navigation',async t=>{
+  const s=setup(t);s.state.handlers.image_pull_status=async()=>({job:null});await s.ready();s.click(s.nav('镜像'));await wait(()=>s.button('＋ 拉取镜像') && !s.button('＋ 拉取镜像').disabled);s.click(s.button('＋ 拉取镜像'));
+  await wait(()=>s.doc.querySelector('#docker-pull-reference'));s.type('#docker-pull-reference','nginx:stable');let finish;
+  s.state.handlers.image_pull_start=()=>new Promise((resolve,reject)=>{finish={resolve,reject};});const submit=()=>s.doc.querySelector('#docker-pull-form').dispatchEvent(new s.w.Event('submit',{bubbles:true,cancelable:true}));
+  const input=s.doc.querySelector('#docker-pull-reference');input.dispatchEvent(new s.w.CompositionEvent('compositionstart',{bubbles:true}));submit();assert.equal(s.calls.filter(c=>c.method==='image_pull_start').length,0);input.dispatchEvent(new s.w.CompositionEvent('compositionend',{bubbles:true}));await delay(90);submit();submit();await wait(()=>finish);
+  assert.equal(s.calls.filter(c=>c.method==='image_pull_start').length,1);assert.equal(s.calls.find(c=>c.method==='image_pull_start').params.confirmed,true);finish.reject(new s.w.Error('仓库暂不可用'));await wait(()=>s.doc.querySelector('[role="alert"]')?.textContent.includes('仓库暂不可用'));assert.equal(input.value,'nginx:stable');
+  s.state.handlers.image_pull_start=async()=>({job:{...pullJob}});s.state.handlers.image_pull_status=async()=>({job:{...pullJob}});submit();await wait(()=>s.button('后台继续'));s.click(s.button('后台继续'));await wait(()=>!s.doc.querySelector('#docker-pull-form'));
+  s.click(s.nav('卷'));await wait(()=>s.doc.querySelector('[aria-label="卷列表"]'));s.click(s.nav('镜像'));await wait(()=>s.button('查看拉取任务'));s.click(s.button('查看拉取任务'));await wait(()=>s.doc.querySelector('[aria-label="镜像层进度"]'));assert.match(s.doc.querySelector('[aria-label="镜像拉取任务"]').textContent,/正在下载/);
+  const reads=s.calls.filter(c=>c.method==='images').length;s.state.handlers.image_pull_status=async()=>({job:{...pullJob,state:'succeeded',imageId:'sha256:'+'a'.repeat(64)}});await wait(()=>s.doc.querySelector('[aria-label="镜像拉取任务"]').textContent.includes('拉取完成'));await wait(()=>s.calls.filter(c=>c.method==='images').length>reads);
+  assert.equal(s.calls.some(c=>c.method==='operate'),false);
+});
+test('pull cancellation targets the captured job; context change discards late start and clears the form',async t=>{
+  const s=setup(t);s.state.handlers.image_pull_status=async()=>({job:null});await s.ready();s.click(s.nav('镜像'));await wait(()=>s.button('＋ 拉取镜像') && !s.button('＋ 拉取镜像').disabled);s.click(s.button('＋ 拉取镜像'));await wait(()=>s.doc.querySelector('#docker-pull-reference'));s.type('#docker-pull-reference','nginx:stable');
+  let resolve;s.state.handlers.image_pull_start=()=>new Promise(done=>{resolve=done;});s.doc.querySelector('#docker-pull-form').dispatchEvent(new s.w.Event('submit',{bubbles:true,cancelable:true}));await wait(()=>resolve);
+  s.state.context='other';s.click(s.button('↻ 刷新'));await wait(()=>!s.doc.querySelector('#docker-pull-form'));resolve({job:{...pullJob}});await delay(30);s.click(s.button('＋ 拉取镜像'));await wait(()=>s.doc.querySelector('#docker-pull-reference'));assert.equal(s.doc.querySelector('#docker-pull-reference').value,'');assert.equal(s.doc.querySelector('[aria-label="镜像拉取任务"]'),null);
+  s.state.handlers.image_pull_start=async()=>({job:{...pullJob,context:'other'}});s.state.handlers.image_pull_cancel=async params=>({job:{...pullJob,context:params.context,state:'cancelled',error:'已停止请求'}});s.type('#docker-pull-reference','nginx:stable');s.doc.querySelector('#docker-pull-form').dispatchEvent(new s.w.Event('submit',{bubbles:true,cancelable:true}));await wait(()=>s.button('停止请求'));s.click(s.button('停止请求'));await wait(()=>s.doc.querySelector('[aria-label="镜像拉取任务"]').textContent.includes('请求已停止'));const cancel=s.calls.find(c=>c.method==='image_pull_cancel');assert.equal(cancel.params.id,pullJob.id);assert.equal(cancel.params.context,'other');assert.equal(cancel.params.confirmed,true);
+});
+test('readonly preview disables image pull without creating tasks',async t=>{
+  const s=setup(t,{preview:true});await s.ready();s.click(s.nav('镜像'));await wait(()=>s.button('＋ 拉取镜像'));assert.equal(s.button('＋ 拉取镜像').disabled,true);s.button('＋ 拉取镜像').click();assert.equal(s.doc.querySelector('#docker-pull-form'),null);assert.equal(s.calls.some(c=>c.method==='image_pull_start'),false);
+});
 
 test('project drill-down preserves filters, restores list/detail positions and focuses the source on return',async t=>{
   const s=setup(t);await s.ready();s.fill('搜索资源','web-app');await wait(()=>s.doc.querySelector('input').value==='web-app');
@@ -175,7 +197,7 @@ test('resource list failures show unavailable instead of a false unused state, r
 });
 
 test('table pagination and the source row survive detail navigation without executing any operation',async t=>{
-  const s=setup(t);await s.ready();const original=(await s.sample.invoke('list')).containers[1];s.state.handlers.list=async()=>({context:'local',containers:Array.from({length:60},(_,i)=>({...original,id:i.toString(16).padStart(64,'0'),name:'resource-'+String(i).padStart(2,'0')}))});s.click(s.button('↻ 刷新'));await wait(()=>s.button('下一页'));
+  const s=setup(t);await s.ready();const original=(await s.sample.invoke('list')).containers[1];s.state.handlers.list=async()=>({context:'local',containers:Array.from({length:60},(_,i)=>({...original,id:i.toString(16).padStart(64,'0'),name:'resource-'+String(i).padStart(2,'0')}))});await wait(()=>s.button('↻ 刷新') && !s.button('↻ 刷新').disabled);s.click(s.button('↻ 刷新'));await wait(()=>s.button('下一页'));
   s.click(s.button('下一页'));await wait(()=>s.select('container',(25).toString(16).padStart(64,'0')));const source=s.select('container',(25).toString(16).padStart(64,'0'));s.click(source);await wait(()=>s.heading()==='resource-25');s.click(s.button('← 返回上一步'));await wait(()=>!s.heading());assert.equal(s.doc.activeElement,source);assert.match(s.doc.querySelector('.fh-pagination').textContent,/2 \/ 3/);assert.equal(s.calls.some(call=>/operate|_remove|_create|terminal_open/.test(call.method)),false);
 });
 

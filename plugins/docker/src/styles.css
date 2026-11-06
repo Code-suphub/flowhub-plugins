@@ -2,6 +2,12 @@
 @import "tailwindcss/theme.css" layer(theme);
 @import "tailwindcss/utilities.css" layer(utilities);
 @source "../../common/src/react";
+.docker-pull-dialog {width:min(560px,calc(100vw - 32px))}
+.docker-pull-progress {border-top:1px solid var(--fh-border);padding-top:14px;display:grid;gap:10px;overflow-wrap:anywhere}
+.docker-pull-progress ul {list-style:none;padding:0;margin:0;display:grid;gap:9px;max-height:200px;overflow:auto}
+.docker-pull-progress li {display:flex;gap:16px;flex-wrap:wrap;font-size:12px}
+.docker-pull-progress li code {color:var(--fh-muted)}
+.docker-pull-image-id {font-size:11px;overflow-wrap:anywhere}
 @layer base {
   :root {font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;color:var(--fh-text);background:var(--fh-canvas)}
   body {margin:0}

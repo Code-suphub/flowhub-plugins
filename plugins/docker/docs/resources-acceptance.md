@@ -1,6 +1,6 @@
 # 卷与网络扩展验收
 
-2026-11-06，目标 `docker 0.3.0`。参照 [Arcane Volumes](https://getarcane.app/docs/docker/volumes) 的资源列表、引用、详情和创建／删除流程，按 FlowHub 现有本机 Docker CLI 边界重新实现。新增页面使用公共 React 组件与 FlowHub 语义主题，没有复制 Arcane 的源码或素材。
+2026-11-06，本页记录 `docker 0.3.0` 的资源管理基线。最新 0.4.0 的镜像拉取见[拉取清单](image-pull-acceptance.md)，卷／网络安装待验项由 0.4.0 一并承接。参照 [Arcane Volumes](https://getarcane.app/docs/docker/volumes) 的资源列表、引用、详情和创建／删除流程，按 FlowHub 现有本机 Docker CLI 边界重新实现。新增页面使用公共 React 组件与 FlowHub 语义主题，没有复制 Arcane 的源码或素材。
 
 ## 后端已验
 
