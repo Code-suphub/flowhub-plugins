@@ -30,7 +30,7 @@ impl Snapshot {
             "processCount":g.processes.len(),"instanceCount":g.instances.len(),
             "onlyInstanceId":if g.instances.len()==1 {Some(&g.instances[0].id)} else {None},
             "permissionLimited":!g.processes.is_empty()&&g.processes.iter().all(permission_limited),
-            "hasRestrictedProcesses":g.processes.iter().any(|p|p.protection=="其他用户或系统账户"||permission_limited(p))
+            "hasRestrictedProcesses":g.processes.iter().any(|p|p.identity.uid!=crate::native::uid()||permission_limited(p))
         })).collect();
         let search = groups.iter().map(search_fields).collect();
         Self {
@@ -85,7 +85,7 @@ impl Snapshot {
             .groups
             .iter()
             .flat_map(|g| &g.processes)
-            .any(|p| p.protection == "其他用户或系统账户" || permission_limited(p)));
+            .any(|p| p.identity.uid != crate::native::uid() || permission_limited(p)));
         result["query"] = json!(query);
         result["matchedGroupIds"] = json!(matched);
         result

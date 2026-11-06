@@ -18,6 +18,7 @@
     const host=hosts.get(event.source);if(!host)return;
     const data=event.data;host.messages.push(data);
     if(data.type==='flowhub:request') {
+      if(data.method===host.failMethod){delete host.failMethod;event.source.postMessage({type:'flowhub:response',id:data.id,error:'Error: fixture request failure'},'*');return;}
       const at=Date.now(),owner={pid:100,started:(at-100000)*1000,uid:501,name:'FlowHub',executable:'/Applications/FlowHub.app/Contents/MacOS/flowhub-tauri',appPath:'/Applications/FlowHub.app'},script={pid:101,started:(at-50000)*1000,uid:501,name:'osascript',executable:'/usr/bin/osascript',appPath:null};
       const result=data.method==='script_activity'?{at,records:[{id:'running',process:script,chain:[owner,script],source:{name:'FlowHub',appPath:owner.appPath,evidence:'已核验当前父进程链'},responsible:owner,firstSeen:at-50000,lastSeen:at,running:true,chainNote:''},{id:'recent',process:{...script,pid:99},chain:[{...script,pid:99}],source:null,responsible:null,firstSeen:at-100000,lastSeen:at-50000,running:false,chainNote:''}]}:data.method==='application_metadata'?{applications:[]}:{at,groups:[{id:'app:codex',name:'Codex',source:'fixture',memory:1048576,footprint:2097152,cpu:1,processes:[],processCount:0,instanceCount:0,system:false,canTerminate:false,incomplete:false}],query:data.params?.query??'',includeSystem:data.params?.includeSystem??true,hasRestrictedProcesses:false,matchedGroupIds:[],system:{},interval:5,memoryMetric:'footprint'};
       const payload=data.method==='group_detail'?{at,groupId:'app:codex',group:fixtureGroup,elsewhere:[],contextProcesses:[]}:data.method==='application_state'?{canQuit:false,message:'fixture'}:data.method==='terminate_preview'?{token:'fixture-review-only',expiresIn:30,targets:fixtureProcesses.filter(p=>data.params.instanceIds.includes(p.instanceId)),scope:{kind:'instances',name:'Codex',instances:fixtureGroup.instances.filter(i=>data.params.instanceIds.includes(i.id))}}:data.method==='ranking_snapshot'?{...result,groups:[{...fixtureSummary,processCount:3,instanceCount:3}]}:result;
@@ -157,6 +158,21 @@
     assert(cancelReview,'bulk review cancel button missing');
     await wait(()=>!cancelReview.disabled,'bulk review remained busy');cancelReview.click();
     await wait(()=>{const action=[...doc(main).querySelectorAll('button')].find(button=>button.textContent==='结束所选实例');return action&&!action.disabled;},'cancel did not release the selected action');
+    main.failMethod='terminate_preview';
+    [...doc(main).querySelectorAll('button')].find(button=>button.textContent==='结束所选实例').click();
+    await wait(()=>doc(main).querySelector('.detail-modal .request-diagnostics'),'failed request details missing');
+    const failure=main.messages.findLast(message=>message.method==='terminate_preview');
+    const diagnostic=doc(main).querySelector('.detail-modal .request-diagnostics');diagnostic.querySelector('summary').click();
+    const report=diagnostic.querySelector('textarea');
+    assert(report.value.includes(failure.id)&&report.value.includes('terminate_preview')&&report.value.includes('main'),'copyable request correlation missing');
+    assert(!diagnostic.closest('.ant-alert').textContent.includes('Error: fixture'),'raw Error prefix is still shown');
+    await wait(()=>main.messages.some(message=>message.method==='diagnostic_event'&&message.params.traceId===failure.id),'UI trace does not match diagnostic event');
+    let copied='';Object.defineProperty(main.element.contentWindow.navigator,'clipboard',{configurable:true,value:{writeText:async text=>{copied=text;}}});
+    diagnostic.querySelector('button').click();await wait(()=>copied===report.value,'copy action did not include report');
+    Object.defineProperty(main.element.contentWindow.navigator,'clipboard',{configurable:true,value:{writeText:async()=>{throw Error('clipboard denied');}}});
+    diagnostic.querySelector('button').click();await wait(()=>doc(main).activeElement===report,'clipboard fallback did not focus report');
+    assert(report.selectionStart===0&&report.selectionEnd===report.value.length,'clipboard fallback did not select report');
+    checks.push('request method/elapsed/trace; matched diagnostic event; copy and clipboard-denied fallback');
     doc(main).querySelector('.detail-modal .ant-modal-close').click();
     checks.push('instance select-all; dynamic bulk label; explicit preview scope; visible root restriction; cancellation');
     const detail=await frame('widget-detail.html',true);

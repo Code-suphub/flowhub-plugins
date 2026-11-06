@@ -247,19 +247,18 @@ impl Monitor {
         {
             return Err("目标进程集合或身份已变化，请重新确认".into());
         }
+        let root_targets:Vec<_>=plan.targets.iter().filter(|t|t.uid==0&&native::uid()!=0).cloned().collect();
+        let privileged=native::terminate_privileged(&root_targets,force)?;
         let mut results = Vec::new();
         for target in &plan.targets {
-            // A root's graceful shutdown may already have stopped a child.
-            // An exited PID needs no signal; a reused live PID still fails identity validation.
-            let gone = native::exited(target);
-            let error = if gone {None} else {native::signal(target, force).err()};
+            if let Some(result)=privileged.iter().find(|r|r["pid"]==target.pid) {results.push(result.clone());continue;}
+            let gone=native::exited(target);
+            let error=if gone {None} else {native::signal(target,force).err()};
             results.push(json!({"pid":target.pid,"sent":!gone&&error.is_none(),"error":error}));
         }
-        // SIGTERM may be handled asynchronously. Report observed exit separately from signal delivery.
         std::thread::sleep(Duration::from_millis(250));
-        for (result, target) in results.iter_mut().zip(&plan.targets) {
-            let unchanged = native::identity(target.pid).as_ref() == Some(target);
-            result["exited"] = json!(!unchanged);
+        for (result,target) in results.iter_mut().zip(&plan.targets) {
+            if !root_targets.contains(target) {result["exited"]=json!(native::identity(target.pid).as_ref()!=Some(target));}
         }
         let refresh_error = self.refresh().err();
         Ok(json!({"results":results,"refreshError":refresh_error,"snapshot":self.snapshot.full()}))

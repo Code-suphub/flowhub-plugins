@@ -28,7 +28,8 @@ pub fn read(cache: &Cache, method: &str, params: &Value) -> Option<Result<Value,
         _ => None,
     }
 }
-fn respond(output: &Mutex<impl Write>, id: &Value, result: Result<Value, String>) {
+fn respond(output: &Mutex<impl Write>, req: &Value, result: Result<Value, String>) {
+    let id=&req["id"];
     let response = match result {
         Ok(value) => json!({"id":id,"result":value}),
         Err(error) => json!({"id":id,"error":error}),
@@ -39,12 +40,14 @@ fn respond(output: &Mutex<impl Write>, id: &Value, result: Result<Value, String>
     // The host stops reading a session after a line exceeds 4 MiB. Return a
     // bounded error instead of turning one oversized detail into later timeouts.
     if encoded.len()>4*1024*1024 {
-        crate::diagnostics::event("rpc_response_too_large",json!({"bytes":encoded.len()}));
+        let mut data=crate::diagnostics::request(req);data["bytes"]=json!(encoded.len());
+        crate::diagnostics::event("rpc_response_too_large",data);
         encoded=json!({"id":id,"error":"插件响应数据过大，请缩小查询范围"}).to_string();
     }
     if let Ok(mut output) = output.lock() {
         if let Err(error)=writeln!(output, "{encoded}").and_then(|_| output.flush()) {
-            crate::diagnostics::event("rpc_write_failed",json!({"kind":format!("{:?}",error.kind()),"bytes":encoded.len()}));
+            let mut data=crate::diagnostics::request(req);data["kind"]=json!(format!("{:?}",error.kind()));data["bytes"]=json!(encoded.len());
+            crate::diagnostics::event("rpc_write_failed",data);
         }
     }
 }
@@ -93,17 +96,17 @@ pub(super) fn serve_with(
             &req["params"],
         ) {
             let failed=result.is_err();
-            respond(&reader_output, &req["id"], result);
+            respond(&reader_output, &req, result);
             if failed||started.elapsed()>=std::time::Duration::from_secs(1) {
-                let method=if req["method"]=="widget_api" {req["params"]["method"].as_str().unwrap_or("status_snapshot")} else {req["method"].as_str().unwrap_or("")};
-                crate::diagnostics::event("rpc_read",json!({"method":crate::diagnostics::method(method),"elapsedMs":started.elapsed().as_millis() as u64,"failed":failed}));
+                let mut data=crate::diagnostics::request(&req);data["elapsedMs"]=json!(started.elapsed().as_millis() as u64);data["failed"]=json!(failed);
+                crate::diagnostics::event("rpc_read",data);
             }
         } else if let Err(error) = send.try_send(req) {
-            crate::diagnostics::event("rpc_queue_full",json!({}));
             let (mpsc::TrySendError::Full(req) | mpsc::TrySendError::Disconnected(req)) = error;
+            crate::diagnostics::event("rpc_queue_full",crate::diagnostics::request(&req));
             respond(
                 &reader_output,
-                &req["id"],
+                &req,
                 Err("待处理操作过多，请稍后重试".into()),
             );
         }
@@ -126,14 +129,14 @@ pub(super) fn serve_with(
                 let started=std::time::Instant::now();
                 let result = action(Some(&req));
                 if result.is_err()||started.elapsed()>=std::time::Duration::from_secs(1) {
-                    let method=if req["method"]=="widget_api" {req["params"]["method"].as_str()} else {req["method"].as_str()};
-                    crate::diagnostics::event("rpc_action",json!({"method":crate::diagnostics::method(method.unwrap_or("")),"elapsedMs":started.elapsed().as_millis() as u64,"failed":result.is_err()}));
+                    let mut data=crate::diagnostics::request(&req);data["elapsedMs"]=json!(started.elapsed().as_millis() as u64);data["failed"]=json!(result.is_err());
+                    crate::diagnostics::event("rpc_action",data);
                 }
                 // An action that sampled already satisfies this background tick.
                 if cache.get().revision != revision {
                     next_sample = std::time::Instant::now() + std::time::Duration::from_secs(5);
                 }
-                respond(&output, &req["id"], result);
+                respond(&output, &req, result);
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 let _ = action(None);
@@ -150,8 +153,8 @@ mod tests {
     #[test]
     fn oversized_response_is_an_error_and_keeps_the_next_response_readable() {
         let output=Mutex::new(Vec::new());
-        respond(&output,&json!(1),Ok(json!({"payload":"x".repeat(4*1024*1024)})));
-        respond(&output,&json!(2),Ok(json!({"ok":true})));
+        respond(&output,&json!({"id":1}),Ok(json!({"payload":"x".repeat(4*1024*1024)})));
+        respond(&output,&json!({"id":2}),Ok(json!({"ok":true})));
         let bytes=output.into_inner().unwrap();let text=String::from_utf8(bytes).unwrap();
         let lines:Vec<Value>=text.lines().map(|line|serde_json::from_str(line).unwrap()).collect();
         assert_eq!(lines.len(),2);assert_eq!(lines[0]["id"],1);assert!(lines[0]["error"].as_str().unwrap().contains("过大"));

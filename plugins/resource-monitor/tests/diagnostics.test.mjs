@@ -23,10 +23,12 @@ test('timeouts, late replies and recovery are recorded once without query, paths
   const f=fixture(t),params={query:'private project',path:'/private/file',token:'private-operation-token'};
   const pending=f.api.invoke('ranking_snapshot',params),request=f.messages.at(-1),rejected=assert.rejects(pending,/超时/);
   f.host.document.hidden=true;f.timeout();await rejected;
-  assert.deepEqual(f.events(),[{code:'timeout',method:'ranking_snapshot',surface:'detail',elapsedMs:20000,hidden:true,hiddenAtStart:false}]);
-  f.response(request,{at:1});assert.equal(f.events().at(-1).code,'late_response');
+  assert.match(request.id,/^[a-f0-9]{32}$/);
+  assert.equal(request.params._trace.traceId,request.id);
+  assert.deepEqual(f.events(),[{code:'timeout',method:'ranking_snapshot',traceId:request.id,surface:'detail',elapsedMs:20000,hidden:true,hiddenAtStart:false}]);
+  f.response(request,{at:1});assert.equal(f.events().at(-1).code,'late_response');assert.equal(f.events().at(-1).traceId,request.id);
   f.host.document.hidden=false;const retry=f.api.invoke('ranking_snapshot',params),retryRequest=f.messages.at(-1);
-  f.response(retryRequest,{at:2});await retry;assert.equal(f.events().at(-1).code,'recovered');
+  f.response(retryRequest,{at:2});await retry;assert.equal(f.events().at(-1).code,'recovered');assert.notEqual(retryRequest.id,request.id);
   const next=f.api.invoke('ranking_snapshot',params);f.response(f.messages.at(-1),{at:3});await next;
   assert.equal(f.events().filter(e=>e.code==='recovered').length,1);
   const serialized=JSON.stringify(f.events());for(const secret of ['private project','/private/file','private-operation-token','private-token'])assert.equal(serialized.includes(secret),false);
@@ -41,7 +43,20 @@ test('RPC error text is shown to the caller while diagnostics include only the m
   f.response(request,undefined,'private raw error /private/path');await assert.rejects(pending,/private raw error/);
   assert.equal(f.events().at(-1).code,'response_error');assert.equal(f.events().at(-1).method,'group_detail');
   assert.equal(f.events().at(-1).reason,'request_failed');
+  assert.equal(f.events().at(-1).traceId,request.id);assert.equal(request.params._trace.traceId,request.id);
   assert.equal(JSON.stringify(f.events()).includes('private'),false);assert.equal(f.timers.size,0);
+});
+test('an unconfirmed end has a copyable trace, preserves the exact selection and is never retried automatically',async t=>{
+  const f=fixture(t),params={token:'private-operation-token',confirmed:true,force:false};
+  const pending=f.api.invoke('terminate_confirm',params),request=f.messages.at(-1);
+  const rejection=assert.rejects(pending,error=>{
+    assert.equal(error.traceId,request.id);assert.equal(error.method,'terminate_confirm');assert.equal(error.elapsedMs,20000);
+    assert.match(error.message,/结果尚未确认/);assert.match(error.report(),/结束所选进程/);
+    assert.ok(error.report().includes(request.id));assert.ok(!error.report().includes(params.token));return true;
+  });
+  f.timeout();await rejection;
+  assert.deepEqual(request.params.params,params,'trace metadata must not change operation targets or tokens');
+  assert.equal(f.messages.filter(m=>m.params?.method==='terminate_confirm').length,1);
 });
 test('expected host suspension and lost backend connections have distinct diagnostic reasons',async t=>{
   const f=fixture(t,'card');

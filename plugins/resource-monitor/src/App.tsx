@@ -8,6 +8,9 @@ import {accountingDisplay,bytes,contextRows,cpu,detailControls,detailFrom,filter
 import {AppMark,applicationIdentity,useApplications} from './applications';
 import {readGroupDetail} from './api';
 import {ScriptDrawer} from './ScriptDrawer';
+import {RequestDetails} from './RequestDetails';
+import {displayError,errorText,RequestError} from './errors';
+import type {DisplayError} from './errors';
 import type {ContextRow} from './model';
 import type {Api,ApplicationState,Context,Group,GroupDetail,GroupSummary,Instance,PageContexts,Plan,Process,QuitPlan,RankingSnapshot,Snapshot,Sort,SortOrder,TerminateResult} from './types';
 
@@ -22,12 +25,12 @@ export function Theme({children}:{children:React.ReactNode}) {
 const searchStyle={width:'min(330px,100%)',minHeight:30};
 const identity=(p:Process)=>({pid:p.pid,started:p.started,executable:p.executable,uid:p.uid});
 const permissionLimited=(p:Process)=>p.protection.startsWith('当前用户权限不足');
-type PrivilegedStatus={ok:boolean;status:string;message:string};
+type PrivilegedStatus={ok:boolean;status:string;message:string;rootControl?:boolean;checking?:boolean;warning?:string;stale?:boolean};
 
 export function App({api,context}:{api:Api;context:Context}) {
   const [data,setData]=useState<RankingSnapshot>();
   const dataRef=useRef<RankingSnapshot|undefined>(undefined);
-  const [error,setError]=useState('');const [notice,setNotice]=useState('');
+  const [error,setError]=useState<DisplayError>('');const [notice,setNotice]=useState('');
   const [query,setQuery]=useState('');const deferredQuery=useDeferredValue(query);
   const [sorting,setSorting]=useState<{key:Sort;order:SortOrder}>({key:'footprint',order:'descend'});const [system,setSystem]=useState(false);
   const [detail,setDetail]=useState<Group>();const [detailId,setDetailId]=useState<string>();const [processQuery,setProcessQuery]=useState('');
@@ -38,7 +41,7 @@ export function App({api,context}:{api:Api;context:Context}) {
   const [selectedInstance,setSelectedInstance]=useState<string>();
   const [checkedInstances,setCheckedInstances]=useState<string[]>([]);
   const [scriptsOpen,setScriptsOpen]=useState(false);
-  const [contexts,setContexts]=useState<PageContexts>();const [contextError,setContextError]=useState('');
+  const [contexts,setContexts]=useState<PageContexts>();const [contextError,setContextError]=useState<DisplayError>('');
   contextsRef.current=contexts;
   const [contextQuery,setContextQuery]=useState('');const [linkedOnly,setLinkedOnly]=useState(false);
   const [contextDetail,setContextDetail]=useState<string>();const [unmappedOnly,setUnmappedOnly]=useState(false);
@@ -47,6 +50,7 @@ export function App({api,context}:{api:Api;context:Context}) {
   const [quitPlan,setQuitPlan]=useState<QuitPlan>();const [applicationState,setApplicationState]=useState<ApplicationState>();
   const [expires,setExpires]=useState(0);const [remaining,setRemaining]=useState(0);
   const [busy,setBusy]=useState(false);const [refreshing,setRefreshing]=useState(false);
+  const [privilegedWarning,setPrivilegedWarning]=useState<DisplayError>('');const privilegedReading=useRef(false);
   const [privilegedStatus,setPrivilegedStatus]=useState<PrivilegedStatus>();const [privilegedBusy,setPrivilegedBusy]=useState(false);
   const alive=useRef(true);const operation=useRef(false);const reading=useRef(false);const readAgain=useRef(false);
   const queryRef=useRef(deferredQuery);queryRef.current=deferredQuery;
@@ -55,7 +59,7 @@ export function App({api,context}:{api:Api;context:Context}) {
   const openedSelection=useRef('');const selected=context.config?.selection?.groupId;
   const hasOtherUserProcesses=!!data?.hasRestrictedProcesses;
   const helperMissing=privilegedStatus?.status==='missingHelper'||privilegedStatus?.status==='unsupported';
-  const helperInstalled=['enabled','needsRepair','needsUpdate'].includes(privilegedStatus?.status??'');
+  const helperInstalled=['enabled','needsRepair','needsUpdate','unreachable'].includes(privilegedStatus?.status??'');
   const actionNotice=notice===privilegedStatus?.message?'':notice;
   const applications=useApplications(api,data?.groups??[]);
   const sourcePresentation=detail?.instances?.find(instance=>instance.id===source?.instanceId)?.presentation;
@@ -83,8 +87,8 @@ export function App({api,context}:{api:Api;context:Context}) {
     const selection=detailSelection.current;const {id,generation}=selection;if(!id)return;const request=++selection.request;
     const trackedPids=[...new Set((detailRef.current?.processes??[]).filter(p=>!p.exited).map(p=>p.pid))];
     const contextPids=[...new Set((contextsRef.current?.entries??[]).flatMap(entry=>entry.processes.map(p=>p.pid)))];
-    try{const next=await readGroupDetail(api,id,trackedPids,contextPids);acceptDetail(next,generation,request);}
-    catch(reason){if(alive.current&&generation===detailSelection.current.generation)setError(String(reason));}
+    try{const next=await readGroupDetail(api,id,trackedPids,contextPids);acceptDetail(next,generation,request);if(alive.current&&generation===detailSelection.current.generation)setError(previous=>previous instanceof RequestError&&previous.method==='group_detail'?'':previous);}
+    catch(reason){if(alive.current&&generation===detailSelection.current.generation)setError(displayError(reason));}
   }
   useEffect(()=>{if(selected&&selected!==openedSelection.current&&data){openedSelection.current=selected;const group=data.groups.find(g=>g.id===selected);if(group)openDetail(group);else{detailSelection.current={id:selected,generation:detailSelection.current.generation+1,revision:-1,request:0,initialSearch:''};setDetailId(selected);}}},[selected,data]);
   useEffect(()=>{if(detailId)void readDetail();},[api,detailId,contexts]);
@@ -92,20 +96,29 @@ export function App({api,context}:{api:Api;context:Context}) {
     const groupId=detail?.id;if(!groupId)return;
     let current=true;
     void api.invoke<ApplicationState>('application_state',{groupId}).then(value=>{if(current)setApplicationState(value);})
-      .catch(reason=>{if(current)setApplicationState({canQuit:false,message:String(reason)});});
+      .catch(reason=>{if(current)setApplicationState({canQuit:false,message:errorText(reason)});});
     return()=>{current=false;};
   },[api,detail?.id,data?.at]);
   useEffect(()=>{
     if(api.preview||!hasOtherUserProcesses)return;
-    let current=true;
-    const check=()=>{
-      if(document.hidden||privilegedBusy)return;
-      api.invoke<PrivilegedStatus>('privileged_status').then(value=>{if(current)setPrivilegedStatus(value);}).catch(error=>{if(current)setPrivilegedStatus({ok:false,status:'unavailable',message:String(error)});});
-    };
-    check();
-    const timer=setInterval(check,5000);
-    return()=>{current=false;clearInterval(timer);};
+    let current=true,timer:ReturnType<typeof setTimeout>|undefined;
+    async function check(){
+      clearTimeout(timer);
+      if(document.hidden||privilegedBusy||privilegedReading.current){if(current)timer=setTimeout(check,5000);return;}
+      privilegedReading.current=true;
+      try {
+        const value=await api.invoke<PrivilegedStatus>('privileged_status');
+        if(current){setPrivilegedStatus(value);setPrivilegedWarning(value.warning??'');}
+      } catch(reason){
+        if(current){setPrivilegedWarning(displayError(reason));setPrivilegedStatus(previous=>previous??{ok:false,status:'checking',message:'正在重新检查进程服务，尚未取得授权状态。'});}
+      } finally{privilegedReading.current=false;if(current)timer=setTimeout(check,5000);}
+    }
+    const visible=()=>{if(!document.hidden)void check();};
+    void check();document.addEventListener('visibilitychange',visible);
+    return()=>{current=false;clearTimeout(timer);document.removeEventListener('visibilitychange',visible);};
   },[api,hasOtherUserProcesses,privilegedBusy]);
+
+  function rankingError(next:DisplayError){setError(previous=>previous instanceof RequestError&&previous.method!=='ranking_snapshot'&&previous.method!=='refresh_summary'?previous:next);}
   function accept(next:RankingSnapshot){
     if(next.query!==queryRef.current.trim().toLocaleLowerCase()||next.includeSystem!==systemRef.current||!newerSnapshot(next,dataRef.current))return false;
     dataRef.current=next;setData(next);return true;
@@ -120,31 +133,31 @@ export function App({api,context}:{api:Api;context:Context}) {
     try{
       const value=await api.invoke<PrivilegedStatus>(`privileged_${action}`);
       if(!alive.current)return;
-      setPrivilegedStatus(value);
+      setPrivilegedStatus(value);setPrivilegedWarning('');
       if(action==='enable'&&value.status==='enabled')await refresh(true);
       if(action==='disable')await refresh(true);
-    }catch(error){if(alive.current)setError(String(error));}
+    }catch(error){if(alive.current)setError(displayError(error));}
     finally{if(alive.current)setPrivilegedBusy(false);}
   }
   function confirmPrivileged(action:'enable'|'disable'){
     Modal.confirm({
-      title:action==='enable'?'启用完整系统进程监控？':'停用完整系统进程监控？',
-      content:action==='enable'?'macOS 将弹出系统认证窗口，请通过管理员认证安装只读采集服务。服务以 root 身份运行，读取进程 PID、名称、可执行路径、UID、父进程、RSS、内存足迹和 CPU 时间；不读取命令行或环境变量，也不提供结束进程能力。当前登录用户可读取快照。服务会在重启后继续运行，可随时在此停用并卸载。':'macOS 将请求管理员认证，停止并卸载该系统服务。随后使用当前用户权限采集进程数据。',
+      title:action==='enable'?'授权系统进程采集与 root 控制？':'停用完整系统进程监控？',
+      content:action==='enable'?'macOS 将请求管理员授权安装或升级常驻进程服务。服务读取系统进程资源，并允许已核验的 FlowHub 采集插件结束你确认选择的第三方 root 进程；系统核心进程、FlowHub 及采集服务本身继续受保护。不执行任意管理员命令，也不读取或保存密码。升级应用或采集插件后可能需要重新授权。服务随系统启动，可随时在此停用并卸载。':'macOS 将请求管理员认证，停止并卸载该系统服务。随后使用当前用户权限采集进程数据。',
       okText:action==='enable'?'继续并授权安装':'停用并卸载',cancelText:'取消',
       onOk:()=>managePrivileged(action)
     });
   }
   async function refresh(manual=false){
     if(manual){
-      setRefreshing(true);
-      try{const next=await api.invoke<RankingSnapshot>('refresh_summary',{query:queryRef.current,includeSystem:systemRef.current});if(alive.current){if(accept(next))setError(next.error??'');await Promise.all([refresh(),readDetail()]);}}
-      catch(e){if(alive.current)setError(String(e));}
+      setRefreshing(true);setError('');
+      try{const next=await api.invoke<RankingSnapshot>('refresh_summary',{query:queryRef.current,includeSystem:systemRef.current});if(alive.current){if(accept(next))rankingError(next.error??'');await Promise.all([refresh(),readDetail()]);}}
+      catch(e){if(alive.current)setError(displayError(e));}
       finally{if(alive.current)setRefreshing(false);}
       return;
     }
     if(reading.current){readAgain.current=true;return;}reading.current=true;
-    try{const next=await api.invoke<RankingSnapshot>('ranking_snapshot',{query:queryRef.current,includeSystem:systemRef.current});if(alive.current&&accept(next))setError(next.error??'');}
-    catch(e){if(alive.current)setError(String(e));}
+    try{const next=await api.invoke<RankingSnapshot>('ranking_snapshot',{query:queryRef.current,includeSystem:systemRef.current});if(alive.current&&accept(next))rankingError(next.error??'');}
+    catch(e){if(alive.current)setError(displayError(e));}
     finally{reading.current=false;if(alive.current&&readAgain.current){readAgain.current=false;void refresh();}}
   }
   useEffect(()=>{
@@ -166,7 +179,7 @@ export function App({api,context}:{api:Api;context:Context}) {
     if(!instanceId&&(applicationState?.quitInstances?.length??0)>1){setTab('instances');return;}
     operation.current=true;setBusy(true);setError('');setNotice('');
     try{const next=await api.invoke<QuitPlan>('quit_preview',{groupId:detail.id,...(instanceId?{instanceId}:{})});if(alive.current){setQuitPlan(next);setExpires(Date.now()+next.expiresIn*1000);}}
-    catch(reason){if(alive.current)setError(String(reason));}
+    catch(reason){if(alive.current)setError(displayError(reason));}
     finally{operation.current=false;if(alive.current)setBusy(false);}
   }
   async function executeQuit(){
@@ -180,7 +193,7 @@ export function App({api,context}:{api:Api;context:Context}) {
         const rejected=result.results.filter(item=>!item.requested);
         setError([rejected.length?`以下实例未接受退出请求（PID ${rejected.map(item=>item.pid).join('、')}），请从应用菜单退出或处理保存提示。`:'',result.refreshError].filter(Boolean).join(' '));
       }
-    }catch(reason){if(alive.current){setQuitPlan(undefined);setError(String(reason));}}
+    }catch(reason){if(alive.current){setQuitPlan(undefined);setError(displayError(reason));}}
     finally{operation.current=false;if(alive.current)setBusy(false);}
   }
 
@@ -192,7 +205,7 @@ export function App({api,context}:{api:Api;context:Context}) {
       const params='id' in target?{groupId:target.id,...(instanceIds?{instanceIds}:{instanceId:instanceId??('processes' in target?target.instances?.[0]?.id:target.onlyInstanceId)}),force:false}:{identity:identity(target),force:false};
       const next=await api.invoke<Plan>('terminate_preview',params);
       if(alive.current){setPlan(next);setForce(false);setExpires(Date.now()+next.expiresIn*1000);}
-    }catch(e){if(alive.current)setError(String(e));}
+    }catch(e){if(alive.current)setError(displayError(e));}
     finally{operation.current=false;if(alive.current)setBusy(false);}
   }
   async function execute(){
@@ -205,21 +218,21 @@ export function App({api,context}:{api:Api;context:Context}) {
       const waiting=result.results.filter(r=>r.sent&&!r.exited).length;
       setNotice(`${exited} 个进程已退出${waiting?`，${waiting} 个已发送信号、等待退出`:''}。`);
       setError([...result.results.filter(r=>r.error).map(r=>`PID ${r.pid}：${r.error}`),result.refreshError].filter(Boolean).join('；'));
-    }catch(e){if(alive.current){setError(String(e));setPlan(undefined);}}
+    }catch(e){if(alive.current){setError(displayError(e));setPlan(undefined);}}
     finally{operation.current=false;if(alive.current)setBusy(false);}
   }
   async function loadContexts(arcTasks=false){
     if(!detail||linksBusy||!controls.contextKind)return;
     const generation=++contextGeneration.current;setLinksBusy(true);setContextError('');
     try{const next=await api.invoke<PageContexts>(arcTasks?'arc_tasks':'contexts',{groupId:detail.id,...(arcTasks?{open:true}:{})});if(alive.current&&generation===contextGeneration.current)setContexts(next);}
-    catch(e){if(alive.current&&generation===contextGeneration.current)setContextError(String(e));}
+    catch(e){if(alive.current&&generation===contextGeneration.current)setContextError(displayError(e));}
     finally{if(alive.current&&generation===contextGeneration.current)setLinksBusy(false);}
   }
   async function openApp(group:Group,token?:string){
     if(api.preview||linksBusy||busy||plan)return;
     const generation=++contextGeneration.current;setLinksBusy(true);setContextError('');
     try{await api.invoke(token?'open_context':'focus_app',{groupId:group.id,...(token?{token}:{})});}
-    catch(e){if(alive.current&&generation===contextGeneration.current)setContextError(String(e));}
+    catch(e){if(alive.current&&generation===contextGeneration.current)setContextError(displayError(e));}
     finally{if(alive.current&&generation===contextGeneration.current)setLinksBusy(false);}
   }
 
@@ -294,16 +307,17 @@ export function App({api,context}:{api:Api;context:Context}) {
   return <main className="monitor p-3 md:p-4">
     <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
       <div className="flex items-center gap-2"><span className={`live-dot ${stale?'stale':''}`}/><span className="muted text-xs">{api.preview?'只读预览 · 模拟数据':data?.at?`本机 · ${new Date(data.at).toLocaleTimeString()} 更新${data.sampling?' · 采样中':''}`:'正在等待首次采样'}</span><HelpPopover label="统计口径与监控范围">活跃进程足迹是当前分组内进程的 phys_footprint 合计，包含脏页、压缩及换出等记账；RSS 是当前常驻内存。系统归属记账读取应用的系统资源组账本，可包含独立任务和已退出任务的余额，各行可能重叠。三者不能相加，也不等于结束后释放的内存。CPU 按单核 100% 计。页面与对话可能共享进程。</HelpPopover></div>
-      <div className="flex flex-wrap items-center gap-2"><Button size="sm" className="compact-button" onClick={()=>setScriptsOpen(true)}>脚本来源{data?.scriptRunningCount?` (${data.scriptRunningCount})`:''}</Button><Button size="sm" className="compact-button" disabled={refreshing} onClick={()=>void refresh(true)}>{refreshing?'刷新中…':'刷新'}</Button>{!api.widget?<Button size="sm" className="compact-button" disabled={api.preview} onClick={()=>void api.invoke('flowhub_status').catch(e=>setError(String(e)))}>桌面与菜单栏</Button>:null}</div>
+      <div className="flex flex-wrap items-center gap-2"><Button size="sm" className="compact-button" onClick={()=>setScriptsOpen(true)}>脚本来源{data?.scriptRunningCount?` (${data.scriptRunningCount})`:''}</Button><Button size="sm" className="compact-button" disabled={refreshing} onClick={()=>void refresh(true)}>{refreshing?'刷新中…':'刷新'}</Button>{!api.widget?<Button size="sm" className="compact-button" disabled={api.preview} onClick={()=>void api.invoke('flowhub_status').catch(e=>setError(displayError(e)))}>桌面与菜单栏</Button>:null}</div>
     </div>
     <div className="system-strip grid grid-cols-3 gap-3 mb-3">
       <div><span className="muted">物理内存</span><strong>{bytes(data?.system.totalMemory)}</strong></div>
       <div><span className="muted">内存压力</span><strong className={pressure==='critical'?'danger':pressure==='warning'?'warning':''}>{pressureLabel}</strong></div>
       <div><span className="muted">已用交换空间</span><strong>{bytes(data?.system.swapUsed)}</strong></div>
     </div>
-    {hasOtherUserProcesses?<Alert type={privilegedStatus?.status==='enabled'?'success':'warning'} showIcon className="mb-3" title={privilegedStatus?.message??'正在检查系统进程采集服务…'} action={<div className="flex gap-2">{privilegedStatus?.status!=='enabled'?<Button size="sm" className="compact-button" disabled={api.preview||privilegedBusy||!privilegedStatus||helperMissing} onClick={()=>confirmPrivileged('enable')}>{helperMissing?'采集器未打包':privilegedBusy?'处理中…':privilegedStatus?.status==='needsUpdate'?'授权更新':'管理员授权安装'}</Button>:null}{helperInstalled?<Button size="sm" className="compact-button" disabled={api.preview||privilegedBusy} onClick={()=>confirmPrivileged('disable')}>停用并卸载</Button>:null}</div>}/>:null}
+    {hasOtherUserProcesses?<Alert type={privilegedStatus?.status==='enabled'?'success':'warning'} showIcon className="mb-3" title={privilegedStatus?.message??'正在检查系统进程采集服务…'} action={<div className="flex gap-2">{privilegedStatus&&['notRegistered','needsUpdate','needsRepair'].includes(privilegedStatus.status)?<Button size="sm" className="compact-button" disabled={api.preview||privilegedBusy||!privilegedStatus||helperMissing} onClick={()=>confirmPrivileged('enable')}>{helperMissing?'采集器未打包':privilegedBusy?'处理中…':privilegedStatus?.status==='needsUpdate'?'授权更新':'管理员授权安装'}</Button>:null}{helperInstalled?<Button size="sm" className="compact-button" disabled={api.preview||privilegedBusy} onClick={()=>confirmPrivileged('disable')}>停用并卸载</Button>:null}</div>}/>:null}
+    {privilegedWarning?<div className="warning text-xs mb-3"><p role="status">{privilegedWarning instanceof Error?'授权状态暂未更新，稍后会自动重试。':''}{errorText(privilegedWarning)}</p><RequestDetails error={privilegedWarning}/></div>:null}
     {api.preview?<Alert type="info" showIcon title="只读模拟数据，结束与应用跳转已禁用。" className="mb-3"/>:null}
-    {error?<Alert type="error" showIcon title={error} className="mb-3"/>:null}
+    {error?<Alert type="error" showIcon title={errorText(error)} description={error instanceof RequestError?<RequestDetails error={error}/>:undefined} className="mb-3"/>:null}
     {actionNotice?<Alert type="success" showIcon title={actionNotice} className="mb-3"/>:null}
     {stale?<Alert type="warning" showIcon title="数据已过期，请刷新后再操作。" className="mb-3"/>:null}
     <div className="flex flex-wrap items-center gap-3 mb-3">
@@ -332,7 +346,7 @@ export function App({api,context}:{api:Api;context:Context}) {
           <p className="mt-2">应用名和图标来自本机应用扫描；原始进程名、路径、工作目录和父进程可在进程信息中查看。</p>
         </HelpPopover></div>
         {detailHint?<p className="muted text-xs mb-3">{detailHint}</p>:null}
-        {detail.processes.some(permissionLimited)?<Alert type="warning" showIcon title="部分进程受系统权限限制：可查看名称与路径，内存和 CPU 数据不可读取，也不能结束进程。" className="mb-3"/>:null}
+        {detail.processes.some(p=>!p.exited&&!p.moved&&(permissionLimited(p)||(p.memory==null&&p.footprint==null)))?<Alert type="warning" showIcon title="部分进程的资源指标暂不可读取，可能受系统保护或采集服务连接影响。结束权限另行判断，请查看各实例的操作说明。" className="mb-3"/>:null}
         <Tabs activeKey={activeTab} onChange={key=>{setTab(key);if(key!=='processes')setSelectedInstance(undefined);}} items={[{key:'instances',label:`运行实例${detail.instances?.length?` (${detail.instances.length})`:''}`},{key:'processes',label:'进程'},...(controls.contextLabel?[{key:'pages',label:controls.contextLabel}]:[])]}/>
         {activeTab==='instances'?<>
           <p className="muted text-xs mb-3">一次独立启动记为一个运行实例，可包含主进程和辅助进程。未勾选时右上角结束全部可操作实例；勾选后仅结束所选实例。受保护实例不参与全选。</p>
@@ -346,7 +360,7 @@ export function App({api,context}:{api:Api;context:Context}) {
           <p className="muted text-xs mt-3">点击进程名查看路径、父进程和来源。{controls.contextKind?'渲染进程可能承载多个页面，占用不能直接分摊到单个页面或对话。':''}</p>
         </>:<>
           <div className="flex flex-wrap items-center gap-2 mb-3"><Button size="sm" className="compact-button" disabled={linksBusy||!detail.appPath||!!plan} onClick={()=>void loadContexts()}>{linksBusy?'读取中…':contexts?'重新读取关联':isArc?'读取标签':'读取对话与子进程'}</Button>{isArc?<Button size="sm" className="compact-button" disabled={api.preview||linksBusy||!!plan} onClick={()=>void loadContexts(true)}>读取 Arc 任务管理器</Button>:null}<HelpPopover label={`${controls.contextLabel}统计范围`}>Arc 从原生任务管理器读取标题与 PID，需要 FlowHub 辅助功能权限；未匹配的隐私窗口、子框架和扩展不绑定到普通标签。Codex 只读近期对话索引，并按工作进程的 CODEX_THREAD_ID 关联；共享界面、GPU 和后台服务不计入对话子进程合计。映射五分钟失效，PID 身份变化不会沿用。</HelpPopover></div>
-          {contexts?.diagnostics&&contexts.diagnostics.state!=='ready'?<Alert type="warning" showIcon title={contexts.diagnostics.hint} className="mb-3" action={contexts.diagnostics.state==='permission-required'?<Button size="sm" className="compact-button" disabled={api.preview} onClick={()=>void api.invoke('accessibility_settings').catch(e=>setContextError(String(e)))}>打开辅助功能设置</Button>:undefined}/>:null}
+          {contexts?.diagnostics&&contexts.diagnostics.state!=='ready'?<Alert type="warning" showIcon title={contexts.diagnostics.hint} className="mb-3" action={contexts.diagnostics.state==='permission-required'?<Button size="sm" className="compact-button" disabled={api.preview} onClick={()=>void api.invoke('accessibility_settings').catch(e=>setContextError(displayError(e)))}>打开辅助功能设置</Button>:undefined}/>:null}
           {contexts?.diagnostics?.state==='ready'&&contexts.diagnostics.partial?<Alert type="info" showIcon title={`已读取 ${contexts.diagnostics.readTasks??0} 条当前可访问任务，受 Arc 筛选和滚动位置影响；需要时在任务管理器中滚动后重新读取。`} className="mb-3"/>:null}
           {contexts?<>
             <div className="flex flex-wrap items-center gap-2 mb-3"><Input className="search-input" style={searchStyle} aria-label="搜索页面与对话" placeholder="搜索标题、项目目录或 PID" value={contextQuery} onChange={e=>setContextQuery(e.target.value)}/><label className="flex items-center gap-2 text-xs"><Switch aria-label="只看已关联" checked={linkedOnly} onChange={setLinkedOnly}/>只看已关联</label></div>
@@ -357,14 +371,14 @@ export function App({api,context}:{api:Api;context:Context}) {
             {contexts.diagnostics?.unmatchedTasks?<p className="muted text-xs mt-2">{contexts.diagnostics.unmatchedTasks} 条子框架、扩展、未匹配或已变化的任务未绑定到普通标签。</p>:null}
           </>:<p className="muted text-xs">{isArc?'先读取标签，或读取任务管理器以关联标签进程。':'按需读取本机近期对话及其工作进程；共享服务占用单独保留。'}</p>}
         </>}
-        {contextError?<Alert type="error" title={contextError} className="mt-3"/>:null}
-        {error?<Alert type="error" title={error} className="mt-3"/>:null}
+        {contextError?<Alert type="error" title={errorText(contextError)} description={contextError instanceof RequestError?<RequestDetails error={contextError}/>:undefined} className="mt-3"/>:null}
+        {error?<Alert type="error" title={errorText(error)} description={error instanceof RequestError?<RequestDetails error={error}/>:undefined} className="mt-3"/>:null}
         {actionNotice?<Alert type="success" title={actionNotice} className="mt-3"/>:null}
       </>:null}
     </Modal>
 
     <Modal title={rowDetail?.title??'关联进程'} open={!!rowDetail} onCancel={()=>setContextDetail(undefined)} footer={null} width={950} className="detail-modal context-detail-modal" zIndex={1100} styles={{body:{height:'min(550px,calc(100dvh - 170px))',overflow:'auto'}}}>
-      {rowDetail?<><div className="flex flex-wrap items-center gap-2 mb-3"><Tag>{rowDetail.source}</Tag><span className="numeric">足迹 {bytes(rowDetail.footprint)} · RSS {bytes(rowDetail.memory)} · CPU {cpu(rowDetail.cpu)}</span></div>{rowDetail.shared||rowDetail.ambiguous?<Alert type="warning" showIcon title={rowDetail.shared?'同一进程承载多个标签，结束可能影响它们；各标签显示的进程占用不能相加。':'存在同名标签，无法确定唯一跳转目标。此处只展示任务管理器报告的进程。'} className="mb-3"/>:null}<p className="muted text-xs mb-3">{contexts?.kind==='codex'?'仅统计携带此对话 ID 的工作进程，未包含共享界面、GPU 与服务。':'按任务管理器 PID 关联；没有把整个应用占用分摊给标签。'} 新进程需重新读取关联。</p><Table<Process> size="small" rowKey={processKey} dataSource={rowDetail.liveProcesses} columns={processColumns} scroll={{x:680}} pagination={{pageSize:8,hideOnSinglePage:true,showSizeChanger:false,size:'small'}} locale={{emptyText:rowDetail.expired?'映射已过期，请重新读取':'没有仍在运行的关联进程'}}/>{error?<Alert type="error" title={error} className="mt-3"/>:null}{actionNotice?<Alert type="success" title={actionNotice} className="mt-3"/>:null}</>:null}
+      {rowDetail?<><div className="flex flex-wrap items-center gap-2 mb-3"><Tag>{rowDetail.source}</Tag><span className="numeric">足迹 {bytes(rowDetail.footprint)} · RSS {bytes(rowDetail.memory)} · CPU {cpu(rowDetail.cpu)}</span></div>{rowDetail.shared||rowDetail.ambiguous?<Alert type="warning" showIcon title={rowDetail.shared?'同一进程承载多个标签，结束可能影响它们；各标签显示的进程占用不能相加。':'存在同名标签，无法确定唯一跳转目标。此处只展示任务管理器报告的进程。'} className="mb-3"/>:null}<p className="muted text-xs mb-3">{contexts?.kind==='codex'?'仅统计携带此对话 ID 的工作进程，未包含共享界面、GPU 与服务。':'按任务管理器 PID 关联；没有把整个应用占用分摊给标签。'} 新进程需重新读取关联。</p><Table<Process> size="small" rowKey={processKey} dataSource={rowDetail.liveProcesses} columns={processColumns} scroll={{x:680}} pagination={{pageSize:8,hideOnSinglePage:true,showSizeChanger:false,size:'small'}} locale={{emptyText:rowDetail.expired?'映射已过期，请重新读取':'没有仍在运行的关联进程'}}/>{error?<Alert type="error" title={errorText(error)} description={error instanceof RequestError?<RequestDetails error={error}/>:undefined} className="mt-3"/>:null}{actionNotice?<Alert type="success" title={actionNotice} className="mt-3"/>:null}</>:null}
     </Modal>
 
     <Modal title="进程来源" open={!!source} onCancel={()=>setSource(undefined)} footer={null} width={580} zIndex={1200} styles={{body:{maxHeight:'65dvh',overflow:'auto'}}}>

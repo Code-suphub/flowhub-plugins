@@ -285,7 +285,8 @@ test('normal transport accepts only its parent and disposes pending work',async(
 test('opaque sandbox contexts work without crypto.randomUUID',async()=>{
   const h=host('main',true);h.window.crypto={};const api=createApi(h.window);
   const request=api.invoke('snapshot'),message=h.messages[0];
-  assert.ok(message.id.startsWith('resource-'));
+  assert.match(message.id,/^[a-f0-9]{32}$/);
+  assert.equal(message.params._trace.traceId,message.id);
   h.receive({type:'flowhub:response',id:message.id,result:{at:1}});
   assert.deepEqual(await request,{at:1});api.dispose();
 });

@@ -45,9 +45,10 @@ test('publication revision handles failures and sampling updates at the same sam
  assert.equal(model.newerSnapshot({at:100,revision:10},{at:100,revision:11}),false);
  assert.equal(model.newerSnapshot({at:99},{at:100}),false);
 });
-test('main status uses the private status protocol and summary/detail requests stay scoped through both transports',async()=>{
+test('main status uses the private status protocol and summary/detail requests stay scoped through both transports',async t=>{
  for(const surface of ['main','detail']){
    const h=host(surface,surface==='detail'?'token':''),api=createApi(h.window);
+   t.after(()=>api.dispose());
    if(surface==='detail')h.receive({type:'flowhub:widget-init',token:'token',context:{config:{}}});
    const status=api.status(),message=h.messages.at(-1);
    assert.equal(surface==='main'?message.method:message.params.action,surface==='main'?'status_snapshot':'snapshot');
@@ -56,7 +57,9 @@ test('main status uses the private status protocol and summary/detail requests s
    for(const [method,params] of [['ranking_snapshot',{query:'child-pid',includeSystem:false}],['group_detail',{groupId:'only-this-group',trackedPids:[401],contextPids:[402]}],['refresh_summary',{query:''}]]){
      const request=api.invoke(method,params),message=h.messages.at(-1);
      assert.equal(surface==='main'?message.method:message.params.method,method);
-     assert.deepEqual(surface==='main'?message.params:message.params.params,params);
+     assert.deepEqual(message.params._trace,{traceId:message.id,surface});
+     const {_trace,...mainParams}=message.params;
+     assert.deepEqual(surface==='main'?mainParams:message.params.params,params);
      response(message,{at:11});assert.equal((await request).at,11);
    }
    api.dispose();

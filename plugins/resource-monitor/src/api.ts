@@ -1,28 +1,33 @@
 import {detailFrom,rankingFrom,sampleContexts,sampleScriptActivity,sampleSnapshot,statusFrom} from './model';
 import type {Api,Config,Context,GroupDetail} from './types';
+import {RequestError,requestLabel} from './errors';
 
 export function createApi(host:Window):Api {
-  const surface=host.document.body.dataset.surface;
+  const surface=host.document.body.dataset.surface??'unknown';
   const widget=surface!=='main';
   const token=new URLSearchParams(host.location.hash.slice(1)).get('flowhubWidgetToken');
   let context:Context|undefined,disposed=false,editor:(()=>Config)|undefined;
   const hosted=host.parent!==host;
   const listeners=new Set<(context:Context)=>void>();
-  type Request={resolve(value:unknown):void;reject(error:Error):void;timer:ReturnType<typeof setTimeout>;method:string;started:number;hidden:boolean};
-  const pending=new Map<string,Request>(),expired=new Map<string,Pick<Request,'method'|'started'|'hidden'>>(),failed=new Set<string>();
+  type Request={resolve(value:unknown):void;reject(error:Error):void;timer:ReturnType<typeof setTimeout>;method:string;traceId:string;started:number;hidden:boolean};
+  const pending=new Map<string,Request>(),expired=new Map<string,Pick<Request,'method'|'traceId'|'started'|'hidden'>>(),failed=new Set<string>();
   let sequence=0;
-  const requestId=()=>host.crypto.randomUUID?.()??`resource-${Date.now()}-${++sequence}`;
+  const requestId=()=>host.crypto.randomUUID?.().replaceAll('-','')??`${Date.now().toString(16).padStart(12,'0')}${(++sequence%65536).toString(16).padStart(4,'0')}${Math.random().toString(16).slice(2).padEnd(16,'0').slice(0,16)}`;
+  const metadata=(id:string)=>({traceId:id,surface});
+  function requestError(message:string,item:Pick<Request,'method'|'traceId'|'started'>,code:string){return new RequestError(message,item.method,item.traceId,surface,item.started,Math.max(0,Date.now()-item.started),code);}
   function send(message:object) {host.parent.postMessage({...message,...(widget?{token}:{})},'*');}
-  function diagnose(code:string,item:Pick<Request,'method'|'started'|'hidden'>,reason?:string){
+  function diagnose(code:string,item:Pick<Request,'method'|'traceId'|'started'|'hidden'>,reason?:string){
     if(disposed||api.preview)return;
-    const params={code,method:item.method,surface,elapsedMs:Math.max(0,Date.now()-item.started),hidden:!!host.document.hidden,hiddenAtStart:item.hidden,...(reason?{reason}:{})};
+    const params={code,method:item.method,traceId:item.traceId,surface,elapsedMs:Math.max(0,Date.now()-item.started),hidden:!!host.document.hidden,hiddenAtStart:item.hidden,...(reason?{reason}:{})};
     // Best effort, with no pending request or retry. A broken transport must not
     // recursively report itself. Never include original params or error text.
     try{send(widget?{type:'flowhub:widget-rpc',id:requestId(),params:{action:'management',method:'diagnostic_event',params}}:{type:'flowhub:request',id:requestId(),method:'diagnostic_event',params});}catch{}
   }
-  function timedOut(id:string,item:Request,message:string){
-    pending.delete(id);expired.set(id,{method:item.method,started:item.started,hidden:item.hidden});if(expired.size>32)expired.delete(expired.keys().next().value!);
-    failed.add(item.method);diagnose('timeout',item);item.reject(new Error(message));
+  function timedOut(id:string,item:Request){
+    pending.delete(id);expired.set(id,{method:item.method,traceId:item.traceId,started:item.started,hidden:item.hidden});if(expired.size>32)expired.delete(expired.keys().next().value!);
+    const action=['terminate_confirm','quit_confirm','privileged_enable','privileged_disable'].includes(item.method);
+    const message=action?'请求等待超时，操作结果尚未确认。请刷新核实状态，再决定是否重试。':`${requestLabel(item.method)}超时，请稍后刷新。`;
+    failed.add(item.method);diagnose('timeout',item);item.reject(requestError(message,item,'timeout'));
   }
   function receive(event:MessageEvent) {
     if(event.source!==host.parent||disposed)return;
@@ -35,7 +40,7 @@ export function createApi(host:Window):Api {
       pending.delete(d.id);clearTimeout(item.timer);
       if(d.error){
         const text=String(d.error),reason=text.includes('组件刷新已暂停')?'paused':/插件进程已退出|插件连接已关闭|插件连接已断开/.test(text)?'backend_closed':text.includes('超时')?'timeout':/请求过多|操作过多/.test(text)?'busy':text.includes('数据过大')?'oversized':text.includes('采样版本已更新')?'revision_changed':'request_failed';
-        failed.add(item.method);diagnose('response_error',item,reason);item.reject(new Error(text));
+        failed.add(item.method);diagnose('response_error',item,reason);item.reject(requestError(text,item,reason));
       }
       else{if(failed.delete(item.method))diagnose('recovered',item);item.resolve(d.result);}
     }
@@ -62,10 +67,10 @@ export function createApi(host:Window):Api {
       }
       return new Promise<T>((resolve,reject)=>{
         const timeout=method==='privileged_enable'||method==='privileged_disable'?300000:20000;
-        const id=requestId(),timer=setTimeout(()=>{const item=pending.get(id);if(item)timedOut(id,item,'插件响应超时，请刷新核实状态');},timeout);
-        const item:Request={resolve:value=>resolve(value as T),reject,timer,method,started:Date.now(),hidden:!!host.document.hidden};pending.set(id,item);
-        try {send(widget?{type:'flowhub:widget-rpc',id,params:{action:'management',method,params}}:{type:'flowhub:request',id,method,params});}
-        catch {clearTimeout(timer);pending.delete(id);failed.add(method);diagnose('send_failed',item);reject(new Error('无法连接 FlowHub'));}
+        const id=requestId(),timer=setTimeout(()=>{const item=pending.get(id);if(item)timedOut(id,item);},timeout);
+        const item:Request={resolve:value=>resolve(value as T),reject,timer,method,traceId:id,started:Date.now(),hidden:!!host.document.hidden};pending.set(id,item);
+        try {send(widget?{type:'flowhub:widget-rpc',id,params:{action:'management',method,params,_trace:metadata(id)}}:{type:'flowhub:request',id,method,params:{...params,_trace:metadata(id)}});}
+        catch {clearTimeout(timer);pending.delete(id);failed.add(method);diagnose('send_failed',item);reject(requestError('无法连接 FlowHub',item,'send_failed'));}
       });
     },
     async status(){
@@ -74,10 +79,10 @@ export function createApi(host:Window):Api {
       if(api.preview)return statusFrom(sampleSnapshot());
       if(!widget)return api.invoke('status_snapshot');
       return new Promise((resolve,reject)=>{
-        const id=requestId(),timer=setTimeout(()=>{const item=pending.get(id);if(item)timedOut(id,item,'状态读取超时');},20000);
-        const item:Request={resolve:value=>resolve(value as Awaited<ReturnType<Api['status']>>),reject,timer,method:'status_snapshot',started:Date.now(),hidden:!!host.document.hidden};pending.set(id,item);
-        try{send({type:'flowhub:widget-rpc',id,params:{action:'snapshot'}});}
-        catch{clearTimeout(timer);pending.delete(id);failed.add(item.method);diagnose('send_failed',item);reject(new Error('无法连接 FlowHub'));}
+        const id=requestId(),timer=setTimeout(()=>{const item=pending.get(id);if(item)timedOut(id,item);},20000);
+        const item:Request={resolve:value=>resolve(value as Awaited<ReturnType<Api['status']>>),reject,timer,method:'status_snapshot',traceId:id,started:Date.now(),hidden:!!host.document.hidden};pending.set(id,item);
+        try{send({type:'flowhub:widget-rpc',id,params:{action:'snapshot',_trace:metadata(id)}});}
+        catch{clearTimeout(timer);pending.delete(id);failed.add(item.method);diagnose('send_failed',item);reject(requestError('无法连接 FlowHub',item,'send_failed'));}
       });
     },
     subscribe(fn){listeners.add(fn);if(context)fn(context);return()=>{listeners.delete(fn);};},

@@ -2,11 +2,15 @@
 //! search text, window titles, tokens, or the raw contents of remote errors.
 use serde_json::{json, Map, Value};
 use std::{
+    collections::HashMap,
     fs::{File, OpenOptions},
     io::Write,
     os::unix::fs::OpenOptionsExt,
     path::{Path, PathBuf},
-    sync::{mpsc, Arc, Mutex, OnceLock},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        mpsc, Arc, Mutex, OnceLock,
+    },
     time::{Duration, Instant},
 };
 
@@ -15,6 +19,7 @@ static LOGGER: OnceLock<Logger> = OnceLock::new();
 struct Logger {
     sender: mpsc::SyncSender<Message>,
     state: Arc<Mutex<State>>,
+    dropped: Arc<AtomicU64>,
 }
 enum Message {
     Event(Value),
@@ -47,10 +52,12 @@ pub fn init() {
     let path = PathBuf::from(data).join("diagnostics.jsonl");
     let (sender, receiver) = mpsc::sync_channel(128);
     let state = Arc::new(Mutex::new(State::default()));
+    let dropped = Arc::new(AtomicU64::new(0));
     if LOGGER
         .set(Logger {
             sender,
             state: state.clone(),
+            dropped: dropped.clone(),
         })
         .is_err()
     {
@@ -58,14 +65,41 @@ pub fn init() {
     }
     std::thread::spawn(move || {
         let mut output = LogFile::new(path, MAX_BYTES);
+        let mut repeats = Repeats::default();
+        let mut last_drops = Instant::now();
         loop {
             match receiver.recv_timeout(Duration::from_secs(1)) {
-                Ok(Message::Event(value)) => output.write(&value),
+                Ok(Message::Event(value)) => {
+                    let now = Instant::now();
+                    for value in repeats.due(now, false) {
+                        output.write(&value);
+                    }
+                    if let Some(value) = repeats.accept(value, now) {
+                        output.write(&value);
+                    }
+                }
                 Ok(Message::Flush(done)) => {
+                    for value in repeats.due(Instant::now(), true) {
+                        output.write(&value);
+                    }
+                    let count = dropped.swap(0, Ordering::Relaxed);
+                    if count > 0 {
+                        output.write(&record("diagnostic_queue_dropped", json!({"count":count})));
+                    }
                     let _ = done.send(());
                 }
                 Err(mpsc::RecvTimeoutError::Disconnected) => break,
                 Err(mpsc::RecvTimeoutError::Timeout) => {}
+            }
+            for value in repeats.due(Instant::now(), false) {
+                output.write(&value);
+            }
+            if last_drops.elapsed() >= Duration::from_secs(60) {
+                let count = dropped.swap(0, Ordering::Relaxed);
+                last_drops = Instant::now();
+                if count > 0 {
+                    output.write(&record("diagnostic_queue_dropped", json!({"count":count})));
+                }
             }
             // Drop the sampler state lock before any filesystem operation.
             let stalled = { state.lock().unwrap_or_else(|p| p.into_inner()).stalled() };
@@ -89,9 +123,88 @@ pub fn init() {
         previous(info);
     }));
 }
+// Keep individual failed RPC traces searchable. Only repeated background
+// collection/connection events are coalesced, with a one-minute count summary.
+#[derive(Default)]
+struct Repeats {
+    entries: HashMap<String, Repeat>,
+}
+struct Repeat {
+    at: Instant,
+    count: u64,
+    last: Value,
+}
+impl Repeats {
+    fn accept(&mut self, value: Value, now: Instant) -> Option<Value> {
+        let name = value["event"].as_str().unwrap_or("");
+        if !matches!(
+            name,
+            "sample_completed"
+                | "sample_failed"
+                | "sample_stalled"
+                | "helper_connected"
+                | "helper_unavailable"
+        ) {
+            return Some(value);
+        }
+        let data = &value["data"];
+        if data["changed"] == true {
+            return Some(value);
+        }
+        let key = format!(
+            "{name}:{}:{}:{}",
+            data["status"], data["error"], data["phase"]
+        );
+        if let Some(previous) = self.entries.get_mut(&key) {
+            if now.duration_since(previous.at) < Duration::from_secs(60) {
+                previous.count = previous.count.saturating_add(1);
+                previous.last = value;
+                return None;
+            }
+        }
+        // The key fields are generated internally, but cap memory as well.
+        if self.entries.len() >= 64 && !self.entries.contains_key(&key) {
+            if let Some(oldest) = self
+                .entries
+                .iter()
+                .min_by_key(|(_, v)| v.at)
+                .map(|(k, _)| k.clone())
+            {
+                self.entries.remove(&oldest);
+            }
+        }
+        self.entries.insert(
+            key,
+            Repeat {
+                at: now,
+                count: 0,
+                last: value.clone(),
+            },
+        );
+        Some(value)
+    }
+    fn due(&mut self, now: Instant, force: bool) -> Vec<Value> {
+        let keys: Vec<_> = self
+            .entries
+            .iter()
+            .filter(|(_, v)| force || now.duration_since(v.at) >= Duration::from_secs(60))
+            .map(|(k, _)| k.clone())
+            .collect();
+        keys.into_iter().filter_map(|key|{
+            let entry=self.entries.remove(&key)?;
+            (entry.count>0).then(||record("diagnostic_repeats",json!({"event":entry.last["event"],"suppressed":entry.count,"lastAt":entry.last["at"],"last":entry.last["data"]})))
+        }).collect()
+    }
+}
 pub fn event(name: &str, data: Value) {
     if let Some(logger) = LOGGER.get() {
-        let _ = logger.sender.try_send(Message::Event(record(name, data)));
+        if logger
+            .sender
+            .try_send(Message::Event(record(name, data)))
+            .is_err()
+        {
+            logger.dropped.fetch_add(1, Ordering::Relaxed);
+        }
     }
 }
 pub fn flush() {
@@ -188,14 +301,15 @@ pub fn helper(result: Result<usize, &str>, elapsed_ms: u64) {
             .as_ref()
             .map(|_| "connected")
             .unwrap_or_else(|code| *code);
-        if state.helper.as_deref() != Some(status) || elapsed_ms >= 1000 {
+        let changed = state.helper.as_deref() != Some(status);
+        if changed || elapsed_ms >= 1000 {
             event(
                 if result.is_ok() {
                     "helper_connected"
                 } else {
                     "helper_unavailable"
                 },
-                json!({"status":status,"elapsedMs":elapsed_ms,"processes":result.ok()}),
+                json!({"status":status,"elapsedMs":elapsed_ms,"processes":result.ok(),"changed":changed}),
             );
         }
         state.helper = Some(status.into());
@@ -229,6 +343,29 @@ pub fn method(name: &str) -> &str {
         _ => "unknown",
     }
 }
+pub fn trace_id(value: &Value) -> Option<&str> {
+    value.as_str().filter(|id| {
+        id.len() == 32
+            && id
+                .bytes()
+                .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
+    })
+}
+fn surface(value: &Value) -> &str {
+    match value.as_str() {
+        Some(s @ ("main" | "card" | "detail" | "editor")) => s,
+        _ => "unknown",
+    }
+}
+pub fn request(req: &Value) -> Value {
+    let params = &req["params"];
+    let name = if req["method"] == "widget_api" {
+        params["method"].as_str().unwrap_or("status_snapshot")
+    } else {
+        req["method"].as_str().unwrap_or("")
+    };
+    json!({"method":method(name),"traceId":trace_id(&params["_trace"]["traceId"]),"surface":surface(&params["_trace"]["surface"]),"backendRequestId":req["id"].as_u64()})
+}
 pub fn client(params: &Value) -> Result<Value, String> {
     let code = match params["code"].as_str() {
         Some(
@@ -236,10 +373,7 @@ pub fn client(params: &Value) -> Result<Value, String> {
         ) => code,
         _ => return Err("诊断事件无效".into()),
     };
-    let surface = match params["surface"].as_str() {
-        Some(s @ ("main" | "card" | "detail" | "editor")) => s,
-        _ => "unknown",
-    };
+    let surface = surface(&params["surface"]);
     let reason = match params["reason"].as_str() {
         Some(
             reason @ ("paused" | "backend_closed" | "timeout" | "busy" | "oversized"
@@ -249,7 +383,7 @@ pub fn client(params: &Value) -> Result<Value, String> {
     };
     event(
         "client_request",
-        json!({"code":code,"reason":reason,"surface":surface,"method":method(params["method"].as_str().unwrap_or("")),
+        json!({"code":code,"reason":reason,"surface":surface,"method":method(params["method"].as_str().unwrap_or("")),"traceId":trace_id(&params["traceId"]),
         "elapsedMs":params["elapsedMs"].as_u64().map(|v|v.min(86_400_000)),"hidden":params["hidden"].as_bool(),"hiddenAtStart":params["hiddenAtStart"].as_bool()}),
     );
     Ok(json!({"recorded":true}))
@@ -260,6 +394,7 @@ struct LogFile {
     limit: u64,
     file: Option<File>,
     bytes: u64,
+    retry_after: Option<Instant>,
 }
 impl LogFile {
     fn new(path: PathBuf, limit: u64) -> Self {
@@ -268,6 +403,7 @@ impl LogFile {
             limit,
             file: None,
             bytes: 0,
+            retry_after: None,
         }
     }
     fn open(&mut self) -> std::io::Result<()> {
@@ -285,6 +421,10 @@ impl LogFile {
         Ok(())
     }
     fn write(&mut self, value: &Value) {
+        if self.retry_after.is_some_and(|at| Instant::now() < at) {
+            return;
+        }
+        self.retry_after = None;
         let mut bytes = value.to_string().into_bytes();
         bytes.push(b'\n');
         let result = (|| -> std::io::Result<()> {
@@ -302,6 +442,7 @@ impl LogFile {
         })();
         if let Err(error) = result {
             self.file.take();
+            self.retry_after = Some(Instant::now() + Duration::from_secs(10));
             eprintln!(
                 "resource-monitor diagnostics write failed: {:?}",
                 error.kind()
@@ -316,6 +457,72 @@ fn previous_path(path: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn request_traces_cross_widget_and_main_without_logging_parameters() {
+        let trace = "0123456789abcdef0123456789abcdef";
+        for request in [
+            json!({"id":7,"method":"terminate_confirm","params":{"token":"secret","_trace":{"traceId":trace,"surface":"main"}}}),
+            json!({"id":8,"method":"widget_api","params":{"action":"management","method":"terminate_confirm","params":{"token":"secret"},"_trace":{"traceId":trace,"surface":"detail"}}}),
+        ] {
+            let data = super::request(&request);
+            assert_eq!(data["traceId"], trace);
+            assert_eq!(data["method"], "terminate_confirm");
+            assert!(!data.to_string().contains("secret"));
+        }
+        let invalid = super::request(
+            &json!({"id":"/private/secret","method":"/private/secret","params":{"_trace":{"traceId":"/private/secret","surface":"/private/secret"}}}),
+        );
+        assert!(invalid["traceId"].is_null());
+        assert!(invalid["backendRequestId"].is_null());
+        assert!(!invalid.to_string().contains("private"));
+        assert!(trace_id(&json!("a".repeat(33))).is_none());
+    }
+    #[test]
+    fn repeated_background_failures_are_summarized_but_rpc_traces_are_kept() {
+        let mut repeats = Repeats::default();
+        let start = Instant::now();
+        let failure = record("sample_failed", json!({"error":"fixed-error"}));
+        assert!(repeats.accept(failure.clone(), start).is_some());
+        for seconds in [5, 10, 15] {
+            assert!(repeats
+                .accept(failure.clone(), start + Duration::from_secs(seconds))
+                .is_none());
+        }
+        assert!(repeats
+            .accept(
+                record("sample_recovered", json!({})),
+                start + Duration::from_secs(20)
+            )
+            .is_some());
+        for _ in 0..100 {
+            assert!(repeats
+                .accept(
+                    record(
+                        "client_request",
+                        json!({"code":"timeout","traceId":"0123456789abcdef0123456789abcdef"})
+                    ),
+                    start
+                )
+                .is_some());
+        }
+        assert!(repeats
+            .due(start + Duration::from_secs(59), false)
+            .is_empty());
+        let summaries = repeats.due(start + Duration::from_secs(60), false);
+        assert_eq!(summaries.len(), 1);
+        assert_eq!(summaries[0]["data"]["suppressed"], 3);
+        assert_eq!(summaries[0]["data"]["event"], "sample_failed");
+        assert!(repeats
+            .accept(failure, start + Duration::from_secs(60))
+            .is_some());
+        for n in 0..100 {
+            repeats.accept(
+                record("helper_unavailable", json!({"status":format!("fixed-{n}")})),
+                start,
+            );
+        }
+        assert!(repeats.entries.len() <= 64);
+    }
     #[test]
     fn bounded_logs_rotate_and_remain_private() {
         use std::os::unix::fs::PermissionsExt;

@@ -60,5 +60,8 @@
   .widget-row:hover:not(:disabled) {background:var(--fh-surface-soft)}
   .text-link {border:0;padding:4px 0;background:transparent;color:var(--fh-accent);font-size:12px}
   .text-link:disabled {opacity:.5}
+  .request-diagnostics {color:var(--fh-muted);overflow-wrap:anywhere}
+  .request-diagnostics summary {cursor:pointer;color:var(--fh-accent)}
+  .request-report {display:block;width:100%;margin-top:4px;padding:6px;border:1px solid var(--fh-border);border-radius:4px;background:var(--fh-surface);color:var(--fh-text);font:11px ui-monospace,Menlo,monospace;resize:vertical}
   @media(max-width:520px) {.search-input {width:100%}.system-strip {gap:8px}.system-strip>div {display:grid;gap:5px}.system-strip strong {font-size:14px}.compact-button {min-height:32px}.detail-modal {top:12px}}
 }

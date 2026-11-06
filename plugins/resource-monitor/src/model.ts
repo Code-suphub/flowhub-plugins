@@ -3,7 +3,7 @@ import type {ApplicationState,Config,ContextEntry,Group,GroupDetail,GroupSummary
 export function instanceStopReason(group:Group,instance:NonNullable<Group['instances']>[number]) {
   if(instance.canTerminate)return '';
   const protectedMembers=group.processes.filter(p=>p.instanceId===instance.id&&p.protected&&!p.exited);
-  if(protectedMembers.some(p=>p.uid===0))return 'root 进程：当前授权仅用于采集，不支持结束。';
+  if(protectedMembers.some(p=>p.uid===0)&&protectedMembers.every(p=>!p.protection||p.protection==='其他用户或系统账户'))return 'root 进程：当前授权仅用于采集，不支持结束。';
   const reasons=[...new Set(protectedMembers.map(p=>p.protection).filter(Boolean))];
   return reasons.length?reasons.join('；'):'此实例含受保护进程，可查看进程了解原因。';
 }
@@ -100,7 +100,7 @@ export function rankingFrom(snapshot:Snapshot,query='',includeSystem=true):Ranki
     presentation:presentation?{name:presentation.name,sources:presentation.sources}:presentation,
     processCount:processes.length,instanceCount:instances?.length??0,onlyInstanceId:instances?.length===1?instances[0].id:null,
     permissionLimited:processes.length>0&&processes.every(p=>p.protection.startsWith('当前用户权限不足')),
-    hasRestrictedProcesses:processes.some(p=>p.protection==='其他用户或系统账户'||p.protection.startsWith('当前用户权限不足'))}));
+    hasRestrictedProcesses:processes.some(p=>p.uid===0||p.protection.includes('其他用户')||p.protection.startsWith('当前用户权限不足'))}));
   return {...snapshot,groups:groups.filter(g=>includeSystem||!g.system),includeSystem,hasRestrictedProcesses:groups.some(g=>g.hasRestrictedProcesses),query:q,matchedGroupIds:q?filterGroups(snapshot.groups,q,true,'footprint').map(g=>g.id):[]};
 }
 export function detailFrom(snapshot:Snapshot,groupId:string,trackedPids:readonly number[]=[],contextPids:readonly number[]=[]):GroupDetail {

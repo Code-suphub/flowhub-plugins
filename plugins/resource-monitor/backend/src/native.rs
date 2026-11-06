@@ -22,9 +22,15 @@ struct PrivilegedProcess {
     memory: Option<u64>,
     footprint: Option<u64>,
     cpu_time: u64,
+    #[serde(default)]
+    control_eligible: bool,
 }
 
-fn privileged_processes() -> Result<Vec<PrivilegedProcess>, &'static str> {
+#[derive(serde::Deserialize)]
+#[serde(rename_all="camelCase")]
+struct PrivilegedSnapshot {processes:Vec<PrivilegedProcess>,#[serde(default)] control_allowed:bool,at:Option<u64>}
+
+fn privileged_processes() -> Result<PrivilegedSnapshot, &'static str> {
     let mut stream = UnixStream::connect("/var/run/cn.ac.camellia.flowhub.resource-monitor.sock").map_err(|error|if error.kind()==std::io::ErrorKind::NotFound {"not_installed"} else {"connect_failed"})?;
     let mut peer_uid = 0;
     let mut peer_gid = 0;
@@ -41,17 +47,20 @@ fn privileged_processes() -> Result<Vec<PrivilegedProcess>, &'static str> {
         .map_err(|error|match error.kind(){std::io::ErrorKind::TimedOut|std::io::ErrorKind::WouldBlock=>"read_timeout",_=>"read_failed"})?;
     if response.len()>4*1024*1024{return Err("response_too_large");}
     let value: serde_json::Value = serde_json::from_str(&response).map_err(|_|"invalid_json")?;
-    serde_json::from_value(value.get("processes").ok_or("missing_processes")?.clone()).map_err(|_|"invalid_processes")
+    let snapshot:PrivilegedSnapshot=serde_json::from_value(value).map_err(|_|"invalid_processes")?;
+    if snapshot.at.is_some_and(|at|at==0||crate::now().saturating_sub(at)>10_000){return Err("stale_snapshot");}
+    Ok(snapshot)
 }
 
 fn merge_privileged(result: &mut Vec<Process>, own_uid: u32) {
     let started=std::time::Instant::now();
     let records=privileged_processes();
-    crate::diagnostics::helper(records.as_ref().map(Vec::len).map_err(|code|*code),started.elapsed().as_millis() as u64);
+    crate::diagnostics::helper(records.as_ref().map(|s|s.processes.len()).map_err(|code|*code),started.elapsed().as_millis() as u64);
     let Ok(records) = records else {
         return;
     };
-    for record in records {
+    let allow_control=records.control_allowed;
+    for record in records.processes {
         if record.pid <= 0 || record.executable.is_empty() || record.started == 0 {
             continue;
         }
@@ -70,8 +79,11 @@ fn merge_privileged(result: &mut Vec<Process>, own_uid: u32) {
             process.role = "进程".into();
             process.attribution = "特权采集 · 可执行路径校验".into();
             if record.uid != own_uid {
-                process.protected = true;
-                process.protection = "其他用户或系统账户".into();
+                let protection=privileged_protection(record.uid,&record.executable,allow_control,record.control_eligible);
+                // Root authorization never removes host/core-process safeguards.
+                if process.protection!="FlowHub 及其宿主进程"&&process.protection!="系统进程" {
+                    process.protected=!protection.is_empty();process.protection=protection.into();
+                }
             }
         } else if record.uid != own_uid && pid_path(record.pid).as_deref() == Some(&record.executable) {
             // Include inaccessible other-user processes only after the root sampler and
@@ -99,8 +111,8 @@ fn merge_privileged(result: &mut Vec<Process>, own_uid: u32) {
                 cwd: String::new(),
                 role: "进程".into(),
                 avd: String::new(),
-                protected: true,
-                protection: "其他用户或系统账户".into(),
+                protected: !privileged_protection(record.uid,&record.executable,allow_control,record.control_eligible).is_empty(),
+                protection: privileged_protection(record.uid,&record.executable,allow_control,record.control_eligible).into(),
                 parent_name: String::new(),
                 group_id: String::new(),
                 instance_id: String::new(),
@@ -109,6 +121,31 @@ fn merge_privileged(result: &mut Vec<Process>, own_uid: u32) {
             });
         }
     }
+}
+
+fn privileged_protection(uid:u32,path:&str,allowed:bool,eligible:bool)->&'static str {
+    if uid!=0 {return "其他用户进程，不在授权操作范围内";}
+    if path.starts_with("/System/")||path.starts_with("/usr/libexec/")||path.starts_with("/usr/sbin/")||path.starts_with("/sbin/")||path.starts_with("/bin/")||path.starts_with("/usr/bin/")||path.contains("/FlowHub.app/")||path.contains("/cn.ac.camellia.flowhub.resource-monitor/") {return "系统或宿主进程，禁止结束";}
+    if !allowed {return "root 进程控制尚未授权：请升级进程服务";}
+    if !eligible {return "此 root 进程受保护或不在可操作范围内";}
+    ""
+}
+pub fn terminate_privileged(targets:&[Identity],force:bool)->Result<Vec<Value>,String> {
+    if targets.is_empty(){return Ok(vec![]);}
+    let mut stream=UnixStream::connect("/var/run/cn.ac.camellia.flowhub.resource-monitor.sock").map_err(|_|"进程服务未连接，请刷新核实授权状态")?;
+    let (mut peer_uid,mut peer_gid)=(0,0);
+    if unsafe{libc::getpeereid(stream.as_raw_fd(),&mut peer_uid,&mut peer_gid)}!=0||peer_uid!=0 {return Err("进程服务身份校验失败".into());}
+    stream.set_read_timeout(Some(Duration::from_secs(5))).map_err(|_|"无法配置进程服务连接")?;
+    stream.set_write_timeout(Some(Duration::from_secs(2))).map_err(|_|"无法配置进程服务连接")?;
+    let request=json!({"method":"terminate","targets":targets,"force":force,"confirmed":true}).to_string()+"\n";
+    stream.write_all(request.as_bytes()).map_err(|_|"结束请求未确认，请刷新核实状态；不会自动重试")?;
+    let mut response=String::new();stream.take(65537).read_to_string(&mut response).map_err(|_|"结束请求未确认，请刷新核实状态；不会自动重试")?;
+    if response.len()>65536{return Err("进程服务回复过大，请刷新核实状态".into());}
+    let value:Value=serde_json::from_str(&response).map_err(|_|"结束结果无法读取，请刷新核实状态")?;
+    if let Some(error)=value["error"].as_str(){return Err(error.chars().take(250).collect());}
+    let results=value["results"].as_array().ok_or("进程服务未返回结束结果")?;
+    if results.len()!=targets.len()||results.iter().zip(targets).any(|(r,t)|r["pid"]!=t.pid){return Err("进程服务返回的目标不匹配，请刷新核实状态".into());}
+    Ok(results.clone())
 }
 
 pub fn uid() -> u32 {
@@ -430,6 +467,17 @@ fn metadata(pid: i32, exe: &str) -> (String, String) {
 #[cfg(test)]
 mod argument_tests {
     use super::*;
+    #[test]
+    fn root_control_needs_both_helper_authorization_and_eligible_target_without_removing_core_guards() {
+        let vivo="/Applications/pcsuite.app/Contents/Resources/vivo_remote_watch";
+        assert!(privileged_protection(0,vivo,true,true).is_empty());
+        assert!(privileged_protection(0,vivo,false,true).contains("尚未授权"));
+        assert!(!privileged_protection(0,vivo,true,false).is_empty());
+        for path in ["/System/Library/core","/usr/bin/tool","/Applications/FlowHub.app/helper","/Library/PrivilegedHelperTools/cn.ac.camellia.flowhub.resource-monitor/daemon"] {
+            assert!(!privileged_protection(0,path,true,true).is_empty());
+        }
+        assert!(!privileged_protection(502,vivo,true,true).is_empty());
+    }
     fn arguments(env: &[u8]) -> Vec<u8> {
         let mut result = 2_i32.to_ne_bytes().to_vec();
         result.extend_from_slice(b"/usr/bin/tool\0\0\0tool\0--flag\0");

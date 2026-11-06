@@ -83,3 +83,18 @@ test('detail bulk action switches from all operable instances to explicit checkb
  assert.equal(view.calls.some(call=>call.method==='terminate_confirm'),false,'selection must only prepare a reviewable plan');
  request.reject(Error('fixture cancelled'));await view.settle();
 });
+
+test('authorization status has one in-flight query and a timeout preserves known approval',async t=>{
+ const view=fixture(t),full=snapshot();full.groups[0].processes[0].uid=0;
+ view.calls.find(call=>call.method==='ranking_snapshot').resolve(model.rankingFrom(full,'',false));await view.settle();
+ const queries=()=>view.calls.filter(call=>call.method==='privileged_status');
+ assert.equal(queries().length,1);
+ for(let i=0;i<3;i++)await view.advance(5000);
+ assert.equal(queries().length,1,'slow status requests must not accumulate');
+ queries()[0].resolve({ok:true,status:'enabled',rootControl:true,message:'control approved'});await view.settle();
+ await view.advance(5000);assert.equal(queries().length,2);
+ queries()[1].reject(Error('temporary timeout'));await view.settle();
+ assert.ok(view.nodes('Alert').some(node=>node.props.title==='control approved'));
+ assert.equal(view.nodes('Button').some(node=>node.props.children==='管理员授权安装'),false);
+ assert.ok(view.nodes('p').some(node=>node.props.role==='status'&&String(node.props.children).includes('自动重试')));
+});

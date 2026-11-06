@@ -1,5 +1,8 @@
 import {useEffect,useRef,useState} from 'react';
 import {Alert,Descriptions,Drawer,Empty,Tabs,Tag} from 'antd';
+import {RequestDetails} from './RequestDetails';
+import {displayError,errorText,RequestError} from './errors';
+import type {DisplayError} from './errors';
 import {Button} from '@flowhub/plugin-common/react';
 import {AppMark,applicationIdentity,useApplications} from './applications';
 import type {Api,ScriptActivity,ScriptNode} from './types';
@@ -7,7 +10,7 @@ import type {Api,ScriptActivity,ScriptNode} from './types';
 const date=(at:number)=>at?new Date(at).toLocaleTimeString():'未读取';
 export function ScriptDrawer({api,onClose}:{api:Api;onClose:()=>void}) {
   const [data,setData]=useState<ScriptActivity>();
-  const [error,setError]=useState('');
+  const [error,setError]=useState<DisplayError>('');
   const [loading,setLoading]=useState(false);
   const [filter,setFilter]=useState('all');
   const [expanded,setExpanded]=useState<string>();
@@ -23,7 +26,7 @@ export function ScriptDrawer({api,onClose}:{api:Api;onClose:()=>void}) {
       try {
         const next=await api.invoke<ScriptActivity>('script_activity');
         if(alive){setData(previous=>!previous||(next.revision??next.at)>=(previous.revision??previous.at)?next:previous);setError('');}
-      } catch(reason){if(alive)setError(String(reason));}
+      } catch(reason){if(alive)setError(displayError(reason));}
       finally{running=false;if(alive){setLoading(false);timer=setTimeout(read,5000);}}
     }
     refresh.current=()=>void read();
@@ -36,7 +39,7 @@ export function ScriptDrawer({api,onClose}:{api:Api;onClose:()=>void}) {
   return <Drawer title="脚本来源" open placement="right" onClose={onClose} size="large" styles={{wrapper:{width:'min(620px,100vw)'},body:{padding:16},header:{padding:16}}} className="script-drawer">
     <p className="muted text-xs mb-3">{api.preview?'只读预览 · 模拟记录。':''}查看 AppleScript / 自动操作的来源线索。脚本运行不代表正在请求管理员授权。</p>
     <div className="flex items-center justify-between gap-2 mb-3"><span className="muted text-xs">{data?.at?`${date(data.at)} 采样${stale?' · 数据可能已过期':''}`:'正在读取脚本活动…'}</span><Button size="sm" className="compact-button" disabled={loading} onClick={()=>refresh.current()}>{loading?'读取中…':'刷新记录'}</Button></div>
-    {error||data?.error?<Alert type="warning" showIcon title={error||data?.error} className="mb-3"/>:null}
+    {error||data?.error?<Alert type="warning" showIcon title={errorText(error||data?.error)} description={error instanceof RequestError?<RequestDetails error={error}/>:undefined} className="mb-3"/>:null}
     <Tabs activeKey={filter} onChange={setFilter} items={[{key:'all',label:`近期记录 (${records.length})`},{key:'running',label:`本次采样可见 (${records.filter(r=>r.running).length})`}]}/>
     {!visible.length&&!loading?<Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={filter==='running'?'本次采样未发现脚本工具':'尚未记录到脚本活动'}/>:null}
     <div className="script-records">{visible.map(record=>{
