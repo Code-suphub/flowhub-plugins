@@ -8,5 +8,8 @@ const target='bin/.flowhub-device-center-'+process.pid;
 copyFileSync('backend/target/release/flowhub-device-center',target);
 chmodSync(target,0o700);
 renameSync(target,'bin/flowhub-device-center');
+execFileSync('xcrun',['swiftc','-O','-module-cache-path','backend/target/swift-cache','native/system-icons.swift','-o','bin/flowhub-device-icons'],{stdio:'inherit'});
 execFileSync(process.execPath,[fileURLToPath(new URL('../../../scripts/package-plugin.mjs',import.meta.url)),'device-center'],{stdio:'inherit'});
+copyFileSync('bin/flowhub-device-icons','build/bin/flowhub-device-icons');
+chmodSync('build/bin/flowhub-device-icons',0o700);
 execFileSync(process.execPath,['../../scripts/check-built-ui.mjs','build'],{stdio:'inherit'});
