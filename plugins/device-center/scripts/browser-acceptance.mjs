@@ -66,6 +66,8 @@ try{
  const wait=async(expression,ms=8000)=>{const start=Date.now();while(Date.now()-start<ms){if(await evaluate(expression))return;await sleep(50);}throw Error('Timed out: '+expression);};
  const check=async(expression,label)=>{if(!await evaluate(expression))throw Error(label);report.checks.push(label);};
  const click=async(selector,focus=true)=>{await evaluate(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e)throw Error('Missing control');${focus?'e.focus();':''}e.click()})()`);await sleep(70);};
+ // The test iframe fills this headless viewport; CDP movement never moves the system mouse.
+ const hover=async selector=>{await send('Input.dispatchMouseEvent',{type:'mouseMoved',x:1,y:1});const point=await evaluate(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});e.scrollIntoView({block:'nearest'});const r=e.getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2}})()`);await send('Input.dispatchMouseEvent',{type:'mouseMoved',...point});await sleep(70);};
  const fill=async value=>{await evaluate(`(()=>{const e=document.querySelector('input[aria-label="搜索设备"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,${JSON.stringify(value)});e.dispatchEvent(new Event('input',{bubbles:true}))})()`);await sleep(70);};
  const size=(width,height=560)=>send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:2,mobile:false});
  const keyboard=async(key,code=key,vk=0,modifiers=0)=>{await send('Input.dispatchKeyEvent',{type:'keyDown',key,code,windowsVirtualKeyCode:vk,modifiers});await send('Input.dispatchKeyEvent',{type:'keyUp',key,code,windowsVirtualKeyCode:vk,modifiers});await sleep(80);};
@@ -95,6 +97,22 @@ try{
  await wait('document.querySelector("dialog").textContent.includes("设备已离开当前连接列表")',8500);report.checks.push('device removal is explicit while detail stays open');await keyboard('Escape','Escape',27);
  await parent('window.__qa.snapshot='+JSON.stringify(fixture()));await refresh();
  await tab('power');await check('document.querySelector(".dc-power-metrics").textContent.includes("25.4") && !document.querySelector(".dc-power-facts").textContent.includes("25.4")','power readings and adapter specification stay separate');await capture('power-light');
+ const help='button[aria-label="功率与采样说明"]';
+ const helpExpanded=`document.querySelector(${JSON.stringify(help)}).getAttribute('aria-expanded')==='true'`;
+ await hover(help);
+ await wait(helpExpanded);
+ await check(`document.activeElement!==document.querySelector(${JSON.stringify(help)})`,'pointer-opened help starts without trigger focus');
+ await keyboard('Escape','Escape',27);
+ await check(`!(${helpExpanded}) && document.activeElement===document.querySelector(${JSON.stringify(help)}) && !document.querySelector('.fh-help__content')`,'one Escape closes pointer-opened help and restores trigger focus');
+ await keyboard(' ','Space',32);await wait(helpExpanded);
+ await keyboard('Escape','Escape',27);
+ await check(`!(${helpExpanded}) && document.activeElement===document.querySelector(${JSON.stringify(help)})`,'one Escape closes keyboard-opened help');
+ await evaluate(`document.querySelector('[aria-label="刷新设备"]').focus();document.querySelector(${JSON.stringify(help)}).focus()`);await wait(helpExpanded);
+ await keyboard('Escape','Escape',27);
+ await check(`!(${helpExpanded})`,'help can reopen on a later focus and still close once');
+ await hover(help);await wait(helpExpanded);
+ await keyboard('Escape','Escape',27);
+ await check(`!(${helpExpanded})`,'help can reopen on later pointer entry and still close once');
  await parent('window.__qa.snapshot.power={externalConnected:true,batteryPresent:false,source:"外接电源",sampledAt:Date.now()}');await refresh();
  await check('document.querySelectorAll(".dc-metric-number.is-unknown").length===3 && document.querySelector(".dc-power").textContent.includes("无内置电池")','missing desktop telemetry never becomes zero');
  await parent('window.__qa.snapshot='+JSON.stringify(fixture('unplugged')));await refresh();await check('document.querySelector(".dc-power").textContent.includes("电池放电") && document.querySelectorAll(".dc-metric-number.is-unknown").length===1','unplugged state drops cached input');
