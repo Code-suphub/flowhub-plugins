@@ -10,7 +10,7 @@ export function ImportAccount({api,accounts,onClose,onSaved}:{api:TwofaApi;accou
   const input=useRef<HTMLInputElement>(null),pending=useRef(false),saving=useRef(false),capturing=useRef(false),alive=useRef(true),request=useRef(0),composing=useRef(false),imeEnded=useRef(-Infinity);
   useEffect(()=>()=>{alive.current=false;request.current++;},[]);
   const duplicate=accounts.some(account=>account.name===name.trim()),busy=phase!==null;
-  useEffect(()=>{if(!busy && restoreInput.current){restoreInput.current=false;(preview?nameInput:input).current?.focus({preventScroll:true});}},[busy,preview]);
+  useEffect(()=>{if(!busy && restoreInput.current){restoreInput.current=false;(preview?nameInput:input).current?.focus();}},[busy,preview]);
   function close(){if(saving.current || capturing.current)return;request.current++;onClose();}
   async function recognize(read:()=>Promise<File|null>,phase:'image'|'capture'){
     if(api.preview || pending.current)return;
