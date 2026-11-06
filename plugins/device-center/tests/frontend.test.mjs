@@ -66,6 +66,14 @@ test('widget initialization preserves selection and requires its token for RPC',
  assert.equal(request.params.action,'management');assert.equal(request.params.params.powerIntervalSeconds,30);
  h.receive({type:'flowhub:widget-result',token:'secret',id:request.id,result:{ok:true}});assert.deepEqual(await result,{ok:true});api.dispose();
 });
+test('display settings uses the authenticated widget management route',async()=>{
+ const h=host({widget:true}),api=createApi(h.window);
+ h.receive({type:'flowhub:widget-init',token:'secret',context:{}});
+ const result=api.request('open_display_settings');const request=h.sent.at(-1);
+ assert.deepEqual(request.params,{action:'management',method:'open_display_settings',params:{}});
+ h.receive({type:'flowhub:widget-result',token:'secret',id:request.id,result:{opened:true}});
+ assert.deepEqual(await result,{opened:true});api.dispose();
+});
 test('transport has bounded waits and disposes outstanding requests',async()=>{
  const h=host(),api=createApi(h.window,3);await assert.rejects(api.request('snapshot'),/设备响应超时/);
  const pending=api.request('snapshot');const rejection=assert.rejects(pending,/页面已关闭/);api.dispose();await rejection;
@@ -73,5 +81,6 @@ test('transport has bounded waits and disposes outstanding requests',async()=>{
 });
 test('standalone preview remains read-only with explicit fixtures',async()=>{
  const h=host({preview:true}),api=createApi(h.window);const data=await api.request('snapshot');
- assert.equal(data.devices.length,9);assert.equal(h.sent.length,0);await assert.rejects(api.request('pair'),/只读预览/);api.dispose();
+ assert.equal(data.devices.length,9);assert.equal(h.sent.length,0);await assert.rejects(api.request('pair'),/只读预览/);
+ await assert.rejects(api.request('open_display_settings'),/只读预览/);assert.equal(h.sent.length,0);api.dispose();
 });

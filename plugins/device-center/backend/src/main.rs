@@ -436,6 +436,14 @@ fn dispatch(state: &Arc<Mutex<State>>, method: &str, params: &Value) -> Result<V
     match method {
         "health" => Ok(json!({"protocol":2,"name":"device-center"})),
         "device_icons" => Ok(device_icons::snapshot()),
+        "open_display_settings" => {
+            if !cfg!(target_os = "macos") { return Err("显示器设置仅支持 macOS".into()); }
+            // A fixed destination: no URL, command or display mode comes from the page.
+            read_system_query("/usr/bin/open", &["x-apple.systempreferences:com.apple.Displays-Settings.extension"],
+                Duration::from_secs(5), 1024)
+                .map(|_| json!({"opened":true}))
+                .map_err(|_| "无法打开显示器设置，请在系统设置中选择“显示器”。".into())
+        },
         "status_snapshot" => state.lock().map_err(|_| "状态缓存不可用".to_string()).map(|s| s.status()),
         "snapshot" => {
             update_power_sample(state, false, power_interval_seconds(params));
@@ -460,6 +468,7 @@ fn dispatch(state: &Arc<Mutex<State>>, method: &str, params: &Value) -> Result<V
                 Some("snapshot") => dispatch(state, "snapshot", &params["params"]),
                 Some("refresh") => dispatch(state, "refresh", &params["params"]),
                 Some("device_icons") => dispatch(state, "device_icons", &params["params"]),
+                Some("open_display_settings") => dispatch(state, "open_display_settings", &params["params"]),
                 _ => Err("不支持的组件操作".into()),
             },
             _ => Err("不支持的组件操作".into())

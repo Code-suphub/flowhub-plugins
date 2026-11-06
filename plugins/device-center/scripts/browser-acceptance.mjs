@@ -36,7 +36,9 @@ const server=createServer(async(req,res)=>{
    res.writeHead(200,{'content-type':mime['.js']});
    res.end(`window.__qa={snapshot:${JSON.stringify(fixture())},artwork:${JSON.stringify(artwork)},error:null,requests:[]};
    let pending=${Boolean(context.pending)};
-   window.addEventListener('message',event=>{const frame=document.querySelector('iframe');if(event.source!==frame.contentWindow)return;const m=event.data;if(m.type==='flowhub:theme-ready'){frame.contentWindow.postMessage({type:'flowhub:theme',theme:'light'},'*');return;}if(m.type==='flowhub:widget-ready'){frame.contentWindow.postMessage({type:'flowhub:widget-init',token:'qa-token',context:${JSON.stringify(context)}},'*');return;}if(!['flowhub:request','flowhub:widget-rpc'].includes(m.type))return;const widget=m.type==='flowhub:widget-rpc',method=widget?m.params.method:m.method;window.__qa.requests.push(method);const reply={type:widget?'flowhub:widget-result':'flowhub:response',token:widget?'qa-token':undefined,id:m.id};if(window.__qa.error&&method!=='device_icons')reply.error=window.__qa.error;else reply.result=method==='device_icons'?window.__qa.artwork:pending?{at:0,stale:true,devices:[],power:{},events:[]}:window.__qa.snapshot;if(method!=='device_icons')pending=false;frame.contentWindow.postMessage(reply,'*');});`);return;
+   window.addEventListener('message',event=>{const frame=document.querySelector('iframe');if(event.source!==frame.contentWindow)return;const m=event.data;if(m.type==='flowhub:theme-ready'){frame.contentWindow.postMessage({type:'flowhub:theme',theme:'light'},'*');return;}if(m.type==='flowhub:widget-ready'){frame.contentWindow.postMessage({type:'flowhub:widget-init',token:'qa-token',context:${JSON.stringify(context)}},'*');return;}if(!['flowhub:request','flowhub:widget-rpc'].includes(m.type))return;const widget=m.type==='flowhub:widget-rpc',method=widget?m.params.method:m.method;window.__qa.requests.push(method);const reply={type:widget?'flowhub:widget-result':'flowhub:response',token:widget?'qa-token':undefined,id:m.id};
+   if(method==='open_display_settings'){if(window.__qa.settingsError)reply.error=window.__qa.settingsError;else reply.result={opened:true};if(window.__qa.holdSettings){window.__qa.finishSettings=()=>frame.contentWindow.postMessage(reply,'*');return;}frame.contentWindow.postMessage(reply,'*');return;}
+   if(window.__qa.error&&method!=='device_icons')reply.error=window.__qa.error;else reply.result=method==='device_icons'?window.__qa.artwork:pending?{at:0,stale:true,devices:[],power:{},events:[]}:window.__qa.snapshot;if(method!=='device_icons')pending=false;frame.contentWindow.postMessage(reply,'*');});`);return;
   }
   if(url.pathname==='/favicon.ico'){res.writeHead(204).end();return;}
   const path=resolve(root,'build','.'+decodeURIComponent(url.pathname));
@@ -70,21 +72,45 @@ try{
  const hover=async selector=>{await send('Input.dispatchMouseEvent',{type:'mouseMoved',x:1,y:1});const point=await evaluate(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});e.scrollIntoView({block:'nearest'});const r=e.getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2}})()`);await send('Input.dispatchMouseEvent',{type:'mouseMoved',...point});await sleep(70);};
  const fill=async value=>{await evaluate(`(()=>{const e=document.querySelector('input[aria-label="搜索设备"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,${JSON.stringify(value)});e.dispatchEvent(new Event('input',{bubbles:true}))})()`);await sleep(70);};
  const size=(width,height=560)=>send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:2,mobile:false});
- const keyboard=async(key,code=key,vk=0,modifiers=0)=>{await send('Input.dispatchKeyEvent',{type:'keyDown',key,code,windowsVirtualKeyCode:vk,modifiers});await send('Input.dispatchKeyEvent',{type:'keyUp',key,code,windowsVirtualKeyCode:vk,modifiers});await sleep(80);};
+ const keyboard=async(key,code=key,vk=0,modifiers=0)=>{await send('Input.dispatchKeyEvent',{type:'keyDown',key,code,windowsVirtualKeyCode:vk,modifiers,...(key==='Enter'?{text:'\r'}:key.length===1?{text:key}:{})});await send('Input.dispatchKeyEvent',{type:'keyUp',key,code,windowsVirtualKeyCode:vk,modifiers});await sleep(80);};
  const capture=async name=>{await writeFile(join(out,name+'.png'),Buffer.from((await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false})).data,'base64'));report.screenshots.push(name+'.png');};
  const navigate=async(path='/qa')=>{frame=undefined;await send('Page.navigate',{url:origin+path});for(let n=0;n<120;n++){for(const ctx of contexts.values()){if(!ctx.auxData?.isDefault)continue;try{if(await evaluate('!!document.querySelector(".dc-app")',ctx.id)){frame=ctx.id;break;}}catch{}}if(frame)break;await sleep(50);}if(!frame)throw Error('No React iframe');await wait('document.querySelectorAll("[data-device]").length===9');await evaluate('document.fonts.ready');await sleep(100);};
  const tab=async name=>click('[role=tab][data-tabs-value="'+name+'"]');
  const refresh=async()=>{await parent('window.__qa.snapshot.at=Date.now()');await click('[aria-label="刷新设备"]');await wait('!document.querySelector("[aria-label=刷新设备]").disabled');};
- await send('Page.enable');await send('Runtime.enable');await send('Network.enable');await size(800);await navigate();
+ await send('Page.enable');await send('Runtime.enable');await send('Network.enable');await send('Emulation.setFocusEmulationEnabled',{enabled:true});await size(800);await navigate();
  await wait('document.documentElement.dataset.theme==="light"');
  const geometry=await evaluate(`([...document.querySelectorAll('[data-device]')].map(e=>{const r=e.getBoundingClientRect();return {id:e.dataset.device,visible:r.top>=49&&r.bottom<=innerHeight-26}}))`);
  if(!geometry.every(x=>x.visible))throw Error('800x560 cards are clipped: '+JSON.stringify(geometry));report.checks.push('all nine devices fit 800x560');
  if(artwork.icons.iphone){await wait('document.querySelector("[data-device=iphone] img")?.naturalWidth>0');report.checks.push('packaged macOS iPhone artwork rendered');}
  await check('!!document.querySelector("[data-device=pixel] svg") && !document.querySelector("[data-device=pixel] img")','unknown Android phone uses category artwork');await capture('devices-light');
+ await click('.dc-group-heading .dc-display-settings');
+ if(await parent('window.__qa.requests.filter(m=>m==="open_display_settings").length')!==1)throw Error('Missing display settings request');
+ report.checks.push('display group settings action dispatches only on click');
+ await click('[data-device=dell]');await wait('document.querySelector("dialog").open');
+ await wait('!document.querySelector("dialog .dc-display-settings").disabled');
+ // DOM click alone does not activate this opaque cross-origin iframe. A CDP
+ // pointer click on its inert title focuses the headless frame, not the desktop.
+ const detailPoint=await evaluate('(()=>{const r=document.querySelector(".dc-detail-hero h3").getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2}})()');
+ await send('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',clickCount:1,...detailPoint});await send('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',clickCount:1,...detailPoint});
+ await parent('window.__qa.holdSettings=true');await evaluate('document.querySelector("dialog .dc-display-settings").focus()');await keyboard('Enter','Enter',13);
+ if(!await evaluate('document.querySelector("dialog .dc-display-settings").disabled')){
+  report.keyboardFailure={frame:await evaluate('({active:document.activeElement.tagName,focused:document.hasFocus(),dialog:document.querySelector("dialog").open})'),parent:await parent('({active:document.activeElement.tagName,requests:window.__qa.requests,holding:window.__qa.holdSettings})')};
+  await capture('display-keyboard-debug');
+ }
+ await check('document.querySelector("dialog .dc-display-settings").disabled','keyboard activation disables settings while opening');
+ await evaluate('document.querySelector("dialog .dc-display-settings").click();document.querySelector("dialog .dc-display-settings").click()');
+ if(await parent('window.__qa.requests.filter(m=>m==="open_display_settings").length')!==2)throw Error('Duplicate display settings request');
+ report.checks.push('pending settings request suppresses repeated activation');
+ await parent('window.__qa.holdSettings=false;window.__qa.finishSettings()');await wait('!document.querySelector("dialog .dc-display-settings").disabled');
+ await parent('window.__qa.settingsError="QA 无法打开显示器设置，请在系统设置中选择显示器。"');await click('dialog .dc-display-settings');
+ await wait('document.querySelector("dialog [role=alert]")?.textContent.includes("QA 无法打开")');
+ await check('document.querySelector("dialog").open && document.querySelector(".dc-detail-hero h3").textContent==="DELL U2723QE"','opening failure is visible and preserves the selected display detail');
+ await capture('display-settings-error');await parent('window.__qa.settingsError=null');await keyboard('Escape','Escape',27);
  await click('[data-category=usb]');await check('document.querySelectorAll("[data-device]").length===4','USB category filters actual cards');await fill('T7');await refresh();await check('document.querySelector("input").value==="T7" && document.querySelector("[data-category=usb]").getAttribute("aria-pressed")==="true" && document.querySelectorAll("[data-device]").length===1','refresh retains category and search together');await fill('');await click('[data-category=all]');
  await fill('Mouse');await check('document.querySelectorAll("[data-device]").length===1','search filters actual cards');await refresh();await check('document.querySelector("input").value==="Mouse" && document.querySelectorAll("[data-device]").length===1','refresh retains search');
  await evaluate('document.querySelector("input").focus()');
  await click('[data-device=mouse]',false);await wait('document.querySelector("dialog").open');await check('document.querySelector(".dc-detail-hero h3").textContent==="Magic Mouse"','detail follows selected device');
+ await check('!document.querySelector("dialog .dc-display-settings")','non-display details do not offer display settings');
  await evaluate(`document.querySelector('dialog footer button:last-child').focus(); window.addEventListener('keydown',event=>window.__qaTabEvent=event,{once:true,capture:true})`);
  await keyboard('Tab','Tab',9);
  await check('window.__qaTabEvent?.defaultPrevented && document.activeElement===document.querySelector("dialog header button")','forward Tab explicitly wraps before leaving the iframe');
@@ -123,12 +149,17 @@ try{
   for(const width of [800,640,520,390]){
    await size(width);
    for(const page of ['devices','power','events']){await tab(page);const dimensions=await evaluate(`({theme:'${theme}',page:'${page}',width:innerWidth,scroll:document.documentElement.scrollWidth})`);if(dimensions.scroll>width+1)throw Error('Horizontal overflow '+JSON.stringify(dimensions));report.responsive.push(dimensions);if(width===800&&theme==='dark'&&page!=='events')await capture(page+'-dark');}
-   await tab('devices');await click('[data-device=iphone]');await wait('document.querySelector("dialog").open');const box=await evaluate('(()=>{const r=document.querySelector("dialog").getBoundingClientRect();return {left:r.left,top:r.top,right:r.right,bottom:r.bottom}})()');if(box.left<0||box.top<0||box.right>width||box.bottom>560)throw Error('Dialog escapes viewport');await keyboard('Escape','Escape',27);
+   await tab('devices');await click('[data-device=dell]');await wait('document.querySelector("dialog").open');const box=await evaluate('(()=>{const e=document.querySelector("dialog"),r=e.getBoundingClientRect();return {left:r.left,top:r.top,right:r.right,bottom:r.bottom,overflow:e.scrollWidth-e.clientWidth}})()');if(box.left<0||box.top<0||box.right>width||box.bottom>560||box.overflow>1)throw Error('Display dialog escapes viewport');await keyboard('Escape','Escape',27);
   }
  }
  await size(800);await navigate('/qa?widget=1&device=iphone&pending=1');await wait('document.querySelector("dialog").open');await check('document.querySelector(".dc-detail-hero h3").textContent==="iPhone 15"','widget selection survives an initial pending scan');await keyboard('Escape','Escape',27);
  await navigate('/qa?widget=1&view=power');await wait('document.querySelector("[data-tabs-value=power]").getAttribute("aria-selected")==="true"');report.checks.push('widget supply navigation opens power page');
  await navigate('/qa?widget=1&view=power&legacy=1');await wait('document.querySelector("[data-tabs-value=power]").getAttribute("aria-selected")==="true"');report.checks.push('legacy widget config selection remains compatible');
+ await navigate('/qa?widget=1&device=dell');await wait('document.querySelector("dialog").open');await click('dialog .dc-display-settings');
+ if(await parent('window.__qa.requests.filter(m=>m==="open_display_settings").length')!==1)throw Error('Missing widget display settings request');
+ report.checks.push('widget display detail requests the same settings action');
+ await navigate('/ui/index.html');await check('document.querySelector(".dc-group-heading .dc-display-settings").disabled','standalone preview disables system settings');
+ await click('[data-device=dell]');await wait('document.querySelector("dialog").open');await check('document.querySelector("dialog .dc-display-settings").disabled','standalone display detail also remains read-only');
  if(report.errors.length)throw Error(report.errors.join('\n'));
  await writeFile(join(out,'report.json'),JSON.stringify(report,null,2));console.log(JSON.stringify({checks:report.checks.length,responsive:report.responsive.length,errors:report.errors,output:out}));
 }catch(error){report.failure=String(error);await writeFile(join(out,'report.json'),JSON.stringify(report,null,2));throw error;}
