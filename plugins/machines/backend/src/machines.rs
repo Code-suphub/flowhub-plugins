@@ -1085,7 +1085,8 @@ pub(crate) async fn machines_api(
             }
             if let Some(path)=crate::ssh::shared::path(rt.path.parent().unwrap()) {
                 let response=crate::ssh::shared::request(path,json!({"action":"exec","alias":alias,"command":"hostname","isolated":true,"timeout":20})).await?;
-                return Ok(json!({"success":response["exit_code"]==0,"reason":"共享会话 hostname 查询完成","output":response["output"]}));
+                let success=response["exit_code"]==0;
+                return Ok(json!({"success":success,"reason":if success{"共享会话 hostname 查询完成"}else{"共享会话 hostname 查询失败"},"output":response["output"],"durationMs":chrono::Utc::now().timestamp_millis()-job.started_at}));
             }
             if !payload["profile"].is_null() {
                 let profile: crate::ssh::ssh_profiles::Profile =

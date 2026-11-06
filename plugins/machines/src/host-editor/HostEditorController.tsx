@@ -236,8 +236,9 @@ export const HostEditorController = forwardRef<HostEditorControllerHandle, HostE
     if (value.sshPassword || (changedProfile && value.sshAuth === 'password')) { setTestState({ status: 'error', message: '请先保存密码和连接配置，再测试连接。' }); return; }
     setTestState({ status: 'loading', message: '正在执行 SSH 握手与认证…' });
     try {
-      const result = await api('sshProbe', changedProfile ? { alias: value.alias.trim(), profile: profileFrom(value) } : { alias: value.alias.trim() }) as { reason: string; durationMs: number };
-      setTestState({ status: 'success', message: `${result.reason}（${result.durationMs} ms）` });
+      const result = await api('sshProbe', changedProfile ? { alias: value.alias.trim(), profile: profileFrom(value) } : { alias: value.alias.trim() }) as { success: boolean; reason: string; durationMs?: number };
+      const duration = typeof result.durationMs === 'number' && Number.isFinite(result.durationMs) && result.durationMs >= 0 ? `（${result.durationMs} ms）` : '';
+      setTestState({ status: result.success ? 'success' : 'error', message: `${result.reason || (result.success ? '连接测试成功' : '连接测试失败')}${duration}` });
     } catch (reason) { setTestState({ status: 'error', message: errorText(reason) }); }
   }
 
