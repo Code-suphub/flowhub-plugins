@@ -1,6 +1,6 @@
 # 外设中心 · Device Center
 
-FlowHub macOS schema 2 原生设备插件。v0.3.0 使用 React 管理页：双栏设备卡片、按需详情弹窗、紧凑供电读数和连接事件，支持深浅主题与原有组件配置。
+FlowHub macOS schema 2 原生设备插件。v0.3.2 使用 React 管理页：双栏设备卡片、按需详情弹窗、紧凑供电读数和连接事件，支持深浅主题与原有组件配置，并修复 WKWebView 中详情弹窗的 Tab 循环与关闭后的卡片焦点。
 
 ## 页面与只读预览
 
@@ -22,7 +22,7 @@ node scripts/browser-acceptance.mjs /absolute/path/to/evidence
 
 浏览器验收使用独立无头 Chrome，在不透明 sandbox iframe 中加载实际构建产物与宿主等价的 CSP，验证筛选、弹窗、焦点恢复、供电缺失/失败、深浅主题、窄屏与组件入口。设备数据使用夹具，系统图标通过构建包内 helper 获取。它不移动鼠标，不修改剪贴板、实际设备或安装版。
 
-实机验收与分项提交记录见 [改造验收清单](docs/redesign-acceptance.md)。浏览器验证不代替 WKWebView、真实输入法、热插拔与安装版验收。
+实机验收与分项提交记录见 [改造验收清单](docs/redesign-acceptance.md) 和 [正式安装版验收](docs/installed-acceptance-2026-11-07.md)。浏览器验证不代替 WKWebView、真实输入法、热插拔与安装版验收。
 
 ## 图标来源与更新
 

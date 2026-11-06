@@ -12,7 +12,7 @@ function DeviceCard({device,artwork,stale,onOpen}:{device:Device;artwork:Artwork
  const level=batteryLevel(device.battery);
  const speed=/(\d+(?:\.\d+)?)\s*(?:Gbit\/s|Gbps|Gb\/s|Mbps)/i.exec(device.detail);
  const info=device.category==='display'?device.pixelResolution||'像素参数未提供':device.detail||categories.find(c=>c.id===device.category)?.short||'设备';
- return <Button variant="ghost" className={'dc-card '+(stale?'is-stale':'')} data-device={device.id} aria-haspopup="dialog" aria-label={device.name+'，查看详情'} onClick={()=>onOpen(device)}>
+ return <Button variant="ghost" className={'dc-card '+(stale?'is-stale':'')} data-device={device.id} aria-haspopup="dialog" aria-label={device.name+'，查看详情'} onClick={event=>{event.currentTarget.focus();onOpen(device);}}>
   <DeviceArt device={device} artwork={artwork}/><span className="dc-card-name"><strong title={device.name}>{device.name}</strong><small title={info}>{info}</small></span>
   <span className="dc-card-value">{level!==null?<><strong className={level<=20?'low':''}>{level}<small>%</small></strong><span className="dc-battery-track" style={{'--level':level+'%'} as CSSProperties}><i/></span></>:device.category==='display'?<strong className="dc-spec">{displaySpec(device)}</strong>:speed?<strong className="dc-spec">{speed[0]}</strong>:<small>{stale?'上次连接':device.kind==='headphones'||device.kind==='mouse'||device.kind==='keyboard'?'电量未提供':'已连接'}</small>}</span>
  </Button>;

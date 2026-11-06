@@ -65,10 +65,10 @@ try{
  const parent=async expression=>{const r=await send('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(r.exceptionDetails)throw Error(r.exceptionDetails.text);return r.result?.value;};
  const wait=async(expression,ms=8000)=>{const start=Date.now();while(Date.now()-start<ms){if(await evaluate(expression))return;await sleep(50);}throw Error('Timed out: '+expression);};
  const check=async(expression,label)=>{if(!await evaluate(expression))throw Error(label);report.checks.push(label);};
- const click=async selector=>{await evaluate(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e)throw Error('Missing control');e.focus();e.click()})()`);await sleep(70);};
+ const click=async(selector,focus=true)=>{await evaluate(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e)throw Error('Missing control');${focus?'e.focus();':''}e.click()})()`);await sleep(70);};
  const fill=async value=>{await evaluate(`(()=>{const e=document.querySelector('input[aria-label="搜索设备"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,${JSON.stringify(value)});e.dispatchEvent(new Event('input',{bubbles:true}))})()`);await sleep(70);};
  const size=(width,height=560)=>send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:2,mobile:false});
- const keyboard=async(key,code=key,vk=0)=>{await send('Input.dispatchKeyEvent',{type:'keyDown',key,code,windowsVirtualKeyCode:vk});await send('Input.dispatchKeyEvent',{type:'keyUp',key,code,windowsVirtualKeyCode:vk});await sleep(80);};
+ const keyboard=async(key,code=key,vk=0,modifiers=0)=>{await send('Input.dispatchKeyEvent',{type:'keyDown',key,code,windowsVirtualKeyCode:vk,modifiers});await send('Input.dispatchKeyEvent',{type:'keyUp',key,code,windowsVirtualKeyCode:vk,modifiers});await sleep(80);};
  const capture=async name=>{await writeFile(join(out,name+'.png'),Buffer.from((await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false})).data,'base64'));report.screenshots.push(name+'.png');};
  const navigate=async(path='/qa')=>{frame=undefined;await send('Page.navigate',{url:origin+path});for(let n=0;n<120;n++){for(const ctx of contexts.values()){if(!ctx.auxData?.isDefault)continue;try{if(await evaluate('!!document.querySelector(".dc-app")',ctx.id)){frame=ctx.id;break;}}catch{}}if(frame)break;await sleep(50);}if(!frame)throw Error('No React iframe');await wait('document.querySelectorAll("[data-device]").length===9');await evaluate('document.fonts.ready');await sleep(100);};
  const tab=async name=>click('[role=tab][data-tabs-value="'+name+'"]');
@@ -81,7 +81,13 @@ try{
  await check('!!document.querySelector("[data-device=pixel] svg") && !document.querySelector("[data-device=pixel] img")','unknown Android phone uses category artwork');await capture('devices-light');
  await click('[data-category=usb]');await check('document.querySelectorAll("[data-device]").length===4','USB category filters actual cards');await fill('T7');await refresh();await check('document.querySelector("input").value==="T7" && document.querySelector("[data-category=usb]").getAttribute("aria-pressed")==="true" && document.querySelectorAll("[data-device]").length===1','refresh retains category and search together');await fill('');await click('[data-category=all]');
  await fill('Mouse');await check('document.querySelectorAll("[data-device]").length===1','search filters actual cards');await refresh();await check('document.querySelector("input").value==="Mouse" && document.querySelectorAll("[data-device]").length===1','refresh retains search');
- await click('[data-device=mouse]');await wait('document.querySelector("dialog").open');await check('document.querySelector(".dc-detail-hero h3").textContent==="Magic Mouse"','detail follows selected device');
+ await evaluate('document.querySelector("input").focus()');
+ await click('[data-device=mouse]',false);await wait('document.querySelector("dialog").open');await check('document.querySelector(".dc-detail-hero h3").textContent==="Magic Mouse"','detail follows selected device');
+ await evaluate(`document.querySelector('dialog footer button:last-child').focus(); window.addEventListener('keydown',event=>window.__qaTabEvent=event,{once:true,capture:true})`);
+ await keyboard('Tab','Tab',9);
+ await check('window.__qaTabEvent?.defaultPrevented && document.activeElement===document.querySelector("dialog header button")','forward Tab explicitly wraps before leaving the iframe');
+ await keyboard('Tab','Tab',9,8);
+ await check('document.activeElement===document.querySelector("dialog footer button:last-child")','reverse Tab wraps to the last dialog action');
  for(let n=0;n<5;n++){await keyboard('Tab','Tab',9);await check('document.querySelector("dialog").contains(document.activeElement)','dialog keeps keyboard focus '+n);}
  await keyboard('Escape','Escape',27);await wait('!document.querySelector("dialog").open');await check('document.activeElement.dataset.device==="mouse"','Escape restores original card focus');await fill('');
  await click('[data-device=airpods]');await wait('document.querySelector("dialog").open');await capture('detail-light');
