@@ -9,6 +9,7 @@ export interface TwofaApi {
   code(name: string): Promise<CodeResult>;
   save(account: SaveAccount): Promise<void>;
   previewImport(uri:string):Promise<ImportPreview>;
+  captureScreen?():Promise<{image?:string;cancelled?:boolean}>;
   importAccount(uri:string,name:string):Promise<void>;
   remove(name: string): Promise<void>;
   dispose(): void;
@@ -65,6 +66,7 @@ export function createApi(host: Window): TwofaApi {
     code: name => transport.invoke('code', {name}),
     save: async payload => { await transport.invoke('save', payload); },
     previewImport:uri=>transport.invoke('preview_import',{uri}),
+    captureScreen:()=>transport.invoke('capture_screen',{confirmed:true}),
     importAccount:async(uri,name)=>{await transport.invoke('import',{uri,name});},
     remove: async name => { await transport.invoke('remove', {name}); },
     dispose: transport.dispose

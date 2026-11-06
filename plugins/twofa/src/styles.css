@@ -41,6 +41,8 @@
 .twofa-dialog-content {max-height:calc(100dvh - 32px);grid-template-rows:auto minmax(0,1fr) auto}
 .twofa-import-summary {padding-top:12px;border-top:1px solid var(--fh-border)}
 .twofa-image-import {display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.twofa-paste-zone {border:1px dashed var(--fh-border);border-radius:10px;padding:12px;color:var(--fh-muted);font-size:12px;line-height:1.7}
+.twofa-paste-zone:focus-visible {outline:2px solid var(--fh-accent);outline-offset:2px}
 .twofa-empty {border:0;background:transparent}
 @media(max-width:520px) {
   .twofa {padding:14px}

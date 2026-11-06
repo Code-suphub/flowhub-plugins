@@ -3,6 +3,7 @@ use serde_json::{json, Value};
 use std::{fs::{self, OpenOptions}, io::{self, BufRead, Write}, os::unix::fs::{OpenOptionsExt, PermissionsExt}, path::{Path, PathBuf}, time::{SystemTime, UNIX_EPOCH}};
 
 mod otp;
+mod screen_capture;
 use otp::{Entry,generate,legacy_secret,parameters,parse_import,valid_name,valid_issuer};
 fn root()->Result<PathBuf,String>{std::env::var_os("FLOWHUB_PLUGIN_DATA").map(PathBuf::from).ok_or("缺少 FLOWHUB_PLUGIN_DATA".into())}
 fn secure(path:&Path)->Result<(),String>{let m=fs::symlink_metadata(path).map_err(|e|e.to_string())?;if !m.is_file()||m.permissions().mode()&0o077!=0{return Err(format!("文件权限不安全：{}",path.display()))}Ok(())}
@@ -13,6 +14,7 @@ fn now()->u64{SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().a
 fn dispatch(method:&str,p:&Value)->Result<Value,String>{dispatch_in(&root()?,method,p)}
 fn dispatch_in(root:&Path,method:&str,p:&Value)->Result<Value,String>{
     match method {
+        "capture_screen"=>screen_capture::capture(p),
         "health"=>Ok(json!({"protocol":1,"name":"twofa","version":env!("CARGO_PKG_VERSION")})),
         "preview_import"=>Ok(parse_import(p["uri"].as_str().unwrap_or(""))?.metadata()),
         "search"=>{

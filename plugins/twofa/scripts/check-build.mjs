@@ -7,6 +7,7 @@ for (const [, asset] of html.matchAll(/(?:src|href)="([^"]+)"/g)) {
 }
 assert(html.includes('react/twofa.js'));
 assert(existsSync('build/ui/licenses/jsqr.txt'),'缺少 jsQR 随包许可');
+assert(existsSync('build/ui/licenses/base64.txt'),'缺少 base64 随包许可');
 assert(!/<script(?![^>]*src=)[^>]*>\s*\S/.test(html), '禁止内联脚本');
 for (const old of ['app.js', 'bridge.js', 'style.css']) assert(!existsSync('build/ui/' + old), '旧资源未清理：' + old);
 console.log('2FA 构建资源检查通过');

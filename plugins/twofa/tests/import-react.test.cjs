@@ -8,6 +8,8 @@ const code=buildSync({stdin:{contents:`import React from 'react';import{createRo
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 async function wait(predicate){for(let i=0;i<150;i++){if(predicate())return;await delay(10);}assert.ok(predicate(),'2FA UI did not settle');}
 const metadata={name:'demo@example.com',issuer:'Example',algorithm:'SHA256',digits:8,period:60};
+async function imageFixture(s){const {pixels,publicUri}=require('./qr-fixture.cjs'),QRCode=require('qrcode'),png=await QRCode.toBuffer(publicUri,{width:300}),frame=pixels(publicUri,false,300);s.w.File.prototype.arrayBuffer=async()=>Uint8Array.from(png).buffer;s.w.Image=class{set src(value){if(value)queueMicrotask(()=>this.onload?.());}};s.w.HTMLCanvasElement.prototype.getContext=()=>({fillRect(){},drawImage(){},getImageData(){return {data:frame.data};}});return {png,publicUri,file:new s.w.File([png],'public.png',{type:'image/png'})};}
+function paste(s,files=[],text=''){const event=new s.w.Event('paste',{bubbles:true,cancelable:true});Object.defineProperty(event,'clipboardData',{value:{items:files.map(file=>({kind:'file',type:file.type,getAsFile:()=>file})),files,getData:()=>text}});s.w.document.querySelector('#twofa-import-uri').dispatchEvent(event);return event;}
 function setup(t,{preview=false}={}){
   const dom=new JSDOM('<div id="root"></div>',{url:'http://localhost',runScripts:'outside-only',pretendToBeVisual:true}),w=dom.window;
   w.HTMLDialogElement.prototype.showModal=function(){this.open=true;};w.HTMLDialogElement.prototype.close=function(){this.open=false;};
@@ -80,4 +82,19 @@ test('invalid images keep accounts unchanged and readonly preview cannot select 
   const s=setup(t);await s.open();const input=s.w.document.querySelector('[aria-label="二维码图片"]');Object.defineProperty(input,'files',{value:[new s.w.File(['x'],'bad.png',{type:'image/png'})]});s.w.File.prototype.arrayBuffer=async()=>Uint8Array.of(1,2,3).buffer;input.dispatchEvent(new s.w.Event('change',{bubbles:true}));
   await wait(()=>s.w.document.querySelector('[role="alert"]'));assert.match(s.w.document.querySelector('[role="alert"]').textContent,/PNG|JPEG/);assert.equal(s.calls.length,0);assert.equal(s.accounts.length,1);
   const p=setup(t,{preview:true});await p.open();assert.equal(p.button('选择二维码图片').disabled,true);assert.equal(p.w.document.querySelector('[aria-label="二维码图片"]').disabled,true);
+});
+test('image paste previews locally and does not save; text paste remains a normal edit',async t=>{
+  const s=setup(t),fixture=await imageFixture(s);await s.open();assert.equal(paste(s,[],'normal text').defaultPrevented,false);assert.equal(s.calls.length,0);
+  assert.equal(paste(s,[fixture.file]).defaultPrevented,true);await wait(()=>s.button('确认导入'));assert.equal(s.calls[0].uri,fixture.publicUri);assert.equal(s.calls.filter(c=>c.method==='import').length,0);await wait(()=>s.w.document.activeElement===s.w.document.querySelector('#twofa-import-name'));
+});
+test('multiple pasted images and readonly preview never invoke image or capture requests',async t=>{
+  const s=setup(t),fixture=await imageFixture(s);await s.open();paste(s,[fixture.file,fixture.file]);await wait(()=>s.w.document.querySelector('[role="alert"]'));assert.match(s.w.document.querySelector('[role="alert"]').textContent,/一张图片/);assert.equal(s.calls.length,0);
+  const p=setup(t,{preview:true});await p.open();assert.equal(p.button('扫描屏幕二维码').disabled,true);paste(p,[fixture.file]);await wait(()=>p.w.document.querySelector('[role="alert"]'));assert.match(p.w.document.querySelector('[role="alert"]').textContent,/只读预览/);assert.equal(p.calls.length,0);
+});
+test('screen capture is explicit and deduplicated; cancellation restores focus without creating an account',async t=>{
+  const s=setup(t);let finish,count=0;s.api.captureScreen=()=>{count++;return new Promise(resolve=>{finish=resolve;});};await s.open();assert.equal(count,0);s.button('扫描屏幕二维码').click();s.button('扫描屏幕二维码').click();await wait(()=>finish);assert.equal(count,1);assert.equal(s.button('取消').disabled,true);assert.equal(s.button('框选中…').disabled,true);finish({cancelled:true});await wait(()=>s.w.document.querySelector('dialog [role="status"]')?.textContent.includes('已取消屏幕框选'));assert.equal(s.calls.length,0);assert.equal(s.accounts.length,1);await wait(()=>s.w.document.activeElement===s.w.document.querySelector('#twofa-import-uri'));
+});
+test('captured PNG shares preview and save flow; permission and malformed-image errors preserve the URI draft',async t=>{
+  const s=setup(t),fixture=await imageFixture(s);s.api.captureScreen=async()=>({image:fixture.png.toString('base64')});await s.open();s.button('扫描屏幕二维码').click();await wait(()=>s.button('确认导入'));assert.equal(s.calls[0].uri,fixture.publicUri);assert.equal(s.calls.filter(c=>c.method==='import').length,0);s.fill('#twofa-import-name','Screen public');s.submit();await wait(()=>s.calls.some(c=>c.method==='import'));assert.equal(s.calls.find(c=>c.method==='import').name,'Screen public');
+  await wait(()=>!s.w.document.querySelector('dialog[open]'));await s.open();s.fill('#twofa-import-uri','retained draft');s.api.captureScreen=async()=>{throw new s.w.Error('需要屏幕录制权限');};s.button('扫描屏幕二维码').click();await wait(()=>s.w.document.querySelector('[role="alert"]'));assert.equal(s.w.document.querySelector('#twofa-import-uri').value,'retained draft');s.api.captureScreen=async()=>({image:'PRIVATE_INVALID_IMAGE'});s.button('扫描屏幕二维码').click();await wait(()=>s.w.document.querySelector('[role="alert"]')?.textContent.includes('图片无效'));assert.ok(!s.w.document.querySelector('dialog').textContent.includes('PRIVATE_INVALID_IMAGE'));
 });
