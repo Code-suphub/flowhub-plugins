@@ -52,7 +52,8 @@ test('React shell owns availability, escaped notices and embedded layout', () =>
   window.parent = window;
   const location = { search: '' };
   vm.runInNewContext(code, { exports, window, location, URLSearchParams, require(name) {
-    if (name === './MachineWorkspace') return { MachineWorkspace: ({ fleet }) => fleet };
+    if (name === './MachineWorkspace') return { MachineWorkspace: ({ fleet }) => fleet, MachineNavigation: () => React.createElement('nav', { 'aria-label': '机器管理页面' }) };
+    if (name === '@flowhub/plugin-common/react') return { Tabs: ({ children }) => React.createElement('div', null, children) };
     if (name === '../monitoring/MonitorSettings') return { MonitorSettings: () => null };
     if (name === '../backup/BackupWorkspace') return { BackupWorkspace: () => null };
     if (name === './ThemeSwitch') return { ThemeSwitch: () => null };
@@ -383,7 +384,7 @@ test('React owns command execution, history and templates without legacy DOM ada
   assert.match(workspace, /api\('templates', \{ templates: next \}\)/);
   assert.match(workspace, /run\(\{ hostId: job\.hostId, expectedAlias: job\.alias/);
   assert.match(shell, /activeTab/);
-  assert.match(shell, /onTabChange/);
+  assert.match(fs.readFileSync(path.join(__dirname, '../src/fleet/MachineShell.tsx'), 'utf8'), /onTabChange/);
   assert.match(script, /navigate\('command', true\)/);
   assert(!script.includes('FlowHubMachineTabs'));
 });
