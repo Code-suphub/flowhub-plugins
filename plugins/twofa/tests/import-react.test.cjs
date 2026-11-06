@@ -67,3 +67,17 @@ test('account cards keep service identity, accessible expiry and direct code cop
   s.w.document.querySelector('[aria-label="复制 Work 验证码"]').click();await wait(()=>s.copies.length);assert.equal(s.copies[0],'12345678');
   s.fill('[aria-label="搜索账户"]','cloudflare');await wait(()=>s.w.document.querySelectorAll('.account-row').length===1);assert.match(s.w.document.querySelector('.account-row').textContent,/Personal/);
 });
+test('image selection decodes locally, previews without saving, and confirms only after renaming',async t=>{
+  const {pixels,publicUri}=require('./qr-fixture.cjs');const QRCode=require('qrcode');const png=await QRCode.toBuffer(publicUri,{width:300});
+  const s=setup(t),frame=pixels(publicUri,false,300);s.w.File.prototype.arrayBuffer=async()=>Uint8Array.from(png).buffer;
+  s.w.Image=class {set src(value){if(value)queueMicrotask(()=>this.onload?.());}};
+  s.w.HTMLCanvasElement.prototype.getContext=()=>({fillRect(){},drawImage(){},getImageData(){return {data:frame.data};}});
+  await s.open();const input=s.w.document.querySelector('[aria-label="二维码图片"]');Object.defineProperty(input,'files',{value:[new s.w.File([png],'public.png',{type:'image/png'})],configurable:true});input.dispatchEvent(new s.w.Event('change',{bubbles:true}));
+  await wait(()=>s.button('确认导入'));assert.equal(s.calls[0].uri,publicUri);assert.equal(s.calls.filter(call=>call.method==='import').length,0);
+  s.fill('#twofa-import-name','QR public');s.submit();await wait(()=>s.calls.some(call=>call.method==='import'));assert.equal(s.calls.find(call=>call.method==='import').name,'QR public');
+});
+test('invalid images keep accounts unchanged and readonly preview cannot select image files',async t=>{
+  const s=setup(t);await s.open();const input=s.w.document.querySelector('[aria-label="二维码图片"]');Object.defineProperty(input,'files',{value:[new s.w.File(['x'],'bad.png',{type:'image/png'})]});s.w.File.prototype.arrayBuffer=async()=>Uint8Array.of(1,2,3).buffer;input.dispatchEvent(new s.w.Event('change',{bubbles:true}));
+  await wait(()=>s.w.document.querySelector('[role="alert"]'));assert.match(s.w.document.querySelector('[role="alert"]').textContent,/PNG|JPEG/);assert.equal(s.calls.length,0);assert.equal(s.accounts.length,1);
+  const p=setup(t,{preview:true});await p.open();assert.equal(p.button('选择二维码图片').disabled,true);assert.equal(p.w.document.querySelector('[aria-label="二维码图片"]').disabled,true);
+});

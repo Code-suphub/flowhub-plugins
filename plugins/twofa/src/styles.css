@@ -40,6 +40,7 @@
 .twofa-import-dialog {width:min(500px,calc(100vw - 32px))}
 .twofa-dialog-content {max-height:calc(100dvh - 32px);grid-template-rows:auto minmax(0,1fr) auto}
 .twofa-import-summary {padding-top:12px;border-top:1px solid var(--fh-border)}
+.twofa-image-import {display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .twofa-empty {border:0;background:transparent}
 @media(max-width:520px) {
   .twofa {padding:14px}
