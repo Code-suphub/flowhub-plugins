@@ -10,7 +10,7 @@
 //   node scripts/layout-audit.mjs --json     # 只输出 JSON
 import { createServer } from 'node:http';
 import { spawn, execFileSync } from 'node:child_process';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, mkdir, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { extname, join, resolve } from 'node:path';
@@ -539,12 +539,12 @@ async function main() {
         showTab('fleet', true); await frame(); verify(0);
         const fleetChoice = document.querySelector('#fleetReactRoot input[data-select="demo-app"]');
         if (!fleetChoice) throw Error('Fleet selection missing');
-        fleetChoice.click(); await frame();
+        if (!fleetChoice.checked) fleetChoice.click(); await frame();
         showTab('command'); await frame();
         for (let attempt = 0; attempt < 50 && !document.querySelector('#command-targets')?.value; attempt++) await frame();
         document.querySelector('.command-react__targets .fh-combobox__toggle').click(); await frame();
         const commandChoice = document.querySelector('#command-targets-listbox [aria-selected="true"]');
-        if (!commandChoice) throw Error('Fleet selection did not reach command page');
+        if (!commandChoice) throw Error('Fleet selection did not reach command page: ' + JSON.stringify({ fleet: fleetChoice.checked, value: document.querySelector('#command-targets')?.value, expanded: document.querySelector('#command-targets')?.getAttribute('aria-expanded'), options: document.querySelector('#command-targets-listbox')?.textContent, selected: [...document.querySelectorAll('[data-task-target][aria-pressed="true"]')].map(el=>el.dataset.taskTarget) }));
         commandChoice.click(); await frame();
         if (document.querySelector('#command-targets').getAttribute('aria-expanded') !== 'true') throw Error('Multi selection should keep menu open');
         document.querySelector('#command-targets').dispatchEvent(new KeyboardEvent('keydown', {key:'Escape', bubbles:true})); await frame();
@@ -567,6 +567,18 @@ async function main() {
         showTab('command'); await frame(); verify(1);
         if (document.querySelector('#commandReactRoot textarea') !== draft || draft.value !== 'audit draft — never execute') throw Error('Navigation discarded command draft');
         setDraft(''); await frame();
+        document.querySelector('[data-task-target="demo-app"]').click(); await frame();
+        setDraft('app draft — never execute'); await frame();
+        document.querySelector('[data-task-target="demo-db"]').click(); await frame();
+        if (draft.value) throw Error('New machine inherited another target draft');
+        setDraft('db draft — never execute'); await frame();
+        document.querySelector('[data-task-target="demo-app"]').click(); await frame();
+        if (draft.value !== 'app draft — never execute') throw Error('Returning to a machine lost its draft');
+        setDraft(''); await frame();
+        document.querySelector('[data-task-target="demo-db"]').click(); await frame();
+        if (draft.value !== 'db draft — never execute') throw Error('Second machine lost its draft');
+        setDraft(''); await frame();
+        document.querySelector('[data-task-target="demo-app"]').click(); await frame();
         const templateTab = document.querySelector('.command-react__subtabs [data-tabs-value="templates"]');
         templateTab.click(); await frame();
         const manager = document.querySelector('.command-react__template-manager');
@@ -741,7 +753,14 @@ async function main() {
         document.querySelector('dialog.host-editor button[aria-label="关闭"]').click(); await frame();
         return true;
       })()` });
-      if (navigation.exceptionDetails) throw new Error(navigation.exceptionDetails.exception?.description || 'React Tab 验证失败');
+      if (navigation.exceptionDetails) {
+        if (process.env.FLOWHUB_MACHINE_ARTIFACT_DIR) {
+          await mkdir(process.env.FLOWHUB_MACHINE_ARTIFACT_DIR, { recursive: true });
+          const screenshot = await client.send('Page.captureScreenshot', { format: 'png' });
+          await writeFile(join(process.env.FLOWHUB_MACHINE_ARTIFACT_DIR, `failure-${theme}-${width}.png`), Buffer.from(screenshot.data, 'base64'));
+        }
+        throw new Error(navigation.exceptionDetails.exception?.description || 'React Tab 验证失败');
+      }
     }
 
     // A short viewport must keep each tabbed dialog within the screen without resizing it.

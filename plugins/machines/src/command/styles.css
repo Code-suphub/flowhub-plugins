@@ -56,9 +56,8 @@
 
 .command-react__layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto minmax(0, 1fr);
-  min-height: 0;
+  grid-template-columns: 220px minmax(0, 1fr);
+  min-height: 520px;
   border: 1px solid var(--fleet-line, var(--fh-border,#2a3d31));
   border-radius: 8px;
   overflow: visible;
@@ -71,12 +70,12 @@
   flex-direction: column;
   gap: 8px;
   padding: 10px 12px;
-  border-bottom: 1px solid var(--fleet-line, var(--fh-border,#2a3d31));
+  border-right: 1px solid var(--fleet-line, var(--fh-border,#2a3d31));
   background: color-mix(in srgb, var(--fh-surface,#111d16) 90%, transparent);
 }
 .command-react__control-group > span:first-child { color: var(--fh-muted,#8da497); font: 600 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .08em; }
 .command-react__target-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
-.command-react__targets .fh-combobox { flex: 0 1 360px; width: 360px; max-width: 100%; }
+.command-react__targets .fh-combobox { flex: 1 1 100%; width: 100%; max-width: 100%; }
 .command-react__targets .fh-combobox__control { min-height: 34px; border-radius: 6px; }
 .command-react__targets .fh-combobox__input,
 .command-react__targets .fh-combobox__toggle { min-height: 32px; height: 32px; }
@@ -106,11 +105,11 @@
 .command-react__control-group .fh-combobox__toggle { min-height: 36px; }
 
 .command-react__terminal { overflow: hidden; border: 1px solid var(--fh-border,#314b3c); border-radius: 7px; background: var(--fh-canvas,#07100b); }
-.command-react__terminal > header { display: flex; min-height: 32px; align-items: center; gap: 12px; padding: 0 10px 0 12px; border-bottom: 1px solid var(--fh-border,#263d30); background: var(--fh-canvas,#101c15); color: var(--fh-muted,#789082); font-size: 12px; }
+.command-react__terminal > header { display: flex; flex-wrap: wrap; min-height: 32px; align-items: center; gap: 8px; padding: 4px 10px 4px 12px; border-bottom: 1px solid var(--fh-border,#263d30); background: var(--fh-canvas,#101c15); color: var(--fh-muted,#789082); font-size: 12px; }
 .command-react__terminal > header > div { display: flex; align-items: center; gap: 8px; margin-right: auto; color: var(--fh-accent,#b8c9bf); font-weight: 700; }
 .command-react__terminal > header button { min-height: 30px; padding-inline: 8px; }
 .command-react__lamp { width: 7px; height: 7px; border-radius: 50%; background: var(--fh-muted,#68c884); box-shadow: 0 0 10px color-mix(in srgb, var(--fh-muted,#68c884) 55%, transparent); }
-.command-react__output { height: clamp(220px, 28vh, 300px); overflow: auto; padding: 12px; }
+.command-react__output { height: clamp(280px, 42vh, 500px); overflow: auto; padding: 12px; }
 .command-react__console-empty { display: flex; min-height: 190px; align-items: center; justify-content: center; gap: 10px; color: var(--fh-muted,#566d60); font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .command-react__console-empty > span { color: var(--fh-muted,#8dba9c); }
 .command-react__job { padding: 10px 4px 13px; border-bottom: 1px solid var(--fh-border,#18291f); }

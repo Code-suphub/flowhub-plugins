@@ -15,6 +15,7 @@ import {
 
 import { bastionCommandOptions } from './bastionCommands';
 import { useBastionSession } from './useBastionSession';
+import { commandContext, EMPTY_COMMAND_DRAFT, updateCommandDraft, type CommandDraft } from './workspaceDrafts';
 
 import type {
   CommandHost,
@@ -25,6 +26,7 @@ import type {
   CommandWorkspaceProps,
 } from './types';
 import './styles.css';
+import './workbench.css';
 
 const STATUS_LABELS: Record<CommandJobStatus, string> = {
   queued: '排队', running: '执行中', success: '成功', failed: '失败', timeout: '超时', cancelled: '已取消', interrupted: '结果未知',
@@ -128,26 +130,43 @@ function TargetRail({ hosts, selected, disabled, onChange, actions, confirmation
     <MultiCombobox id="command-targets" aria-label="搜索目标机器" placeholder="搜索并选择机器…" emptyMessage="没有匹配的机器" disabled={disabled} maxSelected={16}
       options={hosts.map(host => ({ value: host.id, label: `${host.name}${host.group ? ` · ${host.group}` : ''}`, search: host.alias }))}
       value={[...selected]} onChange={ids => onChange(new Set(ids))} />
-    {actions ? <div className="command-react__actionbar" aria-label="堡垒机会话操作">{actions}</div> : <span className="command-react__selection-count">已选 {selected.size}/16</span>}
+    <span className="command-react__selection-count">已选 {selected.size}/16</span>
     </div>
+    <div className="command-react__machine-list">{[...new Set(hosts.map(host => host.group || '未分组'))].map(group => <section key={group}><h3>{group}</h3>{hosts.filter(host => (host.group || '未分组') === group).map(host => <div key={host.id} className="command-react__machine-row" data-selected={selected.has(host.id)}>
+      <Checkbox checked={selected.has(host.id)} disabled={disabled || (!selected.has(host.id) && selected.size >= 16)} label="" aria-label={`批量选择 ${host.name}`} onChange={checked => { const next = new Set(selected); checked ? next.add(host.id) : next.delete(host.id); onChange(next); }} />
+      <button type="button" data-task-target={host.id} disabled={disabled} aria-pressed={selected.size === 1 && selected.has(host.id)} onClick={() => onChange(new Set([host.id]))}><strong>{host.name}</strong><small>{host.alias}{host.readOnly ? ' · 仅查询' : ''}</small></button>
+    </div>)}</section>)}</div>
+    {actions ? <div className="command-react__actionbar" aria-label="堡垒机会话操作">{actions}</div> : null}
     {confirmation}
   </aside>;
 }
 
-function JobConsole({ jobs, selectedHosts, onCancel, onClear }: {
+function JobConsole({ jobs, selectedHosts, contextKey, onCancel, onClear }: {
   jobs: readonly CommandJob[];
   selectedHosts: readonly CommandHost[];
+  contextKey: string;
   onCancel: (job: CommandJob) => void;
   onClear: () => void;
 }) {
   const outputRef = useRef<HTMLDivElement>(null);
-  useEffect(() => { outputRef.current?.scrollTo({ top: outputRef.current.scrollHeight }); }, [jobs]);
+  const positions = useRef(new Map<string, { top: number; follow: boolean }>());
+  const [followState, setFollowState] = useState({ key: contextKey, value: true });
+  const [copyError, setCopyError] = useState('');
+  const following = followState.key === contextKey ? followState.value : positions.current.get(contextKey)?.follow ?? true;
+  useEffect(() => { const output = outputRef.current; if (output) output.scrollTop = positions.current.get(contextKey)?.top ?? 0; }, [contextKey]);
+  useEffect(() => { const output = outputRef.current; if (output && following) output.scrollTop = output.scrollHeight; }, [jobs, following, contextKey]);
+  function follow(value: boolean) { setFollowState({ key: contextKey, value }); positions.current.set(contextKey, { top: outputRef.current?.scrollTop ?? 0, follow: value }); }
+  async function copyOutput() {
+    try { await navigator.clipboard.writeText(jobs.map(job => `${job.alias} / ${job.command}\n${job.stdout || ''}${job.stderr ? `\n[stderr]\n${job.stderr}` : ''}`).join('\n\n')); setCopyError(''); }
+    catch { setCopyError('复制失败，请重试或选择输出文本复制。'); }
+  }
   const active = jobs.filter((job) => !job.finishedAt).length;
   return <section className="command-react__terminal" aria-label="命令执行输出">
-    <header><div><span className="command-react__lamp" aria-hidden="true" />执行输出</div><span>{jobs.length} 条 · {active} 条执行中</span><Button size="sm" variant="ghost" disabled={!jobs.some((job) => job.finishedAt)} onClick={onClear}>清除已完成</Button></header>
-    <div ref={outputRef} className="command-react__output" aria-live="polite">
+    <header><div><span className="command-react__lamp" aria-hidden="true" />执行输出</div><span>{jobs.length} 条 · {active} 条执行中</span><Checkbox label="自动跟随" checked={following} onChange={follow} /><Button size="sm" variant="ghost" disabled={!jobs.length} onClick={() => void copyOutput()}>复制输出</Button><Button size="sm" variant="ghost" disabled={!jobs.some((job) => job.finishedAt)} onClick={onClear}>清除已完成</Button></header>
+    {copyError ? <p role="alert">{copyError}</p> : null}
+    <div ref={outputRef} className="command-react__output" onScroll={event => { const output = event.currentTarget; const atEnd = output.scrollHeight - output.scrollTop - output.clientHeight < 24; positions.current.set(contextKey, { top: output.scrollTop, follow: atEnd }); if (atEnd !== following) setFollowState({ key: contextKey, value: atEnd }); }}>
       {jobs.length ? jobs.map((job) => <article key={job.id} className="command-react__job">
-        <div><span className={`command-react__job-status command-react__job-status--${job.status}`}>{STATUS_LABELS[job.status] ?? job.status}</span><strong>{job.alias}</strong><time>{new Date(job.startedAt).toLocaleTimeString()}</time>{!job.finishedAt ? <Button size="sm" variant="ghost" onClick={() => onCancel(job)}>取消</Button> : null}</div>
+        <div><span className={`command-react__job-status command-react__job-status--${job.status}`}>{STATUS_LABELS[job.status] ?? job.status}</span><strong>{job.alias}</strong><time>{new Date(job.startedAt).toLocaleTimeString()}</time>{job.exitCode != null ? <span>exit {job.exitCode}</span> : null}{!job.finishedAt ? <Button size="sm" variant="ghost" onClick={() => onCancel(job)}>取消</Button> : null}</div>
         <pre><b>$ {job.command}</b>{job.stdout ? `\n${job.stdout}` : ''}{job.stderr ? `\n[stderr]\n${job.stderr}` : ''}{job.finishedAt && !job.stdout && !job.stderr ? '\n（无输出）' : ''}</pre>
       </article>) : <div className="command-react__console-empty"><span>$</span><p>{selectedHosts.length ? '输入命令后按 Enter 执行' : '先选择目标机器'}</p></div>}
     </div>
@@ -157,21 +176,33 @@ function JobConsole({ jobs, selectedHosts, onCancel, onClear }: {
 export function CommandWorkspace({ api, run, active = true, selectedHostIds, onSelectionChange }: CommandWorkspaceProps) {
   const [state, setState] = useState<CommandState | null>(null);
   const selected = useMemo(() => new Set(selectedHostIds), [selectedHostIds]);
-  const [command, setCommand] = useState('');
+  const hosts = state?.config.hosts ?? [];
+  const selectedHosts = useMemo(() => hosts.filter((host) => selected.has(host.id)), [hosts, selected]);
+  const contextKey = commandContext(selectedHosts, state?.targetRevisions);
+  const [drafts, setDrafts] = useState<ReadonlyMap<string, CommandDraft>>(() => new Map());
+  const { command, query } = drafts.get(contextKey) ?? EMPTY_COMMAND_DRAFT;
+  const setCommand = (value: string) => setDrafts(current => updateCommandDraft(current, contextKey, { command: value }));
+  const setQuery = (value: string) => setDrafts(current => updateCommandDraft(current, contextKey, { query: value }));
   const [jobs, setJobs] = useState<readonly CommandJob[]>([]);
   const [running, setRunning] = useState(false);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [workspaceView, setWorkspaceView] = useState<'execute' | 'templates' | 'sessions'>('execute');
   const [templateBusy, setTemplateBusy] = useState(false);
-  const [query, setQuery] = useState('uptime');
   const [sessionDraft, setSessionDraft] = useState({ key: '', text: '', secret: false });
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
   const bastionOutputRef = useRef<HTMLPreElement>(null);
   const followOutput = useRef(true);
-  const history = useRef<string[]>([]);
-  const historyIndex = useRef(0);
-  const historyDraft = useRef('');
+  const histories = useRef(new Map<string, { commands: string[]; index: number; draft: string }>());
+  const history = useMemo(() => {
+    const existing = histories.current.get(contextKey);
+    if (existing) return existing;
+    const next = { commands: [] as string[], index: 0, draft: '' };
+    histories.current.set(contextKey, next);
+    while (histories.current.size > 32) histories.current.delete(histories.current.keys().next().value!);
+    return next;
+  }, [contextKey]);
+  const operation = useRef(false);
   const loadVersion = useRef(0);
 
   const load = useCallback(async () => {
@@ -207,8 +238,6 @@ export function CommandWorkspace({ api, run, active = true, selectedHostIds, onS
     } catch (reason) { setError(errorText(reason)); }
     finally { setSharedBusy(false); }
   }
-  const hosts = state?.config.hosts ?? [];
-  const selectedHosts = useMemo(() => hosts.filter((host) => selected.has(host.id)), [hosts, selected]);
   const bastionHost = selectedHosts.length === 1 && (selectedHosts[0]?.bastion || state?.config.sharedConfigFile) ? selectedHosts[0] : null;
   const hasBastion = (!!state?.config.sharedConfigFile && selectedHosts.length === 1) || selectedHosts.some((host) => host.bastion);
   const templates = state?.config.templates ?? state?.config.installed?.templates ?? [];
@@ -223,8 +252,7 @@ export function CommandWorkspace({ api, run, active = true, selectedHostIds, onS
   useEffect(() => {
     setConfirmDisconnect(false);
     setSessionDraft({ key: sessionKey, text: '', secret: false });
-    setCommand(''); setQuery('uptime'); followOutput.current = true;
-    history.current = []; historyIndex.current = 0; historyDraft.current = '';
+    followOutput.current = true;
   }, [sessionKey, selectionKey]);
 
   useEffect(() => {
@@ -248,11 +276,14 @@ export function CommandWorkspace({ api, run, active = true, selectedHostIds, onS
   }
 
   async function execute(hostList: readonly CommandHost[], value: string) {
+    if (operation.current || !state?.config.enabled) return;
     if (!run) { setError('当前环境没有命令执行桥。'); return; }
     if (!hostList.length || hostList.length > 16 || !value.trim() || byteLength(value) > 8192) {
       setError('请选择 1–16 台机器，并输入不超过 8192 字节的命令。'); return;
     }
     followOutput.current = true;
+    operation.current = true;
+    try {
     setRunning(true); setError(''); setNotice(`正在向 ${hostList.length} 台机器提交命令…`);
     const pending = hostList.map((host) => ({ id: crypto.randomUUID(), hostId: host.id, name: host.name, alias: host.alias, command: value, status: 'queued' as const, startedAt: Date.now(), finishedAt: null }));
     setJobs((current) => [...current, ...pending].slice(-100));
@@ -275,15 +306,16 @@ export function CommandWorkspace({ api, run, active = true, selectedHostIds, onS
       const failed = results.find((result) => result.status === 'rejected' || (result.status === 'fulfilled' && result.value.status && result.value.status !== 'success'));
       setError(failed?.status === 'rejected' ? errorText(failed.reason) : failed?.status === 'fulfilled' && failed.value.stderr ? failed.value.stderr : '部分命令未成功，请查看执行记录或控制台输出。');
     }
-    setRunning(false);
     if (!rejected && !unsuccessful) void load();
+    } finally { operation.current = false; setRunning(false); }
   }
 
   function submitCommand() {
     const value = command;
-    if (running || !value.trim()) return;
-    if (history.current.at(-1) !== value) history.current = [...history.current.slice(-99), value];
-    historyIndex.current = history.current.length; historyDraft.current = '';
+    if (running || operation.current || !state?.config.enabled || !value.trim()) return;
+    if (!selectedHosts.length || selectedHosts.length > 16 || byteLength(value) > 8192) { setError('请选择 1–16 台机器，并输入不超过 8192 字节的命令。'); return; }
+    if (history.commands.at(-1) !== value) history.commands = [...history.commands.slice(-99), value];
+    history.index = history.commands.length; history.draft = '';
     setCommand('');
     void execute(selectedHosts, value);
   }
@@ -291,11 +323,11 @@ export function CommandWorkspace({ api, run, active = true, selectedHostIds, onS
   function commandKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.nativeEvent.isComposing) return;
     if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); submitCommand(); return; }
-    if (!['ArrowUp', 'ArrowDown'].includes(event.key) || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey || command.includes('\n') || !history.current.length) return;
+    if (!['ArrowUp', 'ArrowDown'].includes(event.key) || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey || command.includes('\n') || !history.commands.length) return;
     event.preventDefault();
-    if (historyIndex.current === history.current.length) historyDraft.current = command;
-    historyIndex.current = Math.max(0, Math.min(history.current.length, historyIndex.current + (event.key === 'ArrowUp' ? -1 : 1)));
-    setCommand(historyIndex.current === history.current.length ? historyDraft.current : history.current[historyIndex.current] ?? '');
+    if (history.index === history.commands.length) history.draft = command;
+    history.index = Math.max(0, Math.min(history.commands.length, history.index + (event.key === 'ArrowUp' ? -1 : 1)));
+    setCommand(history.index === history.commands.length ? history.draft : history.commands[history.index] ?? '');
   }
 
   async function saveTemplates(next: readonly CommandTemplate[]) {
@@ -341,7 +373,7 @@ export function CommandWorkspace({ api, run, active = true, selectedHostIds, onS
           </div>
           <div className="command-react__composer"><span aria-hidden="true">{selectedHosts.length === 1 ? `${selectedHosts[0]?.alias} $` : selectedHosts.length ? `${selectedHosts.length} 台 $` : '$'}</span><Textarea rows={1} spellCheck={false} autoComplete="off" placeholder="输入命令，回车执行" value={command} onChange={(event) => setCommand(event.target.value)} onKeyDown={commandKeyDown} /><Button variant="primary" disabled={running || !selectedHosts.length || !command.trim()} onClick={submitCommand}>{running ? '执行中…' : '执行 ↵'}</Button></div>
           <footer className="command-react__footer"><span>Enter 执行 · Shift+Enter 换行 · ↑↓ 历史</span></footer>
-          <JobConsole jobs={jobs} selectedHosts={selectedHosts} onCancel={(job) => void api('cancel', { id: job.id }).catch((reason) => setError(errorText(reason)))} onClear={() => setJobs((current) => current.filter((job) => !job.finishedAt))} />
+          <JobConsole jobs={selected.size ? jobs.filter(job => selected.has(job.hostId)) : jobs} selectedHosts={selectedHosts} contextKey={contextKey} onCancel={(job) => void api('cancel', { id: job.id }).catch((reason) => setError(errorText(reason)))} onClear={() => setJobs((current) => current.filter((job) => !job.finishedAt || (selected.size > 0 && !selected.has(job.hostId))))} />
         </>}
         {notice ? <p className="command-react__notice" role="status">{notice}</p> : null}
         {error ? <p className="command-react__error" role="alert">{error}</p> : null}

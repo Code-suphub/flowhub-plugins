@@ -1,0 +1,14 @@
+.command-react__machine-list { min-width: 0; max-height: 500px; overflow: auto; }
+.command-react__machine-list h3 { padding: 12px 6px 6px; color: var(--fh-muted); font-size: 11px; font-weight: 500; }
+.command-react__machine-row { display: grid; grid-template-columns: 20px minmax(0, 1fr); align-items: center; gap: 5px; padding: 7px 6px; border-radius: 5px; }
+.command-react__machine-row[data-selected="true"] { background: color-mix(in srgb, var(--fh-accent) 10%, transparent); }
+.command-react__machine-row > button { min-width: 0; padding: 0; border: 0; border-radius: 3px; text-align: left; background: transparent; color: var(--fh-text); }
+.command-react__machine-row strong, .command-react__machine-row small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.command-react__machine-row strong { font-size: 12px; font-weight: 500; }
+.command-react__machine-row small { margin-top: 3px; color: var(--fh-muted); font: 11px Menlo, monospace; }
+.command-react__terminal > header .fh-checkbox { font-size: 11px; }
+.command-react__terminal > p[role="alert"] { padding: 10px; color: var(--fh-danger); }
+@media (max-width: 760px) {
+  .command-react__machine-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; max-height: 190px; }
+  .command-react__machine-list > section { min-width: 0; }
+}
