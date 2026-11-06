@@ -6,7 +6,7 @@ FlowHub schema 2 独立插件，面向本机 Docker。0.3.0 采用参考 Arcane 
 
 ## 构建与加载
 
-在本目录运行 `npm run build`，然后在 FlowHub「插件市场 → 安装开发目录」选择 `build/`，确认安装后打开侧栏「Docker 管理」。前端或公共组件修改后重新构建，再在「已安装」中重新加载。
+在本目录运行 `pnpm run build`，然后在 FlowHub「插件市场 → 安装开发目录」选择 `build/`，确认安装后打开侧栏「Docker 管理」。前端或公共组件修改后重新构建，再在「已安装」中重新加载。
 
 Docker CLI 查找 `/opt/homebrew/bin/docker`、`/usr/local/bin/docker` 以及 Docker Desktop 自带路径。使用 Docker 当前 context，但仅接受 Unix socket 本机环境；不切换用户 context，不启动引擎，不执行 shell，不读取容器环境变量。Docker Desktop 或 Colima 必须先启动。环境变量 DOCKER_HOST / DOCKER_CONTEXT 不覆盖 context 配置。
 
@@ -50,9 +50,9 @@ Docker 页面右上角「桌面悬浮窗」打开 FlowHub 桌面组件画布，�
 
 0.2.0 的实现范围、自动回归和安装版待验项见 [交互验收清单](docs/acceptance.md)。本轮参考 [Dockge 1.5.0](https://github.com/louislam/dockge/tree/1.5.0) 的 Compose 项目、成员与输出工作台组织（`Compose.vue`、`Container.vue`）。上游采用 [MIT 许可](https://github.com/louislam/dockge/blob/1.5.0/LICENSE)；本轮只参考交互，使用 FlowHub 公共 React 组件重新实现，没有复制其源码、样式或素材，没有引入其服务端。
 
-`npm test`：参数校验、拒绝未确认操作、JSON 行解析、输出限制、状态摘要与组件只读接口、项目筛选、过期判定及 JS 语法。
+`pnpm test`：参数校验、拒绝未确认操作、JSON 行解析、输出限制、状态摘要与组件只读接口、项目筛选、过期判定及 JS 语法。
 
-`npm run dev`：打开 `http://127.0.0.1:5184`，仅模拟数据，不暴露 Docker 或宿主接口。
+`pnpm run dev`：打开 `http://127.0.0.1:5184`，仅模拟数据，不暴露 Docker 或宿主接口。
 
 `node tests/compose-smoke.mjs`：使用已有的 minio/minio:latest 镜像创建独立双容器 Compose 项目，验证单个停止、整个项目停止和目标变化拒绝，最后自动清理测试项目。测试容器不挂载宿主目录、不开放网络，不操作已有业务项目。
 
@@ -62,7 +62,7 @@ Docker 页面右上角「桌面悬浮窗」打开 FlowHub 桌面组件画布，�
 
 真实冒烟测试：先创建专用容器，名称以 `flowhub-docker-smoke-` 开头、项目标签为 `flowhub-plugin-test`，日志包含 `FLOWHUB_PLUGIN_SMOKE_READY`，然后运行 `node tests/smoke.mjs <完整容器ID>`。脚本会对该测试容器执行 restart/stop/start，拒绝测试普通业务容器。测试后需清理专用容器。
 
-2026-09-11 本机验证：插件 Rust 测试 4 项通过，FlowHub 全量 `npm test` 通过；在已安装 FlowHub 0.1.11 中完成开发目录安装、真实列表和 Compose 分组、日志展示与停止/启动操作。真实 RPC 冒烟覆盖资源详情、日志、重启/停止/启动，以及未确认和环境切换拒绝。
+2026-09-11 本机验证：插件 Rust 测试 4 项通过，FlowHub 全量 `pnpm test` 通过；在已安装 FlowHub 0.1.11 中完成开发目录安装、真实列表和 Compose 分组、日志展示与停止/启动操作。真实 RPC 冒烟覆盖资源详情、日志、重启/停止/启动，以及未确认和环境切换拒绝。
 
 补充验证：隔离 Docker 配置中的不存在 socket 返回可恢复错误；浏览器验证搜索、日志过滤、模拟操作禁用及主题切换，无控制台错误；390px 窗口无横向溢出。FlowHub 重新加载成功，测试容器已清理。
 

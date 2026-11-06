@@ -17,15 +17,15 @@ const apiSource=join(pluginRoot,'src/api');
 const backupSource=join(pluginRoot,'src/backup');
 const collectionsSource=join(pluginRoot,'src/collections');
 const commonReact=join(pluginRoot,'../common/src/react');
-const buildFleet=()=>execFileSync('npm',['run','build:fleet'],{
+const buildFleet=()=>execFileSync('pnpm',['run','build:fleet'],{
   cwd:pluginRoot,
   stdio:'inherit',
   env:{...process.env,NODE_ENV:'production'}
 });
 const buildWidgets=()=>{
   const options={cwd:pluginRoot,stdio:'inherit',env:{...process.env,NODE_ENV:'production'}};
-  execFileSync('npm',['run','build:widget-editor'],options);
-  for(const name of ['card','detail']) execFileSync('npx',['vite','build','--config',`vite.widget-${name}.config.mjs`],options);
+  execFileSync('pnpm',['run','build:widget-editor'],options);
+  for(const name of ['card','detail']) execFileSync('pnpm',['exec','vite','build','--config',`vite.widget-${name}.config.mjs`],options);
 };
 
 export default defineConfig({

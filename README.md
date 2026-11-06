@@ -34,25 +34,25 @@ flowhub-plugins/
 - 清单 `schema` 为 2，`id` 与目录名一致，`version` 为 `x.y.z`，且与 `package.json`、`backend/Cargo.toml` 三处一致；
 - `ui` 指向存在的 HTML 页面，`widget.card/editor/detail` 若声明也必须是存在的 HTML 页面；
 - `executable` 是插件目录内的相对路径（禁止绝对路径与 `..`）；
-- 存在 `README.md`、`package-lock.json`、`backend/Cargo.toml`，以及 `build`、`test` 两个 npm 脚本。
+- 存在 `README.md`、`pnpm-lock.yaml`（兼容保留 `package-lock.json` 的插件）、`backend/Cargo.toml`，以及 `build`、`test` 两个包管理器脚本。
 
 ## 在仓库根目录开发
 
 ```sh
-npm run install:machines      # 等价于 npm ci --prefix plugins/machines
-npm run dev:machines          # 仅 machines、docker 提供 dev 预览
-npm run build                 # 依次构建全部插件
-npm run check                 # 校验插件目录约定
-npm test                      # 先校验约定，再依次测试全部插件
+pnpm run install:machines      # 等价于 pnpm --dir plugins/machines install --frozen-lockfile
+pnpm run dev:machines          # 仅 machines、docker 提供 dev 预览
+pnpm run build                 # 依次构建全部插件
+pnpm run check                 # 校验插件目录约定
+pnpm test                      # 先校验约定，再依次测试全部插件
 ```
 
-`build`、`test` 由 `scripts/run-all.mjs` 遍历 `plugins/*/flowhub-plugin.json` 执行，并跳过没有对应脚本的插件；也可以进入单个插件目录直接运行 `npm run build`、`npm test`。每个插件独立维护依赖锁文件。CI 在 `plan` 阶段就会跑 `check-plugins`，缺文件或版本不一致不会拖到打标签发布时才暴露。
+`build`、`test` 由 `scripts/run-all.mjs` 遍历 `plugins/*/flowhub-plugin.json` 执行，并跳过没有对应脚本的插件；也可以进入单个插件目录直接运行 `pnpm run build`、`pnpm test`。每个插件独立维护依赖锁文件。CI 在 `plan` 阶段就会跑 `check-plugins`，缺文件或版本不一致不会拖到打标签发布时才暴露。
 
-FlowHub 从本地目录安装时，先在插件目录运行 `npm run build`，再选择 **`plugins/<插件 ID>/build`**，不是仓库根目录或源码目录。构建目录包含自包含的 `flowhub-plugin.json`、`ui/` 和 `bin/`；公共 UI 会在构建阶段内联，不依赖仓库外路径。
+FlowHub 从本地目录安装时，先在插件目录运行 `pnpm run build`，再选择 **`plugins/<插件 ID>/build`**，不是仓库根目录或源码目录。构建目录包含自包含的 `flowhub-plugin.json`、`ui/` 和 `bin/`；公共 UI 会在构建阶段内联，不依赖仓库外路径。
 
 ## 添加新插件
 
-在 `plugins/<插件名>/` 下创建独立插件，使用唯一的插件 ID，并在上表登记。插件版本由各自的 `flowhub-plugin.json` 管理，无需与宿主或其他插件一起升级。发布标签使用各插件前缀，例如 `machines-v0.2.1`。已配置按变更验证、按标签发布的工作流，详见 [自动发布说明](docs/releases.md)。当前构建约定为每个插件提供 npm build/test 和 Rust backend，其他技术栈需扩展发布工作流。
+在 `plugins/<插件名>/` 下创建独立插件，使用唯一的插件 ID，并在上表登记。插件版本由各自的 `flowhub-plugin.json` 管理，无需与宿主或其他插件一起升级。发布标签使用各插件前缀，例如 `machines-v0.2.1`。已配置按变更验证、按标签发布的工作流，详见 [自动发布说明](docs/releases.md)。当前构建约定为每个插件提供 build/test 脚本和 Rust backend，按锁文件选择 pnpm 或兼容 npm；其他技术栈需扩展发布工作流。此次迁移的验证和待验项见[验收清单](docs/pnpm-migration.md)。
 
 ## 从旧仓库迁移
 

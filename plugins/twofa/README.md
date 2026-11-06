@@ -18,16 +18,16 @@
 
 列表和导入预览只返回账户元数据；完整链接仅在当前表单内存和本机请求中使用，不写浏览器存储。验证码按各自周期缓存，到期才重新请求，八位验证码按四位分组展示，复制仍取连续数字。
 
-在插件目录运行 `npm run build`，然后在 FlowHub「插件市场 → 安装开发目录」选择 `build/`。
+在插件目录运行 `pnpm run build`，然后在 FlowHub「插件市场 → 安装开发目录」选择 `build/`。
 
 ## 前端
 
 React + TypeScript + Vite + Tailwind CSS，复用 `@flowhub/plugin-common/react` 的输入、按钮、菜单、帮助气泡和对话框。新增／编辑与删除确认均为公共弹窗；旧 DOM 脚本和专用样式已移除。
 
-- `npm ci`：安装锁定依赖。
-- `npm run dev`：在 http://127.0.0.1:5197 打开只读模拟预览，不接触真实密钥。
-- `npm test`：Rust、类型及客户端行为测试。
-- `npm run build`：生成独立包并验证资源。React 编译为包内 IIFE，兼容插件自定义协议及既有 CSP，不依赖 CDN、外部源文件或新权限。
+- `pnpm install --frozen-lockfile`：安装锁定依赖。
+- `pnpm run dev`：在 http://127.0.0.1:5197 打开只读模拟预览，不接触真实密钥。
+- `pnpm test`：Rust、类型及客户端行为测试。
+- `pnpm run build`：生成独立包并验证资源。React 编译为包内 IIFE，兼容插件自定义协议及既有 CSP，不依赖 CDN、外部源文件或新权限。
 
 验证码仅暂存在内存；倒计时不重复请求有效验证码，到期后刷新。复制由用户点击触发，环境不允许剪贴板访问时可手动选中复制，不绕过沙箱权限。
 

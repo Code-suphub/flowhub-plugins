@@ -5,17 +5,17 @@
   "scripts": {
     "dev": "vite --config vite.config.mjs",
     "build": "node scripts/build.mjs",
-    "build:react": "npm run build:widget-editor && npm run build:fleet && vite build --config vite.widget-card.config.mjs && vite build --config vite.widget-detail.config.mjs && node scripts/version-widget-assets.mjs",
+    "build:react": "pnpm run build:widget-editor && pnpm run build:fleet && vite build --config vite.widget-card.config.mjs && vite build --config vite.widget-detail.config.mjs && node scripts/version-widget-assets.mjs",
     "build:widget-editor": "vite build --config vite.react.config.mjs",
     "build:fleet": "vite build --config vite.fleet.config.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "cargo test --manifest-path backend/Cargo.toml && npm run typecheck && node --test tests/*.test.cjs && node scripts/layout-audit.mjs --check && node scripts/preview-fingerprint.mjs",
+    "test": "cargo test --manifest-path backend/Cargo.toml && pnpm run typecheck && node --test tests/*.test.cjs && node scripts/layout-audit.mjs --check && node scripts/preview-fingerprint.mjs",
     "layout": "node scripts/layout-audit.mjs",
     "fingerprint": "node scripts/preview-fingerprint.mjs --write",
     "prune-css": "node scripts/prune-dead-css.mjs"
   },
   "dependencies": {
-    "@flowhub/plugin-common": "file:../common",
+    "@flowhub/plugin-common": "link:../common",
     "react": "19.3.0",
     "react-dom": "19.3.0"
   },
@@ -27,5 +27,12 @@
     "tailwindcss": "4.3.3",
     "typescript": "5.9.3",
     "vite": "6.4.3"
+  },
+  "packageManager": "pnpm@10.15.1",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "fsevents"
+    ]
   }
 }

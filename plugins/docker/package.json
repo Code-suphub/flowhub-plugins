@@ -7,10 +7,10 @@
     "build": "node scripts/build.mjs",
     "build:ui": "vite build --config vite.config.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "cargo test --manifest-path backend/Cargo.toml && npm run typecheck && node --check ui/widget/widget.js && node --check ui/widget/widget-bridge.js && node --check ui/widget/widget-editor.js && node --test tests/*.test.cjs"
+    "test": "cargo test --manifest-path backend/Cargo.toml && pnpm run typecheck && node --check ui/widget/widget.js && node --check ui/widget/widget-bridge.js && node --check ui/widget/widget-editor.js && node --test tests/*.test.cjs"
   },
   "dependencies": {
-    "@flowhub/plugin-common": "file:../common",
+    "@flowhub/plugin-common": "link:../common",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "react": "19.3.0",
@@ -26,5 +26,12 @@
     "tailwindcss": "4.3.3",
     "typescript": "5.9.3",
     "vite": "6.4.3"
+  },
+  "packageManager": "pnpm@10.15.1",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "fsevents"
+    ]
   }
 }

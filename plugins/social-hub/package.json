@@ -7,10 +7,10 @@
     "build": "node scripts/build.mjs",
     "build:ui": "vite build --config vite.config.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "cargo test --manifest-path backend/Cargo.toml && npm run typecheck && node --test tests/*.test.cjs"
+    "test": "cargo test --manifest-path backend/Cargo.toml && pnpm run typecheck && node --test tests/*.test.cjs"
   },
   "dependencies": {
-    "@flowhub/plugin-common": "file:../common",
+    "@flowhub/plugin-common": "link:../common",
     "react": "19.3.0",
     "react-dom": "19.3.0"
   },
@@ -22,5 +22,12 @@
     "tailwindcss": "4.3.3",
     "typescript": "5.9.3",
     "vite": "6.4.3"
+  },
+  "packageManager": "pnpm@10.15.1",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "fsevents"
+    ]
   }
 }

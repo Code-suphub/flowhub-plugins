@@ -13,7 +13,7 @@ chmodSync(temporary,0o755);
 renameSync(temporary,'bin/flowhub-machines');
 try {
   execFileSync(process.execPath,[fileURLToPath(new URL('../../../scripts/package-plugin.mjs',import.meta.url)),'machines'],{stdio:'inherit'});
-  execFileSync('npm',['run','build:react'],{stdio:'inherit'});
+  execFileSync('pnpm',['run','build:react'],{stdio:'inherit'});
   writeFileSync('build/ui/widget-editor.html',inlineCommonHtml(readFileSync('src/widget-editor/index.html','utf8'),{scriptPrefix:'_common'}));
   const machinesHtml='build/ui/machines.html';
   const machines=readFileSync(machinesHtml,'utf8')
