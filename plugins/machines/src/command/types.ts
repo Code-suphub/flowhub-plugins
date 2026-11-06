@@ -52,6 +52,8 @@ export interface BastionState {
 }
 
 export interface CommandWorkspaceProps {
+  onOpenMachine?: (hostId: string) => void;
+  onEditConnection?: (hostId: string) => void;
   selectedHostIds: readonly string[];
   onSelectionChange: (hostIds: readonly string[]) => void;
   active?: boolean;

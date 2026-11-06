@@ -207,6 +207,7 @@ export function FleetPage({
   api = null,
   active = true,
   jobs = [],
+  inspectRequest,
   snapshot,
   config,
   actions,
@@ -221,7 +222,16 @@ export function FleetPage({
   const [narrow, setNarrow] = useState(() => typeof window !== 'undefined' && !!window.matchMedia?.('(max-width: 1100px)').matches);
   const returnTarget = useRef<HTMLButtonElement | null>(null);
   const listScroll = useRef(0);
+  const root = useRef<HTMLDivElement>(null);
   const inspectedHost = inspectedId ? snapshot.hosts.find(host => host.id === inspectedId) : snapshot.hosts[0];
+  useEffect(() => {
+    if (!inspectRequest) return;
+    returnTarget.current = null; listScroll.current = window.scrollY;
+    setInspectedId(inspectRequest.hostId); setDetailOpen(true); setDetailRequested(true);
+  }, [inspectRequest]);
+  useEffect(() => {
+    if (active && narrow && detailRequested && detailOpen) root.current?.querySelector<HTMLButtonElement>('[aria-label="返回机器列表"]')?.focus();
+  }, [active, narrow, detailRequested, detailOpen, inspectedHost?.id]);
   useEffect(() => {
     const media = window.matchMedia?.('(max-width: 1100px)');
     if (!media) return;
@@ -236,7 +246,10 @@ export function FleetPage({
   }
   function closeDetail() {
     setDetailOpen(false); setDetailRequested(false);
-    requestAnimationFrame(() => { returnTarget.current?.focus({ preventScroll: true }); if (narrow) window.scrollTo({ top: listScroll.current }); });
+    requestAnimationFrame(() => {
+      const target = returnTarget.current ?? [...(root.current?.querySelectorAll<HTMLButtonElement>('[data-inspect-host]') ?? [])].find(button => button.dataset.inspectHost === inspectedHost?.id) ?? root.current?.querySelector<HTMLInputElement>('#filter');
+      target?.focus({ preventScroll: true }); if (narrow) window.scrollTo({ top: listScroll.current });
+    });
   }
   const [query, setQuery] = useState('');
   const [group, setGroup] = useState('');
@@ -438,7 +451,7 @@ export function FleetPage({
   }).length;
 
   return (
-    <div className={cx('fleet', detailOpen && 'fleet--detail-open', detailRequested && 'fleet--detail-requested', className)}>
+    <div ref={root} className={cx('fleet', detailOpen && 'fleet--detail-open', detailRequested && 'fleet--detail-requested', className)}>
       <div className="fleet__split">
       <section className="fleet__panel" aria-labelledby="fleet-list-title">
         <header className="fleet__section-head">

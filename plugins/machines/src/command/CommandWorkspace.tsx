@@ -9,7 +9,6 @@ import {
   HelpPopover,
   Input,
   Select,
-  Tabs,
   Textarea,
 } from '@flowhub/plugin-common/react';
 
@@ -173,7 +172,7 @@ function JobConsole({ jobs, selectedHosts, contextKey, onCancel, onClear }: {
   </section>;
 }
 
-export function CommandWorkspace({ api, run, active = true, selectedHostIds, onSelectionChange }: CommandWorkspaceProps) {
+export function CommandWorkspace({ api, run, active = true, selectedHostIds, onSelectionChange, onOpenMachine, onEditConnection }: CommandWorkspaceProps) {
   const [state, setState] = useState<CommandState | null>(null);
   const selected = useMemo(() => new Set(selectedHostIds), [selectedHostIds]);
   const hosts = state?.config.hosts ?? [];
@@ -301,7 +300,7 @@ export function CommandWorkspace({ api, run, active = true, selectedHostIds, onS
     if (hostList.length === 1 && hostList[0]?.bastion) await sessionAction('bastionState');
     const rejected = results.filter((result) => result.status === 'rejected').length;
     const unsuccessful = results.filter((result) => result.status === 'fulfilled' && result.value.status && result.value.status !== 'success').length;
-    setNotice(`任务结束：${results.length - rejected - unsuccessful} 成功，${unsuccessful} 未成功，${rejected} 未提交。`);
+    setNotice(`任务结束（${hostList.map(host => host.alias).join('、')}）：${results.length - rejected - unsuccessful} 成功，${unsuccessful} 未成功，${rejected} 未提交。`);
     if (rejected || unsuccessful) {
       const failed = results.find((result) => result.status === 'rejected' || (result.status === 'fulfilled' && result.value.status && result.value.status !== 'success'));
       setError(failed?.status === 'rejected' ? errorText(failed.reason) : failed?.status === 'fulfilled' && failed.value.stderr ? failed.value.stderr : '部分命令未成功，请查看执行记录或控制台输出。');
@@ -341,13 +340,17 @@ export function CommandWorkspace({ api, run, active = true, selectedHostIds, onS
   if (!state) return <section className="command-react"><EmptyState title={error || '正在读取命令工作台…'} /></section>;
 
   return <section className="command-react" aria-label="远程命令">
-    <Tabs value={workspaceView} onValueChange={(value) => setWorkspaceView(value as 'execute' | 'templates' | 'sessions')} className="command-react__workspace-tabs">
-      <Tabs.List aria-label="远程命令工作区" className="command-react__subtabs">
-        <Tabs.Trigger value="execute" className="command-react__subtab" title="选择目标机器、输入命令，再执行；输出显示在当前工作区。">执行命令</Tabs.Trigger>
-        <Tabs.Trigger value="sessions" className="command-react__subtab">连接与会话</Tabs.Trigger>
-        <Tabs.Trigger value="templates" className="command-react__subtab" title="集中维护常用命令，一次编辑一条，保存后生效。选择模板只会填入命令，不会自动执行。">命令模板</Tabs.Trigger>
-      </Tabs.List>
-      <Tabs.Panel value="execute" forceMount className="command-react__workspace-panel">
+    <header className="command-react__context">
+      <div><h3>{selectedHosts.length === 1 ? selectedHosts[0].name : selectedHosts.length ? `批量目标 · ${selectedHosts.length} 台` : '选择目标机器'}</h3><p>{selectedHosts.map(host => host.alias).join('、') || '从左侧机器列表选择目标'}</p></div>
+      <div className="command-react__tools">
+        {selectedHosts.length === 1 && onOpenMachine ? <Button size="sm" variant="ghost" onClick={() => onOpenMachine(selectedHosts[0].id)}>机器详情</Button> : null}
+        {selectedHosts.length === 1 && onEditConnection ? <Button size="sm" variant="ghost" disabled={!state.config.enabled} onClick={() => onEditConnection(selectedHosts[0].id)}>连接配置</Button> : null}
+        <Button size="sm" aria-haspopup="dialog" aria-expanded={workspaceView === 'sessions'} data-command-tools="sessions" onClick={() => setWorkspaceView('sessions')}>管理连接</Button>
+        <Button size="sm" aria-haspopup="dialog" aria-expanded={workspaceView === 'templates'} data-command-tools="templates" onClick={() => setWorkspaceView('templates')}>命令模板</Button>
+        {selectedHosts.length === 1 ? <Button size="sm" disabled={!state.config.enabled || !!selectedHosts[0].readOnly} onClick={() => void api(selectedHosts[0].bastion || state.config.sharedConfigFile ? 'bastionTerminal' : 'terminal', { hostId: selectedHosts[0].id }).catch(reason => setError(errorText(reason)))}>系统终端</Button> : null}
+      </div>
+    </header>
+    {running ? <p className="command-react__notice" role="status">已提交任务：{jobs.filter(job => !job.finishedAt).map(job => job.alias).join('、')}。切换查看目标不会取消任务。</p> : null}
         <div className="command-react__layout">
       <TargetRail hosts={hosts} selected={selected} disabled={!state.config.enabled} onChange={updateSelection}
         actions={bastionHost ? <>
@@ -379,8 +382,8 @@ export function CommandWorkspace({ api, run, active = true, selectedHostIds, onS
         {error ? <p className="command-react__error" role="alert">{error}</p> : null}
       </div>
         </div>
-      </Tabs.Panel>
-      <Tabs.Panel value="sessions" forceMount className="command-react__workspace-panel">
+      <DialogShell open={active && workspaceView === 'sessions'} onOpenChange={open => { if (!open) setWorkspaceView('execute'); }} title="连接与会话" className="command-react__manager" contentClassName="command-react__manager-shell">
+        {selectedHosts.length === 1 ? <div className="command-react__connection-target"><span>{selectedHosts[0].name} · {selectedHosts[0].alias}</span>{onEditConnection ? <Button size="sm" disabled={!state.config.enabled} onClick={() => onEditConnection(selectedHosts[0].id)}>编辑连接配置</Button> : null}</div> : null}
         <section className="command-react__shared-manager" aria-label="共享连接与会话">
           <label><span>连接配置文件</span><Input aria-label="连接配置文件" value={configFile} placeholder={state.config.sharedConfigFile || '~/.ssh/mcp-servers.json（留空使用默认路径）'} onChange={event => setConfigFile(event.target.value)} /></label>
           <p>内置 SSH 组件可独立运行，无需安装 toolkit。选择 JSON 文件后，可与 toolkit 共用连接配置及会话。已有连接会补入文件，密码字段按文件格式保存；请仅允许当前用户读取。切换前暂停监控并等待任务结束。</p>
@@ -389,10 +392,9 @@ export function CommandWorkspace({ api, run, active = true, selectedHostIds, onS
           <ul>{sharedSessions.map(session => <li key={session.id}><strong>{session.alias}</strong> · {session.type} · {session.dead ? '已退出' : session.busy ? '执行中或结果未知' : session.attached ? '终端已附着' : '可用'}<br /><code>{session.id}</code> · {session.config_file}</li>)}</ul></> : null}
           {notice ? <p role="status">{notice}</p> : null}{error ? <p role="alert">{error}</p> : null}
         </section>
-      </Tabs.Panel>
-      <Tabs.Panel value="templates" forceMount className="command-react__workspace-panel">
+      </DialogShell>
+      <DialogShell open={active && workspaceView === 'templates'} onOpenChange={open => { if (!open) setWorkspaceView('execute'); }} title="命令模板" description="选择模板仅回填命令，执行前可修改。" className="command-react__manager" contentClassName="command-react__manager-shell">
         <TemplateManager initial={templates} busy={templateBusy} onSave={saveTemplates} />
-      </Tabs.Panel>
-    </Tabs>
+      </DialogShell>
   </section>;
 }

@@ -61,7 +61,7 @@ export interface FleetConfig {
   intervalSeconds: number;
 }
 
-export type FleetHostAction = 'edit' | 'collections' | 'command' | 'terminal' | 'copy' | 'delete';
+export type FleetHostAction = 'edit' | 'connection' | 'collections' | 'command' | 'terminal' | 'copy' | 'delete';
 
 export interface FleetActions {
   onAddHost: () => void;
@@ -75,6 +75,7 @@ export interface FleetPageProps {
   api?: import('../api/machines').MachinesApi | null;
   active?: boolean;
   jobs?: readonly import('../history/types').HistoryJob[];
+  inspectRequest?: { hostId: string; sequence: number } | null;
   snapshot: FleetSnapshot;
   config: FleetConfig;
   actions: FleetActions;

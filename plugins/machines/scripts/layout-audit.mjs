@@ -508,6 +508,18 @@ async function main() {
         if (!panel?.getBoundingClientRect().width || !panel.querySelector('h2')?.textContent.includes('数据库')) throw Error('Inspector did not follow the selected machine');
         if (root.querySelectorAll('[data-select]:checked').length !== selected) throw Error('Inspecting changed batch targets');
         if (innerWidth <= 1100 && root.querySelector('.fleet__panel').getBoundingClientRect().width) throw Error('Narrow inspector must replace the list view');
+        [...panel.querySelectorAll('[role="tab"]')].find(tab => tab.textContent === '连接').click(); await frame();
+        const manage = [...panel.querySelectorAll('button')].find(button => button.textContent === '管理连接配置');
+        manage.focus(); manage.click();
+        for (let attempt = 0; attempt < 100; attempt++) {
+          const ready = document.querySelector('dialog.host-editor[open]');
+          if (ready && ready.querySelector('[role="tab"][aria-selected="true"]')?.textContent === '连接配置' && document.querySelector('#host-editor-hostname')?.value === 'demo-db.example.test') break;
+          await frame();
+        }
+        const editor = document.querySelector('dialog.host-editor[open]');
+        if (!editor || editor.querySelector('[role="tab"][aria-selected="true"]')?.textContent !== '连接配置' || document.querySelector('#host-editor-hostname')?.value !== 'demo-db.example.test') throw Error('Inspector opened the wrong machine or connection section: ' + JSON.stringify({ editor: !!editor, tab: editor?.querySelector('[role="tab"][aria-selected="true"]')?.textContent, hostname: document.querySelector('#host-editor-hostname')?.value, detail: panel.querySelector('h2')?.textContent }));
+        editor.querySelector('button[aria-label="关闭"]').click(); await frame();
+        if (document.activeElement !== manage) throw Error('Connection editor did not restore inspector focus');
         const back = panel.querySelector(innerWidth <= 1100 ? '[aria-label="返回机器列表"]' : '[aria-label="收起详情"]');
         back.click(); await frame();
         if (root.querySelector('#hostRows') !== list || !list.getBoundingClientRect().width) throw Error('Inspector return discarded the list');
@@ -579,8 +591,8 @@ async function main() {
         if (draft.value !== 'db draft — never execute') throw Error('Second machine lost its draft');
         setDraft(''); await frame();
         document.querySelector('[data-task-target="demo-app"]').click(); await frame();
-        const templateTab = document.querySelector('.command-react__subtabs [data-tabs-value="templates"]');
-        templateTab.click(); await frame();
+        const templateTab = document.querySelector('[data-command-tools="templates"]');
+        templateTab.focus(); templateTab.click(); await frame();
         const manager = document.querySelector('.command-react__template-manager');
         if (manager.querySelector('h3')) throw Error('Command template tab repeats its title');
         const templateButton = text => [...manager.querySelectorAll('button')].find(button => button.textContent === text);
@@ -597,7 +609,8 @@ async function main() {
         templateButton('保存模板').click(); await frame();
         for (let attempt = 0; attempt < 50 && manager.querySelector('form'); attempt++) await frame();
         if (manager.querySelector('form')) throw Error('Template save did not close editor');
-        document.querySelector('.command-react__subtabs [data-tabs-value="execute"]').click(); await frame();
+        document.querySelector('dialog.command-react__manager[open] button[aria-label="关闭"]').click(); await frame();
+        if (document.activeElement !== templateTab) throw Error('Template manager did not restore trigger focus');
         showTab('fleet'); await frame(); verify(0);
         for (const selector of ['#monitorSettingsReactRoot button', '#openBackup']) {
           const trigger = document.querySelector(selector);

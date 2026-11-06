@@ -8,6 +8,15 @@
 .command-react__machine-row small { margin-top: 3px; color: var(--fh-muted); font: 11px Menlo, monospace; }
 .command-react__terminal > header .fh-checkbox { font-size: 11px; }
 .command-react__terminal > p[role="alert"] { padding: 10px; color: var(--fh-danger); }
+.command-react__context { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
+.command-react__context h3 { font-size: 16px; font-weight: 600; }
+.command-react__context p { margin-top: 4px; color: var(--fh-muted); font: 11px Menlo, monospace; overflow-wrap: anywhere; }
+.command-react__tools { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
+dialog.command-react__manager { width: min(720px, calc(100vw - 24px)); height: min(680px, calc(100dvh - 24px)); max-height: calc(100dvh - 24px); }
+.command-react__manager-shell { height: 100%; grid-template-rows: auto minmax(0, 1fr); }
+.command-react__manager .command-react__template-manager { border: 0; background: transparent; }
+.command-react__manager .command-react__template-manager > header { padding: 0 0 12px; }
+.command-react__connection-target { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; border-bottom: 1px solid var(--fh-border); padding-bottom: 14px; margin-bottom: 14px; }
 @media (max-width: 760px) {
   .command-react__machine-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; max-height: 190px; }
   .command-react__machine-list > section { min-width: 0; }

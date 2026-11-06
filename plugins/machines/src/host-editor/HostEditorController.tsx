@@ -43,7 +43,7 @@ interface SshReadResult {
 }
 
 export interface HostEditorControllerHandle {
-  open: (hostId?: string, options?: { copy?: boolean }) => Promise<void>;
+  open: (hostId?: string, options?: { copy?: boolean; tab?: HostEditorTab }) => Promise<void>;
   close: () => void;
 }
 
@@ -128,11 +128,11 @@ export const HostEditorController = forwardRef<HostEditorControllerHandle, HostE
     return next;
   }
 
-  async function openEditor(hostId?: string, options?: { copy?: boolean }): Promise<void> {
+  async function openEditor(hostId?: string, options?: { copy?: boolean; tab?: HostEditorTab }): Promise<void> {
     const version = ++loadVersion.current;
     sshAlias.current = `flowhub-${crypto.randomUUID()}`;
     bastionTarget.current = '';
-    setOpen(true); setTab('basic'); setErrors({}); setTestState(idle('尚未测试当前连接')); setOperationState(idle()); setSaving(false);
+    setOpen(true); setTab(options?.tab ?? 'basic'); setErrors({}); setTestState(idle('尚未测试当前连接')); setOperationState(idle()); setSaving(false);
     revision.current = ''; loadedAlias.current = ''; baseline.current = profileSignature(EMPTY_VALUE);
     const regions = window.FlowHubMachineRegions;
     setResolvedCountryOptions(countryOptions ?? (regions?.length ? [{ value: '', label: '不设置' }, ...regions.map((region) => ({ value: region.code, label: region.label, search: region.search }))] : undefined));

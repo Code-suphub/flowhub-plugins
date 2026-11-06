@@ -30,30 +30,6 @@
 }
 .command-react__connection-status.is-connected { color: var(--fh-positive, var(--fh-accent,#a9e0b8)); }
 
-.command-react__workspace-tabs { min-width: 0; }
-.command-react__subtabs {
-  gap: 18px !important;
-  margin-bottom: 12px;
-  border-bottom-color: var(--fleet-line, var(--fh-border,#2a3d31)) !important;
-}
-.command-react__subtab {
-  min-height: 32px !important;
-  padding: 0 1px !important;
-  border: 0 !important;
-  border-bottom: 2px solid transparent !important;
-  border-radius: 0 !important;
-  background: transparent !important;
-  box-shadow: none !important;
-  color: var(--fh-muted,#7f9689) !important;
-  font-size: 13px !important;
-  letter-spacing: normal !important;
-  text-transform: none !important;
-}
-.command-react__subtab:hover { background: transparent !important; color: var(--fh-text,#dce9e0) !important; }
-.command-react__subtab[aria-selected="true"] { border-bottom-color: var(--fh-accent,#a9e8bc) !important; color: var(--fh-accent,#b9efc9) !important; }
-.command-react__subtab:focus-visible { outline: none !important; box-shadow: inset 0 -2px var(--fh-accent,#a9e8bc) !important; }
-.command-react__workspace-panel:focus-visible { outline: none; box-shadow: none; }
-
 .command-react__layout {
   display: grid;
   grid-template-columns: 220px minmax(0, 1fr);
@@ -224,7 +200,7 @@
   .command-react__query .fh-checkbox { width: 100%; margin-left: 0; }
 }
 
-.command-react__shared-manager { padding: 16px; display: grid; gap: 12px; min-width: 0; overflow-wrap: anywhere; }
+.command-react__shared-manager { display: grid; gap: 12px; min-width: 0; overflow-wrap: anywhere; }
 .command-react__shared-manager label { display: grid; gap: 6px; }
 .command-react__shared-manager button { justify-self: start; }
 .command-react__shared-manager ul { margin: 0; padding-left: 20px; }
