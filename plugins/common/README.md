@@ -20,7 +20,7 @@
 <script data-flowhub-common></script>
 ```
 
-`npm run build` 会将标记替换为内联 CSS/JS；机器管理和 Docker 的本地预览服务器也会即时完成同样的处理。
+`pnpm run build` 会将标记替换为内联 CSS/JS；机器管理和 Docker 的本地预览服务器也会即时完成同样的处理。
 
 脚本暴露 `window.FlowHubCommon`。主要 API 包括：
 

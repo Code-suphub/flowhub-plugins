@@ -241,7 +241,7 @@ const INTERACTIONS = `(async () => {
 })()`;
 
 async function main() {
-  execFileSync('npm', ['run', 'build:react'], { cwd: resolve(here, '..'), stdio: 'inherit' });
+  execFileSync('pnpm', ['run', 'build:react'], { cwd: resolve(here, '..'), stdio: 'inherit' });
   const instance = await server();
   const port = instance.address().port;
   const client = await chrome();

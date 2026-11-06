@@ -11,7 +11,7 @@
 
 ## 构建与安装
 
-在插件目录运行 `npm run build`（后端 `cargo build --release` 后生成自包含的 `build/`，并检查 UI 的本地资源与 CSP），然后在 FlowHub「插件市场 → 安装开发目录」选择 `build/`。`npm run dev` 提供只读浏览器预览；`npm test` 执行后端契约、RPC/preview 行为和 TypeScript 检查。
+在插件目录运行 `pnpm run build`（后端 `cargo build --release` 后生成自包含的 `build/`，并检查 UI 的本地资源与 CSP），然后在 FlowHub「插件市场 → 安装开发目录」选择 `build/`。`pnpm run dev` 提供只读浏览器预览；`pnpm test` 执行后端契约、RPC/preview 行为和 TypeScript 检查。
 
 ## 边界
 

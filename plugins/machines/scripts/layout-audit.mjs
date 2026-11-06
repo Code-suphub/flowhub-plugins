@@ -32,7 +32,7 @@ const CHROME_CANDIDATES = [
 const TYPES = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png' };
 
 async function fixture() {
-  execFileSync('npm', ['run', 'build:fleet'], { cwd: resolve(here, '..'), stdio: 'pipe' });
+  execFileSync('pnpm', ['run', 'build:fleet'], { cwd: resolve(here, '..'), stdio: 'pipe' });
   const { inlineCommonHtml } = await import('../../../scripts/inline-common.mjs');
   return inlineCommonHtml((await readFile(join(ui, 'machines.html'), 'utf8'))
     .replace('<script src="plugin-bridge.js">', '<script src="/__preview.js"></script><script src="plugin-bridge.js">')
