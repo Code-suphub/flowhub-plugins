@@ -4,7 +4,9 @@ export interface DeviceEvent {at:number;name:string;category:string;action:strin
 export interface Power {adapterWatts?:string|number|null;inputWatts?:number|null;systemWatts?:number|null;batterySideWatts?:number|null;externalConnected?:boolean|null;batteryPresent?:boolean;source?:string|null;charging?:boolean|null;cableLimitWatts?:number|null;sampledAt?:number|null;note?:string;powerSourceError?:string;powerUnavailableReason?:string;telemetryError?:string;smcError?:string}
 export interface Snapshot {at:number;stale:boolean;devices:Device[];power:Power;events:DeviceEvent[];error?:string|null;intervalSeconds?:number;powerIntervalSeconds?:number}
 export interface Artwork {available:boolean;icons:Record<string,{dataUrl:string;typeIdentifier:string;source:string}>}
-export interface Context {config?:{powerIntervalSeconds?:number};selection?:{deviceId?:string;view?:string}}
+interface Selection {deviceId?:string;view?:string}
+export interface Context {config?:{powerIntervalSeconds?:number;selection?:Selection};selection?:Selection}
+export function contextSelection(context:Context):Selection {return {deviceId:context.selection?.deviceId||context.config?.selection?.deviceId,view:context.selection?.view||context.config?.selection?.view};}
 export const categories:{id:Category;label:string;short:string}[]=[{id:'bluetooth',label:'蓝牙设备',short:'蓝牙'},{id:'usb',label:'USB 与移动设备',short:'USB'},{id:'display',label:'显示器',short:'显示器'}];
 export const initial:Snapshot={at:0,stale:true,devices:[],power:{},events:[]};
 export const emptyArtwork:Artwork={available:false,icons:{}};

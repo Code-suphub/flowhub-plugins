@@ -8,6 +8,11 @@ const load=name=>{
 };
 const model=load('model.ts'),{createApi}=load('api.ts');
 
+test('older widget config selections remain compatible with current context selections',()=>{
+ assert.deepEqual(model.contextSelection({config:{selection:{deviceId:'legacy',view:'power'}}}),{deviceId:'legacy',view:'power'});
+ assert.deepEqual(model.contextSelection({selection:{deviceId:'current'},config:{selection:{deviceId:'legacy',view:'power'}}}),{deviceId:'current',view:'power'});
+});
+
 test('zero battery is a real reading, missing and invalid readings stay unknown',()=>{
  assert.equal(model.batteryLevel('0%'),0);assert.equal(model.batteryLevel('82%'),82);
  for(const input of [null,undefined,'','—','101%','-1%','NaN%'])assert.equal(model.batteryLevel(input),null);

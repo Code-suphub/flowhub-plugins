@@ -2,7 +2,7 @@ import {useEffect,useRef,useState,type CSSProperties} from 'react';
 import {Button,DialogShell,EmptyState,HelpPopover,Input,Tabs} from '@flowhub/plugin-common/react';
 import type {Api} from './api';
 import {DeviceArt,Icon} from './Icons';
-import {batteryLevel,categories,displaySpec,displayType,emptyArtwork,finite,initial,isStale,source,time,watts,type Artwork,type Category,type Device,type Snapshot} from './model';
+import {batteryLevel,categories,contextSelection,displaySpec,displayType,emptyArtwork,finite,initial,isStale,source,time,watts,type Artwork,type Category,type Device,type Snapshot} from './model';
 
 type Page='devices'|'power'|'events';
 type Filter='all'|Category;
@@ -56,10 +56,11 @@ export function App({api}:{api:Api}) {
   const unsubscribe=api.onReady(context=>{
    const seconds=validIntervals.includes(Number(context.config?.powerIntervalSeconds))?Number(context.config?.powerIntervalSeconds):5;
    setIntervalSeconds(seconds);reload.current=(force=false)=>void load(force,seconds);
-   const target=context.selection?.view||new URLSearchParams(location.search).get('view');
+   const selection=contextSelection(context);
+   const target=selection.view||new URLSearchParams(location.search).get('view');
    if(['power','events'].includes(target||''))setPage(target as Page);
    else if(['bluetooth','usb','display'].includes(target||'')){setPage('devices');setFilter(target as Category);}
-   requestedDevice.current=context.selection?.deviceId;
+   requestedDevice.current=selection.deviceId;
    void load(false,seconds);
    void api.request<Artwork>('device_icons').then(value=>{if(alive&&value?.icons&&typeof value.icons==='object')setArtwork(value);}).catch(()=>{});
    clearInterval(timer);timer=setInterval(()=>{setClock(Date.now());if(!document.hidden)void load(false,seconds);},seconds*1000);
@@ -87,7 +88,7 @@ export function App({api}:{api:Api}) {
   {notice?<div role="status" className="dc-notice">{notice}</div>:null}
   <div className="dc-workspace" ref={scrollRef} onScroll={event=>{scrolls.current[page]=event.currentTarget.scrollTop;}}>
    <Tabs.Panel value="devices" forceMount className="dc-devices" tabIndex={-1}>
-    <div className="dc-toolbar"><label className="dc-search"><Icon name="search"/><Input ref={inputRef} className="dc-input" type="search" aria-label="搜索设备" placeholder="搜索设备…" value={query} onChange={e=>setQuery(e.target.value)}/><kbd>⌘ K</kbd></label><div className="dc-filters" role="group" aria-label="设备分类">{[{id:'all',short:'全部'},...categories].map(category=><Button variant="ghost" className="dc-button dc-filter" key={category.id} aria-pressed={filter===category.id} onClick={()=>setFilter(category.id as Filter)}>{category.short}<small>{category.id==='all'?connected.length:connected.filter(d=>d.category===category.id).length}</small></Button>)}</div><HelpPopover label="设备图标说明">苹果设备可使用当前 macOS 提供的设备家族示意图，不代表实际机身颜色或手机壁纸；其他设备使用开源 Material Design Icons 类别图标，资源缺失时同样回退。图标不会联网加载。</HelpPopover></div>
+    <div className="dc-toolbar"><label className="dc-search"><Icon name="search"/><Input ref={inputRef} className="dc-input" type="search" aria-label="搜索设备" placeholder="搜索设备…" value={query} onChange={e=>setQuery(e.target.value)}/><kbd>⌘ K</kbd></label><div className="dc-filters" role="group" aria-label="设备分类">{[{id:'all',short:'全部'},...categories].map(category=><Button variant="ghost" className="dc-button dc-filter" key={category.id} data-category={category.id} aria-pressed={filter===category.id} onClick={()=>setFilter(category.id as Filter)}>{category.short}<small>{category.id==='all'?connected.length:connected.filter(d=>d.category===category.id).length}</small></Button>)}</div><HelpPopover label="设备图标说明">苹果设备可使用当前 macOS 提供的设备家族示意图，不代表实际机身颜色或手机壁纸；其他设备使用开源 Material Design Icons 类别图标，资源缺失时同样回退。图标不会联网加载。</HelpPopover></div>
     {!snapshot.at&&!snapshot.error?<EmptyState className="dc-empty" title="正在读取设备" description="首次设备扫描可能需要一些时间。"/>:!visible.length?<EmptyState className="dc-empty" title={query?'未找到匹配设备':'当前没有检测到设备'} description={query?'尝试其他名称或清除筛选。':snapshot.error?'设备读取失败，请重试。':'仅显示本机已检测到的连接设备。'} action={query||filter!=='all'?<Button className="dc-button" onClick={()=>{setQuery('');setFilter('all');}}>清除筛选</Button>:undefined}/>:categories.map(category=>{
      const devices=visible.filter(d=>d.category===category.id);return devices.length?<section key={category.id} className="dc-group"><h2><Icon name={category.id}/>{category.label}<small>({devices.length})</small></h2><div className="dc-device-grid">{devices.map(device=><DeviceCard key={device.id} device={device} artwork={artwork} stale={stale} onOpen={openDevice}/>)}</div></section>:null;
     })}
