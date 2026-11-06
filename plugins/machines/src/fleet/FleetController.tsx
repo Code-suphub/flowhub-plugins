@@ -4,7 +4,8 @@ import { CollectionWorkspace } from '../collections/CollectionWorkspace';
 import type { BackupApi } from '../backup/BackupWorkspace';
 import { HostEditorController, type HostEditorControllerHandle } from '../host-editor/HostEditorController';
 import type { MachinesApi, MachinesRun } from '../api/machines';
-import type { HistoryJob } from '../history/types';
+import type { HistoryJob, HistoryJobDetail } from '../history/types';
+import type { CommandWorkspaceProps } from '../command/types';
 import { FleetPage } from './FleetPage';
 import type { MachineTab } from './MachineWorkspace';
 import type { FleetActions, FleetActiveJob, FleetHost, FleetSnapshot } from './types';
@@ -27,6 +28,7 @@ export function FleetController({ api, run, backupApi = null }: { api: MachinesA
   const [activeTab, setActiveTab] = useState<MachineTab>('fleet');
   const [focusTab, setFocusTab] = useState<MachineTab | null>(null);
   const [inspectRequest, setInspectRequest] = useState<{ hostId: string; sequence: number } | null>(null);
+  const [prefillRequest, setPrefillRequest] = useState<CommandWorkspaceProps['prefillRequest']>(null);
   const editor = useRef<HostEditorControllerHandle>(null);
   const current = useRef(state);
   const alive = useRef(false);
@@ -142,6 +144,12 @@ export function FleetController({ api, run, backupApi = null }: { api: MachinesA
     },
   };
   return <MachineShell
+    prefillRequest={prefillRequest}
+    onRefillCommand={(job: HistoryJobDetail) => {
+      const host = current.current.config.hosts.find(host => host.id === job.hostId && host.alias === job.alias);
+      if (!host || !job.command || job.kind !== 'command' || new TextEncoder().encode(job.command).length > 8192) { message('记录的目标已移除、连接已变化或命令不可回填，请重新检查。', true); return; }
+      select([host.id]); setPrefillRequest({ sequence: ++inspectSequence.current, hostId: host.id, alias: host.alias, command: job.command }); navigate('command', true);
+    }}
     onOpenMachine={hostId => {
       if (!current.current.config.hosts.some(host => host.id === hostId)) { message('目标机器已移除，请刷新列表。', true); return; }
       setInspectRequest({ hostId, sequence: ++inspectSequence.current }); navigate('fleet', true);

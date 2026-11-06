@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react';
 import { Tabs } from '@flowhub/plugin-common/react';
 import type { MachinesApi, MachinesRun } from '../api/machines';
+import type { CommandWorkspaceProps } from '../command/types';
+import type { HistoryJobDetail } from '../history/types';
 import { MachineNavigation, MachineWorkspace } from './MachineWorkspace';
 import { ThemeSwitch } from './ThemeSwitch';
 import type { MachineTab } from './MachineWorkspace';
@@ -8,6 +10,8 @@ import { MonitorSettings } from '../monitoring/MonitorSettings';
 import { BackupWorkspace, type BackupApi } from '../backup/BackupWorkspace';
 
 export interface MachineShellProps {
+  prefillRequest?: CommandWorkspaceProps['prefillRequest'];
+  onRefillCommand?: (job: HistoryJobDetail) => void;
   onOpenMachine?: (hostId: string) => void;
   onEditConnection?: (hostId: string) => void;
   editor: ReactNode;
@@ -27,7 +31,7 @@ export interface MachineShellProps {
   focusTab: MachineTab | null;
 }
 
-export function MachineShell({ available, version, notice, fleet, api, run, selectedHostIds, onSelectionChange, onMonitorSaved, backupApi, collections, editor, activeTab, onTabChange, focusTab, onOpenMachine, onEditConnection }: MachineShellProps) {
+export function MachineShell({ available, version, notice, fleet, api, run, selectedHostIds, onSelectionChange, onMonitorSaved, backupApi, collections, editor, activeTab, onTabChange, focusTab, onOpenMachine, onEditConnection, prefillRequest, onRefillCommand }: MachineShellProps) {
   const embedded = window.parent !== window && new URLSearchParams(location.search).has('embedded');
   return <div className={embedded ? 'machine-shell embedded' : 'machine-shell'}>
     <Tabs value={activeTab} onValueChange={value => onTabChange(value as MachineTab)}>
@@ -38,7 +42,7 @@ export function MachineShell({ available, version, notice, fleet, api, run, sele
     </header>
     <div id="notice" className={`notice${notice.error ? ' error' : ''}`} role="status" aria-live="polite">{notice.text}</div>
     <div id="unavailable" className="empty" hidden={available}><h2>机器插件尚未启用</h2><p>请在 FlowHub 设置的「插件市场」中安装或启用。</p></div>
-    <main hidden={!available} className="machine-main"><div id="machineWorkspaceRoot"><MachineWorkspace fleet={fleet} api={api} run={run} available={available} selectedHostIds={selectedHostIds} onSelectionChange={onSelectionChange} activeTab={activeTab} onOpenMachine={onOpenMachine} onEditConnection={onEditConnection} /></div></main>
+    <main hidden={!available} className="machine-main"><div id="machineWorkspaceRoot"><MachineWorkspace fleet={fleet} api={api} run={run} available={available} selectedHostIds={selectedHostIds} onSelectionChange={onSelectionChange} activeTab={activeTab} onOpenMachine={onOpenMachine} onEditConnection={onEditConnection} prefillRequest={prefillRequest} onRefillCommand={onRefillCommand} /></div></main>
     </Tabs>
     <div id="collectionsReactRoot">{collections}</div>
     <div id="hostEditorReactRoot">{editor}</div>

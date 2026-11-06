@@ -42,7 +42,7 @@
   const historyDemo = document.createElement('button'); historyDemo.type = 'button'; historyDemo.textContent = '生成分页示例';
   banner.querySelector('.preview-banner__menu .actions').append(historyDemo);
   historyDemo.onclick = () => {
-    for (let i = 0; i < 65; i++) archive.push({ id: crypto.randomUUID(), hostId: i % 2 ? 'demo-app' : 'demo-db', alias: i % 2 ? 'demo-app' : 'demo-db', kind: 'command', command: 'uptime', startedAt: Date.now() - i * 60000, finishedAt: Date.now() - i * 60000 + 100, status: i % 3 ? 'success' : 'failed', exitCode: i % 3 ? 0 : 1, stdout: '【分页示例，未执行命令】', stderr: '' });
+    for (let i = 0; i < 65; i++) archive.push({ id: crypto.randomUUID(), hostId: i % 2 ? 'demo-app' : 'demo-db', alias: i % 2 ? 'demo-app' : 'demo-db', kind: 'command', command: 'uptime', commandPreview: 'uptime', startedAt: Date.now() - i * 60000, finishedAt: Date.now() - i * 60000 + 100, status: i % 3 ? 'success' : 'failed', exitCode: i % 3 ? 0 : 1, stdout: '【分页示例，未执行命令】', stderr: '' });
   };
   const sessions = new Map();
   const defaultProfile = alias => ({ alias, hostname: `${alias}.example.test`, user: 'demo', port: 22, identityFile: '', proxyJump: '' });

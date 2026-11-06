@@ -52,6 +52,7 @@ export interface BastionState {
 }
 
 export interface CommandWorkspaceProps {
+  prefillRequest?: { sequence: number; hostId: string; alias: string; command: string } | null;
   onOpenMachine?: (hostId: string) => void;
   onEditConnection?: (hostId: string) => void;
   selectedHostIds: readonly string[];

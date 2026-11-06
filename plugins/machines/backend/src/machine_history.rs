@@ -8,7 +8,7 @@ const COMMAND_COUNT: i64 = 5000;
 const COMMAND_BYTES: i64 = 32 * 1024 * 1024;
 
 // Best-effort masking of labeled credentials; unlabeled output is still private data.
-fn redact(text: &str) -> String {
+pub(super) fn redact(text: &str) -> String {
     let bytes = text.as_bytes();
     let mut out = String::new(); let mut copied = 0; let mut i = 0;
     while i < bytes.len() {

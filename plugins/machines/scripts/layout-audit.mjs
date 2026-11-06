@@ -493,6 +493,7 @@ async function main() {
       await new Promise(resolve => setTimeout(resolve, 50));
     }
     if (!ready) throw new Error('React 机器列表未挂载');
+    await client.send('Runtime.evaluate', { expression: `[...document.querySelectorAll('.preview-banner__menu button')].find(button => button.textContent === '生成分页示例').click()` });
 
     // Inspecting is separate from batch selection. Narrow navigation preserves the list DOM.
     for (const width of [1400, 600, 380]) {
@@ -591,6 +592,34 @@ async function main() {
         if (draft.value !== 'db draft — never execute') throw Error('Second machine lost its draft');
         setDraft(''); await frame();
         document.querySelector('[data-task-target="demo-app"]').click(); await frame();
+        // Inspect history, revisit the exact machine, and refill without executing anything.
+        showTab('history'); await frame();
+        for (let attempt = 0; attempt < 100 && !document.querySelector('[data-history-job]'); attempt++) await frame();
+        const record = document.querySelector('[data-history-job]');
+        if (!record) throw Error('History preview records did not load');
+        record.focus(); record.click(); await frame();
+        for (let attempt = 0; attempt < 100 && !document.querySelector('.history-inspector__command'); attempt++) await frame();
+        const output = document.querySelector('.history-inspector');
+        if (!output?.querySelector('.history-inspector__command')?.textContent.includes('uptime')) throw Error('Selected history command did not load');
+        const targetAlias = output.querySelector('dd').textContent;
+        [...output.querySelectorAll('button')].find(button => button.textContent === '打开机器').click(); await frame();
+        for (let attempt = 0; attempt < 100 && document.querySelector('.machine-inspector__identity code')?.textContent !== targetAlias; attempt++) await frame();
+        const machine = document.querySelector('.machine-inspector');
+        if (!machine || machine.querySelector('code')?.textContent !== targetAlias) throw Error('History returned to another machine');
+        machine.querySelector(innerWidth <= 1100 ? '[aria-label="返回机器列表"]' : '[aria-label="收起详情"]').click(); await frame();
+        showTab('history'); await frame();
+        const beforeJobs = document.querySelectorAll('.command-react__job').length;
+        [...document.querySelectorAll('.history-inspector button')].find(button => button.textContent === '重新填入命令').click(); await frame();
+        for (let attempt = 0; attempt < 100 && draft.value !== 'uptime'; attempt++) await frame();
+        if (tabs[1].getAttribute('aria-selected') !== 'true' || draft.value !== 'uptime') throw Error('History did not refill the command workspace');
+        if (document.querySelector('[data-task-target="' + targetAlias + '"]')?.getAttribute('aria-pressed') !== 'true') throw Error('History refill changed target');
+        if (document.querySelectorAll('.command-react__job').length !== beforeJobs) throw Error('History refill unexpectedly executed a command');
+        setDraft(''); await frame();
+        for (const checkbox of [...document.querySelectorAll('.command-react__machine-list input:checked')]) { checkbox.click(); await frame(); }
+        showTab('history'); await frame();
+        document.querySelector('.history-inspector [aria-label="返回执行记录"]').click(); await frame();
+        if (!record.getBoundingClientRect().width || document.activeElement !== record) throw Error('History return lost its row or focus');
+        showTab('command'); await frame();
         const templateTab = document.querySelector('[data-command-tools="templates"]');
         templateTab.focus(); templateTab.click(); await frame();
         const manager = document.querySelector('.command-react__template-manager');

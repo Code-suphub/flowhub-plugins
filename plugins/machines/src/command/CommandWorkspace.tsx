@@ -172,7 +172,7 @@ function JobConsole({ jobs, selectedHosts, contextKey, onCancel, onClear }: {
   </section>;
 }
 
-export function CommandWorkspace({ api, run, active = true, selectedHostIds, onSelectionChange, onOpenMachine, onEditConnection }: CommandWorkspaceProps) {
+export function CommandWorkspace({ api, run, active = true, selectedHostIds, onSelectionChange, onOpenMachine, onEditConnection, prefillRequest }: CommandWorkspaceProps) {
   const [state, setState] = useState<CommandState | null>(null);
   const selected = useMemo(() => new Set(selectedHostIds), [selectedHostIds]);
   const hosts = state?.config.hosts ?? [];
@@ -203,6 +203,8 @@ export function CommandWorkspace({ api, run, active = true, selectedHostIds, onS
   }, [contextKey]);
   const operation = useRef(false);
   const loadVersion = useRef(0);
+  const loadedVersion = useRef(0);
+  const lastPrefill = useRef(0);
 
   const load = useCallback(async () => {
     if (!api) return;
@@ -210,6 +212,7 @@ export function CommandWorkspace({ api, run, active = true, selectedHostIds, onS
     try {
       const next = await api('state') as CommandState;
       if (version !== loadVersion.current) return;
+      loadedVersion.current = version;
       setState(next);
       setError('');
     } catch (reason) { if (version === loadVersion.current) setError(errorText(reason)); }
@@ -240,6 +243,18 @@ export function CommandWorkspace({ api, run, active = true, selectedHostIds, onS
   const bastionHost = selectedHosts.length === 1 && (selectedHosts[0]?.bastion || state?.config.sharedConfigFile) ? selectedHosts[0] : null;
   const hasBastion = (!!state?.config.sharedConfigFile && selectedHosts.length === 1) || selectedHosts.some((host) => host.bastion);
   const templates = state?.config.templates ?? state?.config.installed?.templates ?? [];
+  useEffect(() => {
+    if (!prefillRequest || lastPrefill.current === prefillRequest.sequence) return;
+    if (!active || selectedHostIds.length !== 1 || selectedHostIds[0] !== prefillRequest.hostId) { lastPrefill.current = prefillRequest.sequence; return; }
+    if (!state || loadedVersion.current !== loadVersion.current) return;
+    lastPrefill.current = prefillRequest.sequence;
+    const host = selectedHosts[0];
+    if (!state.config.enabled || host?.id !== prefillRequest.hostId || host.alias !== prefillRequest.alias) { setError('目标连接已变化，请重新选择执行记录。'); return; }
+    if (running || operation.current) { setError('已有任务正在执行，结束后请重新填入历史命令。'); return; }
+    if (host.readOnly && hasBastion && !bastionCommandOptions(templates, true).some(option => option.value === prefillRequest.command)) { setError('此目标仅允许内置查询，请选择查询命令。'); return; }
+    setCommand(prefillRequest.command); setQuery(prefillRequest.command);
+    setNotice('已填入历史命令，请确认目标和内容后再执行。');
+  }, [prefillRequest, active, contextKey, state, running]);
 
   const { key: sessionKey, bastion, bastionBusy, sessionAction } = useBastionSession(api, bastionHost, active && workspaceView === 'execute', setError);
   const sessionStatus = bastionBusy ? '通信中…' : bastion.phase ? ({ disconnected: bastion.paused ? '自动连接已暂停' : '未连接', authenticating: '等待认证', connecting: '连接目标中', gateway: '已返回网关', ready: '已连接', busy: '会话运行中', failed: '连接已退出' }[bastion.phase]) : bastion.connected ? '会话在线' : '未连接';

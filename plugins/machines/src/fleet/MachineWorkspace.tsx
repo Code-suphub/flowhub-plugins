@@ -3,6 +3,8 @@ import { Tabs } from '@flowhub/plugin-common/react';
 import { CommandWorkspace } from '../command/CommandWorkspace';
 import { HistoryWorkspace } from '../history/HistoryWorkspace';
 import type { MachinesApi, MachinesRun } from '../api/machines';
+import type { CommandWorkspaceProps } from '../command/types';
+import type { HistoryJobDetail } from '../history/types';
 
 const pages = [
   { value: 'fleet', label: '机器', root: 'fleetReactRoot', help: '管理机器、连接配置与监控；选择机器后可切换到远程命令批量操作。' },
@@ -24,12 +26,12 @@ export function MachineNavigation({ activeTab, focusTab }: { activeTab: MachineT
 }
 
 /** Keep the islands mounted so navigation cannot discard commands or running sessions. */
-export function MachineWorkspace({ fleet, api, run, available, selectedHostIds, onSelectionChange, activeTab, onOpenMachine, onEditConnection }: { fleet: ReactNode; api: MachinesApi | null; run: MachinesRun | null; available: boolean; selectedHostIds: readonly string[]; onSelectionChange: (hostIds: readonly string[]) => void; activeTab: MachineTab; onOpenMachine?: (hostId: string) => void; onEditConnection?: (hostId: string) => void }) {
+export function MachineWorkspace({ fleet, api, run, available, selectedHostIds, onSelectionChange, activeTab, onOpenMachine, onEditConnection, prefillRequest, onRefillCommand }: { fleet: ReactNode; api: MachinesApi | null; run: MachinesRun | null; available: boolean; selectedHostIds: readonly string[]; onSelectionChange: (hostIds: readonly string[]) => void; activeTab: MachineTab; onOpenMachine?: (hostId: string) => void; onEditConnection?: (hostId: string) => void; prefillRequest?: CommandWorkspaceProps['prefillRequest']; onRefillCommand?: (job: HistoryJobDetail) => void }) {
   return <>
     {pages.map(page => <Tabs.Panel key={page.value} value={page.value} forceMount>
       <div id={`${page.value}Panel`} hidden={activeTab !== page.value}><div id={page.root}>{page.value === 'fleet' ? fleet : page.value === 'command'
-        ? <CommandWorkspace api={api} run={run} active={available && activeTab === 'command'} selectedHostIds={selectedHostIds} onSelectionChange={onSelectionChange} onOpenMachine={onOpenMachine} onEditConnection={onEditConnection} />
-        : <HistoryWorkspace api={api} active={available && activeTab === 'history'} />}</div></div>
+        ? <CommandWorkspace api={api} run={run} active={available && activeTab === 'command'} selectedHostIds={selectedHostIds} onSelectionChange={onSelectionChange} onOpenMachine={onOpenMachine} onEditConnection={onEditConnection} prefillRequest={prefillRequest} />
+        : <HistoryWorkspace api={api} active={available && activeTab === 'history'} onOpenMachine={onOpenMachine} onRefillCommand={onRefillCommand} />}</div></div>
     </Tabs.Panel>)}
   </>;
 }
