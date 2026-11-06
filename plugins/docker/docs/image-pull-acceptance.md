@@ -16,7 +16,7 @@
 ## 待验
 
 - [x] 2026-11-06 经 FlowHub 真实插件市场更新并重新打开 docker 0.4.0，安装清单保持启用并指向独立构建目录。真实 Colima 中只读载入 3 个已停止容器、11 个镜像；打开镜像拉取表单、键盘输入公开测试名称、不提交，Escape 关闭后焦点返回拉取按钮。证据在仓库外 `plugin-comparison/docker-installed-pull-form.png`。
-- [ ] Docker Desktop、网络中断恢复、其他平台与原生页面刷新继续待验；当前真实 Colima ARM64 的公开测试镜像下载见下方记录。日常业务镜像标签不用于更新测试。
+- [ ] Docker Desktop、网络中断恢复和其他平台继续待验；当前真实 Colima ARM64 的公开测试镜像下载、原生提交和刷新已通过，见下方记录。日常业务镜像标签不用于更新测试。
 - [ ] 真实 WebKit 中文输入、系统主题、键盘、最小窗口、多屏及插件重新加载后的任务结束提示。重新加载／退出插件会结束客户端任务，已下载镜像层可能仍存在；任务记录仅存在当前插件进程内。
 
 ## 真实 Colima 下载（2026-11-06）
@@ -26,7 +26,9 @@
 - [x] 再通过真实 Docker inspect 独立核对 Linux／arm64、大小 15830 字节、镜像 ID `sha256:c567b231f65614688711a75f31518a064258a51d442117a3e771a3a8fdba78ef`。这是 Docker 官方公开 hello-world 测试镜像，仅拉取，没有运行容器，保留测试镜像用于原生列表回读。
 - [x] 下载前后 3 个原有容器的 ID／状态／运行标记／启停时间全部一致，镜像数 11→12；未启动、停止、创建或删除容器。独立测试进程在任务结束后退出，不影响宿主的插件进程。
 - 原始记录在仓库外 `plugin-comparison/docker-real-engine-pull.json`、`docker-native-pull-before.json`、`docker-native-pull-after.json`。采样读到了层完成状态，没有把快速下载记为完整中间进度动画验收。
-- [ ] 原生页面实际提交、任务反馈和刷新后的 hello-world 列表回读：电脑锁屏，待解锁继续。此独立进程的任务不会冒充宿主插件进程中的任务。
+- [x] 解锁后在安装版原生 WebKit 中，选择 hello-world:latest／Linux ARM64／colima 并确认拉取，页面显示「正在拉取」→「拉取完成」及同一完整镜像 ID；关闭后手动刷新并搜索 hello-world，列表只有 1 个匹配项，镜像总数仍为 12。重新打开拉取窗口，任务完成状态、目标平台和镜像 ID 保留。实际首次下载在上方独立进程完成，本项为宿主插件进程内对已有镜像的再次拉取，未冒充原生冷下载。
+- [x] 原生页面测试后再次独立 inspect，ID／Linux ARM64 仍一致，3 个原有容器的状态和启停时间与下载前完全相同；没有运行、创建或删除容器。公开测试镜像保留供核对。
+- 原生证据为仓库外 `plugin-comparison/docker-native-pull-target.png`、`docker-native-pull-completed.png`、`docker-native-pull-list.png`、`docker-native-pull-page.json`、`docker-native-page-after.json`。完成状态通过手动滚动展示，不计作自动滚动验收；本轮没有把 AX 点击关闭后的插件 HTML 焦点记为键盘返回焦点通过。
 - [ ] Docker Desktop、实际网络中断／恢复、实际停止请求和其他平台仍待验；不将当前 Colima ARM64 单次成功扩大为这些场景通过。
 
 镜像构建／推送、仓库登录管理、远程 context、卷备份恢复与网络连接／断开继续独立拆项，本批不计为完成。
