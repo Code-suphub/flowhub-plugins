@@ -7,7 +7,7 @@
 | 项目 | 内容 | 状态 |
 | --- | --- | --- |
 | T1 | 紧凑的全局导航，保留插件工具和已挂载工作区 | 已完成，见本项提交 |
-| T2 | 列表／右侧停靠详情、收起、窄窗返回；采集与连接状态分开 | 待实施 |
+| T2 | 列表／右侧停靠详情、收起、窄窗返回；采集与连接状态分开 | 已完成，见本项提交 |
 | T3 | 目标机器侧栏、命令草稿及输出连续性、模板与批量任务 | 待实施 |
 | T4 | 从详情／任务进入已有连接配置与会话管理，保留认证和查询限制 | 待实施 |
 | T5 | 执行记录与输出并排查看、返回目标与回填命令 | 待实施 |
@@ -19,6 +19,8 @@
 
 - T1：`pnpm run typecheck`、`node --test tests/machines.test.cjs`、`pnpm run build:fleet`、`node scripts/layout-audit.mjs --check` 通过。后者检查 1400／1024／850／600／380 宽度及深浅主题的导航、草稿保持、弹窗、键盘与旧节点。日志：`/tmp/flowhub-machines-redesign-t1-{tests,build,layout}.log`。
 - 新工作树冻结安装，公共源码通过同级 `common-components` 链接引用既有共享仓库，不复制公共实现。所有浏览器用隔离模拟数据；不连接真实机器、不读取真实 SSH 配置或密钥。
+- T2：完整自包含 `pnpm run build` 通过；`pnpm test` 中 106 项 Rust、类型检查、55 项 Node 测试及全部布局检查通过，小组件指纹首次因 Chrome 启动超时失败。启动等待改为 30 秒并修正启动异常时未关闭测试 HTTP 服务的问题；单独重跑完整 `preview-fingerprint.mjs` 通过，未更新样式基线。日志：`/tmp/flowhub-machines-redesign-t2-{full-build,full-tests,fingerprint-retry}.log`。
+- T2 浏览器增加 1400／600／380 宽度的点选详情、勾选互不干扰、窄窗返回、原列表 DOM 及焦点保留检查。新增隔离请求测试覆盖乱序、关闭后返回和隐藏工作区不读取历史。连接状态不由采集成功推断；普通查看仅读取保存的 CPU 历史。
 
 ## 安装版原生验收（尚未执行）
 

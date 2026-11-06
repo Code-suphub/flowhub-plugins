@@ -11,7 +11,7 @@ import type { FleetActions, FleetActiveJob, FleetHost, FleetSnapshot } from './t
 
 interface MachineState {
   targetRevisions?: Record<string, string>;
-  config: { hosts: (FleetHost & { bastion?: unknown })[]; enabled: boolean; installed: { version: string } | null; monitoring?: boolean; interval: number };
+  config: { hosts: FleetHost[]; enabled: boolean; installed: { version: string } | null; monitoring?: boolean; interval: number };
   metrics: FleetSnapshot['metrics'];
   active: (FleetActiveJob & HistoryJob)[];
   history: HistoryJob[];
@@ -154,7 +154,7 @@ export function FleetController({ api, run, backupApi = null }: { api: MachinesA
     available={!!state.config.installed && state.config.enabled}
     version={state.config.installed ? `v${state.config.installed.version}${state.config.enabled ? '' : ' · 已停用'}` : '未安装'}
     notice={notice}
-    fleet={<FleetPage snapshot={{ hosts: state.config.hosts, metrics: state.metrics, activeJobs: state.active }} config={{ enabled, monitoring: !!state.config.monitoring, intervalSeconds: state.config.interval || 60 }} selectedHostIds={selected} actions={actions} now={Date.now()} />}
+    fleet={<FleetPage api={api} active={activeTab === 'fleet'} jobs={[...state.active, ...state.history]} snapshot={{ hosts: state.config.hosts, metrics: state.metrics, activeJobs: state.active }} config={{ enabled, monitoring: !!state.config.monitoring, intervalSeconds: state.config.interval || 60 }} selectedHostIds={selected} actions={actions} now={Date.now()} />}
   />;
 }
 

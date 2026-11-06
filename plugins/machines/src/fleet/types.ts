@@ -6,6 +6,7 @@ export interface FleetHost {
   alias: string;
   group?: string;
   readOnly?: boolean;
+  bastion?: { script: string; target: string; command: string } | null;
 }
 
 export interface FleetMetricValues {
@@ -71,6 +72,9 @@ export interface FleetActions {
 }
 
 export interface FleetPageProps {
+  api?: import('../api/machines').MachinesApi | null;
+  active?: boolean;
+  jobs?: readonly import('../history/types').HistoryJob[];
   snapshot: FleetSnapshot;
   config: FleetConfig;
   actions: FleetActions;

@@ -494,6 +494,30 @@ async function main() {
     }
     if (!ready) throw new Error('React 机器列表未挂载');
 
+    // Inspecting is separate from batch selection. Narrow navigation preserves the list DOM.
+    for (const width of [1400, 600, 380]) {
+      await client.send('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: false });
+      const inspection = await client.send('Runtime.evaluate', { awaitPromise: true, returnByValue: true, expression: `(async () => {
+        const frame = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        const root = document.querySelector('#fleetReactRoot');
+        const list = root.querySelector('#hostRows');
+        const inspect = [...root.querySelectorAll('[data-inspect-host]')][1];
+        const selected = root.querySelectorAll('[data-select]:checked').length;
+        inspect.click(); await frame();
+        const panel = root.querySelector('.machine-inspector');
+        if (!panel?.getBoundingClientRect().width || !panel.querySelector('h2')?.textContent.includes('数据库')) throw Error('Inspector did not follow the selected machine');
+        if (root.querySelectorAll('[data-select]:checked').length !== selected) throw Error('Inspecting changed batch targets');
+        if (innerWidth <= 1100 && root.querySelector('.fleet__panel').getBoundingClientRect().width) throw Error('Narrow inspector must replace the list view');
+        const back = panel.querySelector(innerWidth <= 1100 ? '[aria-label="返回机器列表"]' : '[aria-label="收起详情"]');
+        back.click(); await frame();
+        if (root.querySelector('#hostRows') !== list || !list.getBoundingClientRect().width) throw Error('Inspector return discarded the list');
+        if (document.activeElement !== inspect) throw Error('Inspector return lost focus');
+        if (document.documentElement.scrollWidth > innerWidth) throw Error('Inspector overflows page');
+        return true;
+      })()` });
+      if (inspection.exceptionDetails) throw Error(inspection.exceptionDetails.exception?.description || inspection.exceptionDetails.text);
+    }
+
     // Exercise the real common Tabs at desktop and narrow widths without executing commands.
     for (const theme of ['dark', 'light']) for (const width of [1400, 600, 380]) {
       const themeResult = await client.send('Runtime.evaluate', { expression: `(() => { if (document.documentElement.dataset.theme !== '${theme}') document.querySelector('#themeSwitch').click(); return document.documentElement.dataset.theme === '${theme}' && localStorage.getItem('flowhub.theme') !== '${theme === 'light' ? 'dark' : 'light'}'; })()`, returnByValue: true });

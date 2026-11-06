@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
 import { Button, Checkbox, DataTable, DialogShell, DropdownMenu, Combobox, cx } from '@flowhub/plugin-common/react';
+import { MachineInspector } from './MachineInspector';
+import './inspector.css';
 
 import {
   fleetMetricStatus,
@@ -101,8 +103,9 @@ function formatTime(timestamp: number | undefined): string {
   });
 }
 
-function HostIdentity({ host }: { host: FleetHost }) {
+function HostIdentity({ host, inspected, onInspect }: { host: FleetHost; inspected: boolean; onInspect: (button: HTMLButtonElement) => void }) {
   return (
+    <button type="button" className="fleet__inspect" data-inspect-host={host.id} aria-pressed={inspected} aria-label={`查看 ${host.name} 的详情`} onClick={event => onInspect(event.currentTarget)}>
     <span className="fleet__identity" title={host.alias ? `连接标识：${host.alias}` : undefined}>
       <strong>
         {host.name}
@@ -110,6 +113,7 @@ function HostIdentity({ host }: { host: FleetHost }) {
       </strong>
       {host.group ? <small>{host.group}</small> : null}
     </span>
+    </button>
   );
 }
 
@@ -200,6 +204,9 @@ function metricValue(
 }
 
 export function FleetPage({
+  api = null,
+  active = true,
+  jobs = [],
   snapshot,
   config,
   actions,
@@ -208,6 +215,29 @@ export function FleetPage({
   className,
   now = Date.now(),
 }: FleetPageProps) {
+  const [inspectedId, setInspectedId] = useState<string | null>(null);
+  const [detailOpen, setDetailOpen] = useState(true);
+  const [detailRequested, setDetailRequested] = useState(false);
+  const [narrow, setNarrow] = useState(() => typeof window !== 'undefined' && !!window.matchMedia?.('(max-width: 1100px)').matches);
+  const returnTarget = useRef<HTMLButtonElement | null>(null);
+  const listScroll = useRef(0);
+  const inspectedHost = inspectedId ? snapshot.hosts.find(host => host.id === inspectedId) : snapshot.hosts[0];
+  useEffect(() => {
+    const media = window.matchMedia?.('(max-width: 1100px)');
+    if (!media) return;
+    const update = () => setNarrow(media.matches);
+    media.addEventListener('change', update);
+    return () => media.removeEventListener('change', update);
+  }, []);
+  function inspect(host: FleetHost, button: HTMLButtonElement) {
+    returnTarget.current = button;
+    listScroll.current = window.scrollY;
+    setInspectedId(host.id); setDetailOpen(true); setDetailRequested(true);
+  }
+  function closeDetail() {
+    setDetailOpen(false); setDetailRequested(false);
+    requestAnimationFrame(() => { returnTarget.current?.focus({ preventScroll: true }); if (narrow) window.scrollTo({ top: listScroll.current }); });
+  }
   const [query, setQuery] = useState('');
   const [group, setGroup] = useState('');
   const [internalSelectedIds, setInternalSelectedIds] = useState<ReadonlySet<string>>(
@@ -324,7 +354,7 @@ export function FleetPage({
         header: '机器',
         className: 'fleet__host-cell',
         headerClassName: 'fleet__host-cell',
-        render: (host: FleetHost) => <HostIdentity host={host} />,
+        render: (host: FleetHost) => <HostIdentity host={host} inspected={detailOpen && host.id === inspectedHost?.id} onInspect={button => inspect(host, button)} />,
       },
       {
         key: 'status',
@@ -395,6 +425,8 @@ export function FleetPage({
       someVisibleSelected,
       statusByHost,
       visibleHosts,
+      detailOpen,
+      inspectedHost?.id,
     ],
   );
 
@@ -406,11 +438,13 @@ export function FleetPage({
   }).length;
 
   return (
-    <div className={cx('fleet', className)}>
+    <div className={cx('fleet', detailOpen && 'fleet--detail-open', detailRequested && 'fleet--detail-requested', className)}>
+      <div className="fleet__split">
       <section className="fleet__panel" aria-labelledby="fleet-list-title">
         <header className="fleet__section-head">
           <h2 id="fleet-list-title">已纳管机器</h2>
           <div className="fleet__head-actions">
+            <Button size="sm" variant="ghost" aria-label={detailOpen ? '收起机器详情' : '展开机器详情'} aria-expanded={detailOpen} disabled={!snapshot.hosts.length} onClick={() => { if (detailOpen) closeDetail(); else { setDetailOpen(true); setDetailRequested(true); } }}>详情</Button>
             <dl className="fleet__summary" aria-label="机器概况">
               <div><dt>总量</dt><dd>{total}</dd></div>
               <div className="fleet__summary--healthy"><dt>正常</dt><dd>{healthy}</dd></div>
@@ -473,6 +507,8 @@ export function FleetPage({
           onReset={resetFilters}
         />
       </section>
+      {detailOpen ? <MachineInspector host={inspectedHost} metric={inspectedHost ? snapshot.metrics[inspectedHost.id] : undefined} interval={config.intervalSeconds} now={now} api={api} active={active && (!narrow || detailRequested)} jobs={jobs} disabled={!interactive} onClose={closeDetail} onAction={action => { if (inspectedHost) actions.onHostAction(action, inspectedHost); }} /> : null}
+      </div>
     </div>
   );
 }
