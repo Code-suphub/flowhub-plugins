@@ -38,9 +38,16 @@ pub fn call(path:&Path,value:Value)->Result<Value,String>{
         .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|_|"无法启动内置 SSH 组件")?;
     child.stdin.take().ok_or("缺少输入")?.write_all(value.to_string().as_bytes()).map_err(|e|e.to_string())?;
     let result=child.wait_with_output().map_err(|e|e.to_string())?;
-    let bytes=if result.status.success(){&result.stdout}else{&result.stderr};
-    let data:Value=serde_json::from_slice(bytes).map_err(|_|"内置 SSH 组件响应无效")?;
-    if let Some(error)=data["error"].as_str(){return Err(error.into());}Ok(data)
+    decode_response(&result)
+}
+fn decode_response(result:&std::process::Output)->Result<Value,String>{
+    // A remote command's nonzero exit is still a valid bridge response on
+    // stdout. Bridge failures may instead report a JSON error on stderr.
+    let data:Value=serde_json::from_slice(&result.stdout).or_else(|_|serde_json::from_slice(&result.stderr)).map_err(|_|"内置 SSH 组件响应无效")?;
+    if !data.is_object(){return Err("内置 SSH 组件响应无效".into());}
+    if let Some(error)=data["error"].as_str(){return Err(error.into());}
+    if !result.status.success() && data["exit_code"].as_i64().is_none(){return Err("内置 SSH 组件执行失败".into());}
+    Ok(data)
 }
 pub async fn request(path:PathBuf,value:Value)->Result<Value,String>{
     tokio::task::spawn_blocking(move||call(&path,value)).await.map_err(|e|e.to_string())?
@@ -79,6 +86,18 @@ pub async fn terminal(path:PathBuf,alias:&str)->Result<(),String>{
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn nonzero_remote_exit_retains_output_and_bridge_errors_are_reported(){
+        use std::os::unix::process::ExitStatusExt;
+        let output=|stdout:Value,stderr:Vec<u8>|std::process::Output{status:std::process::ExitStatus::from_raw(256),stdout:serde_json::to_vec(&stdout).unwrap(),stderr};
+        let response=decode_response(&output(json!({"exit_code":7,"output":"stdout and stderr markers"}),vec![])).unwrap();
+        assert_eq!(response["exit_code"],7);assert_eq!(response["output"],"stdout and stderr markers");
+        assert_eq!(decode_response(&output(json!({"error":"connection failed"}),vec![])).unwrap_err(),"connection failed");
+        let failure=std::process::Output{status:std::process::ExitStatus::from_raw(256),stdout:vec![],stderr:br#"{"error":"missing profile"}"#.to_vec()};
+        assert_eq!(decode_response(&failure).unwrap_err(),"missing profile");
+        let invalid=std::process::Output{status:std::process::ExitStatus::from_raw(256),stdout:b"invalid".to_vec(),stderr:b"private diagnostic".to_vec()};
+        assert_eq!(decode_response(&invalid).unwrap_err(),"内置 SSH 组件响应无效");
+    }
     #[test]
     fn shared_profiles_are_loaded_without_secrets_in_the_runtime_model(){
         let root=std::env::temp_dir().join(format!("fh-shared-{}",chrono::Utc::now().timestamp_nanos_opt().unwrap()));

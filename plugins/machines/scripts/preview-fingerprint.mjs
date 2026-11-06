@@ -60,7 +60,7 @@ async function chrome() {
   if (!executable) return null;
   const profile = await mkdtemp(join(tmpdir(), 'flowhub-fingerprint-'));
   const child = spawn(executable, ['--headless=new', '--remote-debugging-port=0', `--user-data-dir=${profile}`, '--no-first-run', '--disable-gpu', 'about:blank'], { stdio: 'ignore' });
-  for (let attempt = 0; attempt < 100 && !existsSync(join(profile, 'DevToolsActivePort')); attempt += 1) await new Promise(resolve => setTimeout(resolve, 100));
+  for (let attempt = 0; attempt < 300 && !existsSync(join(profile, 'DevToolsActivePort')); attempt += 1) await new Promise(resolve => setTimeout(resolve, 100));
   if (!existsSync(join(profile, 'DevToolsActivePort'))) { child.kill('SIGKILL'); throw new Error('Chrome 未能启动'); }
   const [port] = (await readFile(join(profile, 'DevToolsActivePort'), 'utf8')).split('\n');
   let target = null;
@@ -251,7 +251,9 @@ async function main() {
   execFileSync('pnpm', ['run', 'build:react'], { cwd: resolve(here, '..'), stdio: 'inherit' });
   const instance = await server();
   const port = instance.address().port;
-  const client = await chrome();
+  let client;
+  try { client = await chrome(); }
+  catch (error) { instance.close(); throw error; }
   if (!client) {
     console.log('跳过下拉指纹：没有找到 Chrome（可用 CHROME_PATH 指定）');
     instance.close();

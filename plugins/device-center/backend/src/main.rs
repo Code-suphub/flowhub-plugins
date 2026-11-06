@@ -3,6 +3,7 @@ use serde_json::{json, Value};
 mod power_telemetry;
 mod power_source;
 mod smc_power;
+mod device_icons;
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
     io::{BufRead, Read, Write},
@@ -434,6 +435,7 @@ fn update_power_sample(state: &Arc<Mutex<State>>, force: bool, interval_seconds:
 fn dispatch(state: &Arc<Mutex<State>>, method: &str, params: &Value) -> Result<Value, String> {
     match method {
         "health" => Ok(json!({"protocol":2,"name":"device-center"})),
+        "device_icons" => Ok(device_icons::snapshot()),
         "status_snapshot" => state.lock().map_err(|_| "状态缓存不可用".to_string()).map(|s| s.status()),
         "snapshot" => {
             update_power_sample(state, false, power_interval_seconds(params));
@@ -457,6 +459,7 @@ fn dispatch(state: &Arc<Mutex<State>>, method: &str, params: &Value) -> Result<V
             Some("management") => match params["method"].as_str() {
                 Some("snapshot") => dispatch(state, "snapshot", &params["params"]),
                 Some("refresh") => dispatch(state, "refresh", &params["params"]),
+                Some("device_icons") => dispatch(state, "device_icons", &params["params"]),
                 _ => Err("不支持的组件操作".into()),
             },
             _ => Err("不支持的组件操作".into())

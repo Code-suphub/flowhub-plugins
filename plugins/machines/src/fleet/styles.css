@@ -270,7 +270,7 @@ dialog.fleet__remove-dialog { width: min(420px, calc(100vw - 24px)); }
 .fleet__status-cell small,
 .fleet__load-cell small {
   color: var(--fleet-faint);
-  font: 10px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace;
+  font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 .fleet__identity small {
@@ -303,7 +303,7 @@ dialog.fleet__remove-dialog { width: min(420px, calc(100vw - 24px)); }
 }
 
 .fleet__status--success {
-  color: var(--fleet-green);
+  color: var(--fh-positive);
 }
 
 .fleet__status--failed,

@@ -11,6 +11,7 @@ export interface HistoryJob {
   startedAt: number;
   finishedAt?: number | null;
   exitCode?: number | null;
+  commandPreview?: string | null;
 }
 
 export interface HistoryJobDetail extends HistoryJob {
@@ -36,6 +37,8 @@ export interface HistoryHost {
 }
 
 export interface HistoryWorkspaceProps {
+  onOpenMachine?: (hostId: string) => void;
+  onRefillCommand?: (job: HistoryJobDetail) => void;
   active?: boolean;
   api: MachinesApi | null;
 }

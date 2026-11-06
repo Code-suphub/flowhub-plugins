@@ -1,40 +1,37 @@
 # 外设中心 · Device Center
 
-独立的 FlowHub macOS schema 2 原生设备插件，按最初的 1536 × 1024 视觉原型重建页面和组件。v0.2.7 独立读取供电来源，并在电池接口缺少功率时通过 SMC 补充整机功耗和直流输入；桌面组件支持分类切换和滚动显示全部设备。
+FlowHub macOS schema 2 原生设备插件。v0.3.3 使用 React 管理页：双栏设备卡片、按需详情弹窗、紧凑供电读数和连接事件，支持深浅主题与原有组件配置。修复 WKWebView 中详情弹窗的 Tab 循环与关闭后的卡片焦点，以及帮助气泡需要按两次 Esc 才收起的问题。
 
-## 视觉预览
+## 页面与只读预览
 
-入口 `plugins/device-center/ui/index.html`，支持概览、蓝牙、USB、显示器、供电、历史事件与设备详情。卡片位于 `widget-card.html`，另有 `widget-editor.html` 和 `widget-detail.html`。在 FlowHub 宿主中，使用真实设备数据；单独浏览器预览使用明确标注的模拟数据，避免误认为实际连接状态。
-
-在 `plugins/device-center/` 执行：
+管理页入口 `ui/index.html`，组件详情入口 `ui/widget-detail.html`；两者使用同一 React 页面。桌面卡片和组件编辑器保持已有配置协议。
 
 ```sh
-npm ci
-npm run dev
-# 浏览器打开 http://127.0.0.1:5188/index.html
+pnpm install --frozen-lockfile
+pnpm dev
+# http://127.0.0.1:5188/ui/index.html
 ```
 
-按指定视图访问 `?view=bluetooth`、`?view=usb`、`?view=display`、`?view=power`、`?view=events`。`?embedded=1` 用于观察宿主嵌入时的布局，且预览不会运行设备操作。
-
-### 真实浏览器截图验收
-
-本仓库提供可选的 Playwright 浏览器截图工具，不是生成式效果图：
+独立浏览器仅显示明确标注的示例数据，不扫描或操作真实设备。支持 `?view=power` / `?view=bluetooth` / `?view=events`，以及 `?scenario=missing` / `stale` / `error` / `unplugged` / `empty` / `long`。嵌入宿主后只通过真实插件 RPC 读取数据，不允许查询参数切换成假数据。
 
 ```sh
-python3 -m pip install playwright Pillow
-python3 -m playwright install chromium
-python3 scripts/capture.py --url http://127.0.0.1:5188 --out screenshots --strict
+pnpm test
+pnpm build
+node scripts/browser-acceptance.mjs /absolute/path/to/evidence
 ```
 
-将生成概览（1168/800/520 宽）、五个分类页面、组件卡片、设备详情截图和 `report.json`，浏览器控制台/资源错误在 `--strict` 模式下导致失败。
+浏览器验收使用独立无头 Chrome，在不透明 sandbox iframe 中加载实际构建产物与宿主等价的 CSP，验证筛选、弹窗、焦点恢复、供电缺失/失败、深浅主题、窄屏与组件入口。设备数据使用夹具，系统图标通过构建包内 helper 获取。它不移动鼠标，不修改剪贴板、实际设备或安装版。
 
-**本机不允许浏览器请求 localhost 时**可以使用 `--inline` 作为视觉检查的兜底：它将同样的 HTML、CSS、JS 和图片内联进浏览器供渲染，但不能证明最终资源路径、网络或宿主 CSP 行为，因此仍须在 FlowHub 中验收。
+实机验收与分项提交记录见 [改造验收清单](docs/redesign-acceptance.md) 和 [正式安装版验收](docs/installed-acceptance-2026-11-07.md)。浏览器验证不代替 WKWebView、真实输入法、热插拔与安装版验收。
 
-原型还原检查见 `docs/visual-acceptance.md`。截图不能由 `npm test` 的编译通过替代。
+## 图标来源与更新
 
-## 图片策略
-
-当前 9 张小型 PNG 来源于用户确认的最初 AI 原型图裁剪，用作已知演示型号的**原型视觉素材**，非官方授权商品摄影；真实运行时只有确认的名称才命中素材，其余使用包内类别 SVG。原生资源加载由 FlowHub 宿主白名单控制：**`png` / `svg`**，所以不要求主程序放开 WebP MIME 类型或网络图片 CSP。
+- 图中的手机屏幕只是设备家族的视觉示意，不读取设备壁纸，也不代表机身颜色。
+- 苹果设备通过包内 Swift helper 调用公开 `UTType` / `NSWorkspace.icon(for:)` API，读取当前 macOS 已安装的家族图标。图像在后端进程内缓存，不随每次功率采样重新提取。
+- 当前匹配 iPhone、AirPods、AirPods Pro、Magic Mouse、Apple 键盘和 MacBook 家族；未声明的系统类型自动回退，不用通用文档图标假装设备图片。该能力依赖已安装的系统资源，不保证覆盖刚发布的型号。
+- 其余设备使用 `@mdi/js 7.4.47` 的类别图标，许可说明打包在 `ui/licenses/material-design-icons.txt`。不是全品牌商品照片数据库，也不会把一张粉色 iPhone 图片套给所有手机。
+- 参考 [device-icons](https://github.com/bkahlert/device-icons) 的系统图标解析思路；没有复制其系统图集。类别图标来自 [Material Design Icons](https://github.com/Templarian/MaterialDesign)。均不进行运行时网络图片查询。
+- 九张旧演示产品 PNG 已移除。系统图标仅接受固定家族的有界 PNG data URL，其他内容回退到包内类别图标，不放宽宿主 CSP。
 
 ## 设备数据与安全边界
 
@@ -53,12 +50,12 @@ python3 scripts/capture.py --url http://127.0.0.1:5188 --out screenshots --stric
 
 ## 构建与安装
 
-macOS + Node.js 22+ + Rust stable：
+macOS + Xcode Command Line Tools（Swift）+ Node.js 22+ + pnpm 10.15.1 + Rust stable：
 
 ```sh
-npm ci
-npm test
-npm run build
+pnpm install --frozen-lockfile
+pnpm test
+pnpm build
 ```
 
 FlowHub 的「插件市场 → 安装开发目录」选择 `plugins/device-center/build/`，不要选择源码目录。运行前先检查本地安装来源是否更新到了目标版本，并完成真实 FlowHub 页面视觉与数据验收。

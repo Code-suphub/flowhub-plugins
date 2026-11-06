@@ -10,7 +10,7 @@
 //   node scripts/layout-audit.mjs --json     # 只输出 JSON
 import { createServer } from 'node:http';
 import { spawn, execFileSync } from 'node:child_process';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, mkdir, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { extname, join, resolve } from 'node:path';
@@ -65,8 +65,8 @@ const MEASURE_FLEET = `(() => {
     extraSearchIcon: Boolean(root.querySelector('.fleet__search-icon')),
     hostHeader: hostHeader?.textContent.trim(),
     hostWidth: hostHeader?.getBoundingClientRect().width,
-    hostGroups: identities.map(identity => identity.querySelector('small')?.textContent.trim()),
-    aliasHidden: identities.every(identity => !identity.textContent.includes(identity.title.replace('连接标识：', ''))),
+    hostGroups: identities.map(identity => identity.querySelector('[data-host-group]')?.textContent.trim()),
+    aliasVisible: identities.every(identity => identity.textContent.includes(identity.title.replace('连接标识：', ''))),
     summary: visible('.fleet__summary').length
   };
 })()`;
@@ -85,7 +85,7 @@ const VIEWS = [
       if (row.legacyNodes) problems.push('旧列表或导入节点残留');
       if (row.controlsOverflow) problems.push('操作控件超出视口');
       if (row.extraSearchIcon) problems.push('搜索框仍有图标');
-      if (row.hostHeader !== '机器' || row.hostGroups.join('|') !== '开发环境|测试环境' || !row.aliasHidden) problems.push('机器列标题、副行或别名展示异常');
+      if (row.hostHeader !== '机器' || row.hostGroups.join('|') !== '开发环境|测试环境' || !row.aliasVisible) problems.push('机器列标题、副行或别名展示异常');
       if (row.width >= 850 && (row.hostWidth < 215 || row.hostWidth > 310)) problems.push('机器列桌面宽度异常');
       if (row.width <= 600 && row.hostWidth > 190) problems.push('机器列窄屏宽度异常');
       if (row.groupWidth < 160 || Math.abs(row.searchHeight - row.groupHeight) > 1 || row.filterHeight > row.groupHeight + 1) problems.push('分组筛选尺寸或单行布局异常');
@@ -410,7 +410,8 @@ async function cdp(url, onEvent) {
   socket.addEventListener('message', event => {
     const message = JSON.parse(event.data);
     if (message.id && pending.has(message.id)) {
-      const { resolve: done, reject } = pending.get(message.id);
+      const { resolve: done, reject, timer } = pending.get(message.id);
+      clearTimeout(timer);
       pending.delete(message.id);
       if (message.error) reject(new Error(`${message.error.message} (${message.method || ''})`));
       else done(message.result);
@@ -423,11 +424,11 @@ async function cdp(url, onEvent) {
       const id = nextId++;
       socket.send(JSON.stringify({ id, method, params }));
       return new Promise((resolve, reject) => {
-        pending.set(id, { resolve, reject });
-        setTimeout(() => { if (pending.delete(id)) reject(new Error(`${method} 超时`)); }, 15000);
+        const timer = setTimeout(() => { if (pending.delete(id)) reject(new Error(`${method} 超时`)); }, 15000);
+        pending.set(id, { resolve, reject, timer });
       });
     },
-    close() { socket.close(); }
+    close() { for (const item of pending.values()) clearTimeout(item.timer); pending.clear(); socket.close(); }
   };
 }
 
@@ -493,6 +494,43 @@ async function main() {
       await new Promise(resolve => setTimeout(resolve, 50));
     }
     if (!ready) throw new Error('React 机器列表未挂载');
+    await client.send('Runtime.evaluate', { expression: `[...document.querySelectorAll('.preview-banner__menu button')].find(button => button.textContent === '生成分页示例').click()` });
+
+    // Inspecting is separate from batch selection. Narrow navigation preserves the list DOM.
+    for (const width of [1400, 600, 380]) {
+      await client.send('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: false });
+      const inspection = await client.send('Runtime.evaluate', { awaitPromise: true, returnByValue: true, expression: `(async () => {
+        const frame = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        const root = document.querySelector('#fleetReactRoot');
+        const list = root.querySelector('#hostRows');
+        const inspect = [...root.querySelectorAll('[data-inspect-host]')][1];
+        const selected = root.querySelectorAll('[data-select]:checked').length;
+        inspect.click(); await frame();
+        const panel = root.querySelector('.machine-inspector');
+        if (!panel?.getBoundingClientRect().width || !panel.querySelector('h2')?.textContent.includes('数据库')) throw Error('Inspector did not follow the selected machine');
+        if (root.querySelectorAll('[data-select]:checked').length !== selected) throw Error('Inspecting changed batch targets');
+        if (innerWidth <= 1100 && root.querySelector('.fleet__panel').getBoundingClientRect().width) throw Error('Narrow inspector must replace the list view');
+        [...panel.querySelectorAll('[role="tab"]')].find(tab => tab.textContent === '连接').click(); await frame();
+        const manage = [...panel.querySelectorAll('button')].find(button => button.textContent === '管理连接配置');
+        manage.focus(); manage.click();
+        for (let attempt = 0; attempt < 100; attempt++) {
+          const ready = document.querySelector('dialog.host-editor[open]');
+          if (ready && ready.querySelector('[role="tab"][aria-selected="true"]')?.textContent === '连接配置' && document.querySelector('#host-editor-hostname')?.value === 'demo-db.example.test') break;
+          await frame();
+        }
+        const editor = document.querySelector('dialog.host-editor[open]');
+        if (!editor || editor.querySelector('[role="tab"][aria-selected="true"]')?.textContent !== '连接配置' || document.querySelector('#host-editor-hostname')?.value !== 'demo-db.example.test') throw Error('Inspector opened the wrong machine or connection section: ' + JSON.stringify({ editor: !!editor, tab: editor?.querySelector('[role="tab"][aria-selected="true"]')?.textContent, hostname: document.querySelector('#host-editor-hostname')?.value, detail: panel.querySelector('h2')?.textContent }));
+        editor.querySelector('button[aria-label="关闭"]').click(); await frame();
+        if (document.activeElement !== manage) throw Error('Connection editor did not restore inspector focus');
+        const back = panel.querySelector(innerWidth <= 1100 ? '[aria-label="返回机器列表"]' : '[aria-label="收起详情"]');
+        back.click(); await frame();
+        if (root.querySelector('#hostRows') !== list || !list.getBoundingClientRect().width) throw Error('Inspector return discarded the list');
+        if (document.activeElement !== inspect) throw Error('Inspector return lost focus');
+        if (document.documentElement.scrollWidth > innerWidth) throw Error('Inspector overflows page');
+        return true;
+      })()` });
+      if (inspection.exceptionDetails) throw Error(inspection.exceptionDetails.exception?.description || inspection.exceptionDetails.text);
+    }
 
     // Exercise the real common Tabs at desktop and narrow widths without executing commands.
     for (const theme of ['dark', 'light']) for (const width of [1400, 600, 380]) {
@@ -515,12 +553,12 @@ async function main() {
         showTab('fleet', true); await frame(); verify(0);
         const fleetChoice = document.querySelector('#fleetReactRoot input[data-select="demo-app"]');
         if (!fleetChoice) throw Error('Fleet selection missing');
-        fleetChoice.click(); await frame();
+        if (!fleetChoice.checked) fleetChoice.click(); await frame();
         showTab('command'); await frame();
         for (let attempt = 0; attempt < 50 && !document.querySelector('#command-targets')?.value; attempt++) await frame();
         document.querySelector('.command-react__targets .fh-combobox__toggle').click(); await frame();
         const commandChoice = document.querySelector('#command-targets-listbox [aria-selected="true"]');
-        if (!commandChoice) throw Error('Fleet selection did not reach command page');
+        if (!commandChoice) throw Error('Fleet selection did not reach command page: ' + JSON.stringify({ fleet: fleetChoice.checked, value: document.querySelector('#command-targets')?.value, expanded: document.querySelector('#command-targets')?.getAttribute('aria-expanded'), options: document.querySelector('#command-targets-listbox')?.textContent, selected: [...document.querySelectorAll('[data-task-target][aria-pressed="true"]')].map(el=>el.dataset.taskTarget) }));
         commandChoice.click(); await frame();
         if (document.querySelector('#command-targets').getAttribute('aria-expanded') !== 'true') throw Error('Multi selection should keep menu open');
         document.querySelector('#command-targets').dispatchEvent(new KeyboardEvent('keydown', {key:'Escape', bubbles:true})); await frame();
@@ -543,8 +581,48 @@ async function main() {
         showTab('command'); await frame(); verify(1);
         if (document.querySelector('#commandReactRoot textarea') !== draft || draft.value !== 'audit draft — never execute') throw Error('Navigation discarded command draft');
         setDraft(''); await frame();
-        const templateTab = document.querySelector('.command-react__subtabs [data-tabs-value="templates"]');
-        templateTab.click(); await frame();
+        document.querySelector('[data-task-target="demo-app"]').click(); await frame();
+        setDraft('app draft — never execute'); await frame();
+        document.querySelector('[data-task-target="demo-db"]').click(); await frame();
+        if (draft.value) throw Error('New machine inherited another target draft');
+        setDraft('db draft — never execute'); await frame();
+        document.querySelector('[data-task-target="demo-app"]').click(); await frame();
+        if (draft.value !== 'app draft — never execute') throw Error('Returning to a machine lost its draft');
+        setDraft(''); await frame();
+        document.querySelector('[data-task-target="demo-db"]').click(); await frame();
+        if (draft.value !== 'db draft — never execute') throw Error('Second machine lost its draft');
+        setDraft(''); await frame();
+        document.querySelector('[data-task-target="demo-app"]').click(); await frame();
+        // Inspect history, revisit the exact machine, and refill without executing anything.
+        showTab('history'); await frame();
+        for (let attempt = 0; attempt < 100 && !document.querySelector('[data-history-job]'); attempt++) await frame();
+        const record = document.querySelector('[data-history-job]');
+        if (!record) throw Error('History preview records did not load');
+        record.focus(); record.click(); await frame();
+        for (let attempt = 0; attempt < 100 && !document.querySelector('.history-inspector__command'); attempt++) await frame();
+        const output = document.querySelector('.history-inspector');
+        if (!output?.querySelector('.history-inspector__command')?.textContent.includes('uptime')) throw Error('Selected history command did not load');
+        const targetAlias = output.querySelector('dd').textContent;
+        [...output.querySelectorAll('button')].find(button => button.textContent === '打开机器').click(); await frame();
+        for (let attempt = 0; attempt < 100 && document.querySelector('.machine-inspector__identity code')?.textContent !== targetAlias; attempt++) await frame();
+        const machine = document.querySelector('.machine-inspector');
+        if (!machine || machine.querySelector('code')?.textContent !== targetAlias) throw Error('History returned to another machine');
+        machine.querySelector(innerWidth <= 1100 ? '[aria-label="返回机器列表"]' : '[aria-label="收起详情"]').click(); await frame();
+        showTab('history'); await frame();
+        const beforeJobs = document.querySelectorAll('.command-react__job').length;
+        [...document.querySelectorAll('.history-inspector button')].find(button => button.textContent === '重新填入命令').click(); await frame();
+        for (let attempt = 0; attempt < 100 && draft.value !== 'uptime'; attempt++) await frame();
+        if (tabs[1].getAttribute('aria-selected') !== 'true' || draft.value !== 'uptime') throw Error('History did not refill the command workspace');
+        if (document.querySelector('[data-task-target="' + targetAlias + '"]')?.getAttribute('aria-pressed') !== 'true') throw Error('History refill changed target');
+        if (document.querySelectorAll('.command-react__job').length !== beforeJobs) throw Error('History refill unexpectedly executed a command');
+        setDraft(''); await frame();
+        for (const checkbox of [...document.querySelectorAll('.command-react__machine-list input:checked')]) { checkbox.click(); await frame(); }
+        showTab('history'); await frame();
+        document.querySelector('.history-inspector [aria-label="返回执行记录"]').click(); await frame();
+        if (!record.getBoundingClientRect().width || document.activeElement !== record) throw Error('History return lost its row or focus');
+        showTab('command'); await frame();
+        const templateTab = document.querySelector('[data-command-tools="templates"]');
+        templateTab.focus(); templateTab.click(); await frame();
         const manager = document.querySelector('.command-react__template-manager');
         if (manager.querySelector('h3')) throw Error('Command template tab repeats its title');
         const templateButton = text => [...manager.querySelectorAll('button')].find(button => button.textContent === text);
@@ -561,7 +639,8 @@ async function main() {
         templateButton('保存模板').click(); await frame();
         for (let attempt = 0; attempt < 50 && manager.querySelector('form'); attempt++) await frame();
         if (manager.querySelector('form')) throw Error('Template save did not close editor');
-        document.querySelector('.command-react__subtabs [data-tabs-value="execute"]').click(); await frame();
+        document.querySelector('dialog.command-react__manager[open] button[aria-label="关闭"]').click(); await frame();
+        if (document.activeElement !== templateTab) throw Error('Template manager did not restore trigger focus');
         showTab('fleet'); await frame(); verify(0);
         for (const selector of ['#monitorSettingsReactRoot button', '#openBackup']) {
           const trigger = document.querySelector(selector);
@@ -717,7 +796,14 @@ async function main() {
         document.querySelector('dialog.host-editor button[aria-label="关闭"]').click(); await frame();
         return true;
       })()` });
-      if (navigation.exceptionDetails) throw new Error(navigation.exceptionDetails.exception?.description || 'React Tab 验证失败');
+      if (navigation.exceptionDetails) {
+        if (process.env.FLOWHUB_MACHINE_ARTIFACT_DIR) {
+          await mkdir(process.env.FLOWHUB_MACHINE_ARTIFACT_DIR, { recursive: true });
+          const screenshot = await client.send('Page.captureScreenshot', { format: 'png' });
+          await writeFile(join(process.env.FLOWHUB_MACHINE_ARTIFACT_DIR, `failure-${theme}-${width}.png`), Buffer.from(screenshot.data, 'base64'));
+        }
+        throw new Error(navigation.exceptionDetails.exception?.description || 'React Tab 验证失败');
+      }
     }
 
     // A short viewport must keep each tabbed dialog within the screen without resizing it.
@@ -771,6 +857,94 @@ async function main() {
       } finally { document.body.classList.remove('widget-settings'); }
     })()` });
     if (widgetShell.exceptionDetails || !widgetShell.result.value) failures.push('Widget 设置模式未正确隐藏页面壳');
+
+    if (process.env.FLOWHUB_MACHINE_ARTIFACT_DIR) {
+      const directory = process.env.FLOWHUB_MACHINE_ARTIFACT_DIR;
+      await mkdir(directory, { recursive: true });
+      const screenshots = [];
+      const evaluatePreview = async expression => {
+        const result = await client.send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
+        if (result.exceptionDetails) throw Error(result.exceptionDetails.exception?.description || result.exceptionDetails.text);
+        return result.result?.value;
+      };
+      const freshPage = async (query = '') => {
+        const nextLoad = new Promise(resolve => { loaded = resolve; });
+        await client.send('Page.navigate', { url: `http://127.0.0.1:${pagePort}/__audit.html${query}` });
+        await nextLoad;
+        for (let attempt = 0; attempt < 100; attempt++) {
+          if (await evaluatePreview(`!!document.querySelector('.fleet__identity, .fleet__empty:not([hidden])')?.getBoundingClientRect().width`)) return;
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+        throw Error('截图页面未就绪');
+      };
+      const save = async (name, full = true) => {
+        await evaluatePreview(`(async () => {
+          await document.fonts.ready;
+          await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+          await Promise.all(document.getAnimations().filter(animation => animation.effect?.getTiming().iterations !== Infinity).map(animation => animation.finished.catch(() => {})));
+        })()`);
+        const metrics = await client.send('Page.getLayoutMetrics');
+        const clip = { x: 0, y: 0, width: metrics.cssContentSize.width, height: Math.min(1800, metrics.cssContentSize.height), scale: 1 };
+        const screenshot = await client.send('Page.captureScreenshot', { format: 'png', ...(full ? { captureBeyondViewport: true, clip } : {}) });
+        await writeFile(join(directory, name), Buffer.from(screenshot.data, 'base64'));
+        screenshots.push(name);
+      };
+      for (const theme of ['light', 'dark']) {
+        await client.send('Emulation.setDeviceMetricsOverride', { width: 1400, height: 900, deviceScaleFactor: 1, mobile: false });
+        await freshPage();
+        await evaluatePreview(`(async () => {
+          window.FlowHubTheme.set('${theme}');
+          [...document.querySelectorAll('.preview-banner__menu button')].find(button => button.textContent === '生成分页示例').click();
+          await window.__TAURI__.core.invoke('machines_api', {action:'monitor',payload:{enabled:true,interval:60}});
+          for(let n=0;n<100&&!document.querySelector('.fleet__metric-value')?.textContent.includes('23.4');n++)await new Promise(resolve=>setTimeout(resolve,50));
+          document.querySelector('[data-inspect-host="demo-app"]').click();
+          await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+          for(let n=0;n<100&&!document.querySelector('.machine-inspector .fh-time-series svg');n++)await new Promise(resolve=>setTimeout(resolve,50));
+          return true;
+        })()`);
+        await save(`implemented-fleet-${theme}-1400.png`);
+        await evaluatePreview(`(async()=>{
+          [...document.querySelectorAll('.machine-inspector__actions button')].find(button=>button.textContent==='执行命令').click();
+          for(let n=0;n<100&&!document.querySelector('#command-targets')?.value;n++)await new Promise(resolve=>setTimeout(resolve,50));
+          const input=document.querySelector('.command-react__composer textarea');
+          Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(input,'uptime');input.dispatchEvent(new Event('input',{bubbles:true}));
+          await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+          input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}));
+          for(let n=0;n<120&&!document.querySelector('.command-react__job-status--success');n++)await new Promise(resolve=>setTimeout(resolve,50));
+          if(!document.querySelector('.command-react__job pre')?.textContent.includes('模拟输出'))throw Error('截图任务不是隔离模拟结果');
+          return true;
+        })()`);
+        await save(`implemented-workbench-${theme}-1400.png`);
+        if (theme === 'light') {
+          await evaluatePreview(`(async()=>{
+            [...document.querySelectorAll('.command-react__tools button')].find(button=>button.textContent==='连接配置').click();
+            for(let n=0;n<100&&(!document.querySelector('dialog.host-editor[open]')||document.querySelector('#host-editor-hostname')?.value!=='demo-app.example.test');n++)await new Promise(resolve=>setTimeout(resolve,50));
+            return true;
+          })()`);
+          await save('implemented-connection-light-1400.png', false);
+          await evaluatePreview(`document.querySelector('dialog.host-editor[open] [aria-label="关闭"]').click()`);
+        }
+        await evaluatePreview(`(async()=>{
+          document.querySelector('.machine-tabs [data-tabs-value="history"]').click();
+          for(let n=0;n<100&&!document.querySelector('[data-history-job]');n++)await new Promise(resolve=>setTimeout(resolve,50));
+          document.querySelector('[data-history-job]').click();
+          for(let n=0;n<100&&!document.querySelector('.history-inspector__command');n++)await new Promise(resolve=>setTimeout(resolve,50));
+          return true;
+        })()`);
+        await save(`implemented-history-${theme}-1400.png`);
+      }
+      await client.send('Emulation.setDeviceMetricsOverride', { width: 380, height: 800, deviceScaleFactor: 1, mobile: false });
+      await evaluatePreview(`(async()=>{window.FlowHubTheme.set('light');document.querySelector('.machine-tabs [data-tabs-value="fleet"]').click();document.querySelector('[data-inspect-host="demo-app"]').click();await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));if(document.querySelector('.machine-tabs [aria-selected="true"]')?.dataset.tabsValue!=='fleet')throw Error('窄窗详情导航状态不一致');})()`);
+      await save('implemented-detail-light-380.png');
+      await freshPage('?previewEmpty=1');
+      const empty = await evaluatePreview(`(async()=>{
+        for(let n=0;n<100&&!document.querySelector('.fleet__empty:not([hidden])');n++)await new Promise(resolve=>setTimeout(resolve,50));
+        return !!document.querySelector('.fleet__empty:not([hidden])')&&!document.querySelector('.machine-inspector')&&document.documentElement.scrollWidth<=innerWidth;
+      })()`);
+      if (!empty) throw Error('首次空列表被误标记为目标已移除');
+      await save('implemented-empty-light-380.png');
+      await writeFile(join(directory, 'redesign-browser-evidence.json'), JSON.stringify({ at: new Date().toISOString(), screenshots, fixtureOnly: true, emptyState: true, assertions: failures.length ? failures : 'passed' }, null, 2));
+    }
 
     if (jsonOnly) {
       console.log(JSON.stringify({ report, failures }, null, 2));
