@@ -208,6 +208,7 @@ pub fn method(name: &str) -> &str {
         | "status_snapshot"
         | "ranking_snapshot"
         | "group_detail"
+        | "script_activity"
         | "refresh"
         | "refresh_summary"
         | "application_state"

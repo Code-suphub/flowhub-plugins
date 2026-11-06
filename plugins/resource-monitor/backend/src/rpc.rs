@@ -13,11 +13,12 @@ pub fn read(cache: &Cache, method: &str, params: &Value) -> Option<Result<Value,
         "snapshot" => Some(Ok(cache.get().full())),
         "ranking_snapshot" => Some(Ok(cache.get().ranking(params))),
         "group_detail" => Some(cache.get().detail(params)),
+        "script_activity" => Some(Ok(cache.get().scripts())),
         "diagnostic_event" => Some(crate::diagnostics::client(params)),
         "widget_api" => match params["action"].as_str() {
             Some("snapshot") => Some(Ok(cache.get().status())),
             Some("management") => match params["method"].as_str() {
-                Some(method @ ("snapshot" | "ranking_snapshot" | "group_detail" | "diagnostic_event")) => {
+                Some(method @ ("snapshot" | "ranking_snapshot" | "group_detail" | "script_activity" | "diagnostic_event")) => {
                     read(cache, method, &params["params"])
                 }
                 _ => None,

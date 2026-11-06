@@ -10,7 +10,7 @@ const result=await build({entryPoints:[new URL('../src/App.tsx',import.meta.url)
  path==='react/jsx-runtime'?`export const jsx=(type,props)=>({type,props});export const jsxs=jsx;export const Fragment='Fragment';`:
  path==='./applications'?`export const AppMark='AppMark';const empty={};export const useApplications=()=>empty;export const applicationIdentity=g=>({name:g.presentation?.name||g.name,description:g.source||'',originName:g.origin?.name||'',sourceText:''});export const sourceNames=s=>s.map(x=>x.name).join('、');`:
  path==='@local/common-components/react/antd'?`export const createCommonAntdTheme=()=>({});`:
- `${['Alert','ConfigProvider','Descriptions','Modal','Switch','Table','Tabs','Tag','StyleProvider','Button','HelpPopover','Input'].map(name=>`export const ${name}='${name}';`).join('')}export const theme={};`}));
+ `${['Alert','ConfigProvider','Descriptions','Drawer','Empty','Modal','Switch','Table','Tabs','Tag','StyleProvider','Button','HelpPopover','Input'].map(name=>`export const ${name}='${name}';`).join('')}export const theme={};`}));
 }}]});
 const {App}=await import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString('base64')}`);
 const modelBuild=await build({entryPoints:[new URL('../src/model.ts',import.meta.url).pathname],bundle:true,write:false,platform:'node',format:'esm'});
@@ -63,4 +63,23 @@ test('manual sampling does not stop summary polls and an older manual response c
  const latest={...snapshot(6),error:'newest collection failure',sampling:false};poll.resolve(model.rankingFrom(latest,'',false));await view.settle();
  manual.resolve(model.rankingFrom(snapshot(4),'',false));await view.settle();assert.equal(view.nodes('Alert').some(node=>node.props.title==='newest collection failure'),true);
  const last=view.calls.at(-1);last.resolve(model.rankingFrom(latest,'',false));await view.settle();assert.equal(view.nodes('Alert').some(node=>node.props.title==='newest collection failure'),true);
+});
+
+test('detail bulk action switches from all operable instances to explicit checkbox selection',async t=>{
+ const view=fixture(t),full=snapshot(),group=full.groups[0];
+ group.instances=group.processes.slice(0,3).map((p,index)=>({id:`instance-${index}`,root:p,count:1,canTerminate:index<2}));
+ group.processes=group.processes.map((p,index)=>({...p,instanceId:`instance-${index}`,protected:index===2,uid:index===2?0:p.uid,protection:index===2?'其他用户或系统账户':''}));
+ view.calls.find(call=>call.method==='ranking_snapshot').resolve(model.rankingFrom(full,'',false));await view.settle();
+ view.open(view.table().props.dataSource.find(row=>row.id===group.id));
+ view.calls.find(call=>call.method==='group_detail').resolve(model.detailFrom(full,group.id));await view.settle();
+ const instances=()=>view.nodes('Table').find(node=>node.props.rowSelection);
+ assert.equal(instances().props.rowSelection.getCheckboxProps(group.instances[2]).disabled,true);
+ view.nodes('Button').find(node=>node.props.children==='结束全部实例').props.onClick();view.render();
+ let request=view.calls.at(-1);assert.equal(request.method,'terminate_preview');assert.deepEqual(request.params.instanceIds,['instance-0','instance-1']);
+ request.reject(Error('fixture cancelled'));await view.settle();
+ instances().props.rowSelection.onChange(['instance-1']);view.render();
+ view.nodes('Button').find(node=>node.props.children==='结束所选实例').props.onClick();view.render();
+ request=view.calls.at(-1);assert.deepEqual(request.params.instanceIds,['instance-1']);
+ assert.equal(view.calls.some(call=>call.method==='terminate_confirm'),false,'selection must only prepare a reviewable plan');
+ request.reject(Error('fixture cancelled'));await view.settle();
 });

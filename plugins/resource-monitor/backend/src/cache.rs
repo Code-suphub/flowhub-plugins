@@ -15,6 +15,7 @@ pub struct Snapshot {
     pub error: Option<String>,
     pub sampling: bool,
     pub revision: u64,
+    pub script_records: Arc<Vec<crate::scripts::Record>>,
     summaries: Arc<Vec<Value>>,
     search: Arc<Vec<Vec<String>>>,
 }
@@ -39,6 +40,7 @@ impl Snapshot {
             error: None,
             sampling: false,
             revision: 0,
+            script_records: Arc::new(vec![]),
             summaries: Arc::new(summaries),
             search: Arc::new(search),
         }
@@ -48,8 +50,13 @@ impl Snapshot {
         result["groups"] = json!(&*self.groups);
         result
     }
+    pub fn scripts(&self) -> Value {
+        let mut result=self.metadata();
+        result["records"]=json!(&*self.script_records);
+        result
+    }
     fn metadata(&self) -> Value {
-        json!({"at":self.at,"revision":self.revision,"sampling":self.sampling,"stale":self.stale(),
+        json!({"at":self.at,"revision":self.revision,"sampling":self.sampling,"stale":self.stale(),"scriptRunningCount":self.script_records.iter().filter(|r|r.running).count(),
             "system":self.system,"error":self.error,"memoryMetric":"footprint","interval":5})
     }
     pub fn stale(&self) -> bool {

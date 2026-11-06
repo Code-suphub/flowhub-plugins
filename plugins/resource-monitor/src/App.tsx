@@ -4,9 +4,10 @@ import type {TableColumnsType,TableProps} from 'antd';
 import {StyleProvider} from '@ant-design/cssinjs';
 import {createCommonAntdTheme} from '@local/common-components/react/antd';
 import {Button,HelpPopover,Input} from '@flowhub/plugin-common/react';
-import {accountingDisplay,bytes,contextRows,cpu,detailControls,detailFrom,filterRanking,matchesProcess,newerSnapshot,rankingFrom,processKey,processName,updateDetail} from './model';
+import {accountingDisplay,bytes,contextRows,cpu,detailControls,detailFrom,filterRanking,instanceStopReason,matchesProcess,newerSnapshot,rankingFrom,processKey,processName,updateDetail} from './model';
 import {AppMark,applicationIdentity,useApplications} from './applications';
 import {readGroupDetail} from './api';
+import {ScriptDrawer} from './ScriptDrawer';
 import type {ContextRow} from './model';
 import type {Api,ApplicationState,Context,Group,GroupDetail,GroupSummary,Instance,PageContexts,Plan,Process,QuitPlan,RankingSnapshot,Snapshot,Sort,SortOrder,TerminateResult} from './types';
 
@@ -35,6 +36,8 @@ export function App({api,context}:{api:Api;context:Context}) {
   const contextsRef=useRef<PageContexts|undefined>(undefined);
   const [source,setSource]=useState<Process>();const [tab,setTab]=useState('processes');
   const [selectedInstance,setSelectedInstance]=useState<string>();
+  const [checkedInstances,setCheckedInstances]=useState<string[]>([]);
+  const [scriptsOpen,setScriptsOpen]=useState(false);
   const [contexts,setContexts]=useState<PageContexts>();const [contextError,setContextError]=useState('');
   contextsRef.current=contexts;
   const [contextQuery,setContextQuery]=useState('');const [linkedOnly,setLinkedOnly]=useState(false);
@@ -63,7 +66,7 @@ export function App({api,context}:{api:Api;context:Context}) {
     const full='processes' in group?{...group,processes:[...group.processes]}:undefined;
     detailRef.current=full;setDetail(full);setDetailId(group.id);setContextProcesses([]);
     contextGeneration.current++;setLinksBusy(false);
-    setProcessQuery(search);setContexts(undefined);setContextError('');setTab('processes');setSelectedInstance(undefined);setSource(undefined);setApplicationState(undefined);
+    setProcessQuery(search);setContexts(undefined);setContextError('');setTab('processes');setSelectedInstance(undefined);setCheckedInstances([]);setSource(undefined);setApplicationState(undefined);
     setContextQuery('');setLinkedOnly(false);setContextDetail(undefined);setUnmappedOnly(false);
   }
   function closeDetail(){detailSelection.current={id:'',generation:detailSelection.current.generation+1,revision:-1,request:0,initialSearch:''};detailRef.current=undefined;contextGeneration.current++;setDetailId(undefined);setDetail(undefined);setContextProcesses([]);setSource(undefined);setContextDetail(undefined);setLinksBusy(false);}
@@ -181,12 +184,12 @@ export function App({api,context}:{api:Api;context:Context}) {
     finally{operation.current=false;if(alive.current)setBusy(false);}
   }
 
-  async function prepare(target:Group|GroupSummary|Process,instanceId?:string){
+  async function prepare(target:Group|GroupSummary|Process,instanceId?:string,instanceIds?:string[]){
     if(api.preview||operation.current||plan)return;
-    if('id' in target&&!instanceId&&('processes' in target?(target.instances?.length??0):target.instanceCount)>1){openDetail(target);setTab('instances');return;}
+    if('id' in target&&!instanceId&&!instanceIds&&('processes' in target?(target.instances?.length??0):target.instanceCount)>1){openDetail(target);setTab('instances');return;}
     operation.current=true;setBusy(true);setError('');setNotice('');
     try{
-      const params='id' in target?{groupId:target.id,instanceId:instanceId??('processes' in target?target.instances?.[0]?.id:target.onlyInstanceId),force:false}:{identity:identity(target),force:false};
+      const params='id' in target?{groupId:target.id,...(instanceIds?{instanceIds}:{instanceId:instanceId??('processes' in target?target.instances?.[0]?.id:target.onlyInstanceId)}),force:false}:{identity:identity(target),force:false};
       const next=await api.invoke<Plan>('terminate_preview',params);
       if(alive.current){setPlan(next);setForce(false);setExpires(Date.now()+next.expiresIn*1000);}
     }catch(e){if(alive.current)setError(String(e));}
@@ -240,7 +243,7 @@ export function App({api,context}:{api:Api;context:Context}) {
   },[linkedRows]);
   const contextSearch=contextQuery.trim().toLocaleLowerCase();
   const visibleContexts=linkedRows.filter(row=>(!linkedOnly||row.processes.length>0)&&(!contextSearch||[row.title,row.detail,...row.processes.map(p=>String(p.pid))].some(text=>text.toLocaleLowerCase().includes(contextSearch))));
-  const controls=detailControls(detail,applicationState,selectedInstance);
+  const controls=detailControls(detail,applicationState,selectedInstance,checkedInstances);
   const detailIdentity=detail?applicationIdentity(detail,applications):undefined;
   const registeredServices=[...new Map((detail?.presentation?.services??[]).map(service=>[service.label,service])).values()];
   const groupingBasis=[
@@ -268,7 +271,7 @@ export function App({api,context}:{api:Api;context:Context}) {
     {title:'进程',dataIndex:'count',width:60,align:'right'},
     {title:'内存足迹',key:'footprint',width:100,align:'right',render:(_,instance)=>bytes(instance.footprint)},
     {title:'CPU',key:'cpu',width:65,align:'right',render:(_,instance)=>cpu(instance.cpu)},
-    {title:'操作',key:'actions',width:190,render:(_,instance)=><div className="flex flex-wrap gap-1"><Button size="sm" className="compact-button" onClick={()=>{setSelectedInstance(instance.id);setTab('processes');}}>查看进程</Button>{applicationState?.quitInstances?.includes(instance.id)?<Button size="sm" className="compact-button" disabled={api.preview||busy||!!plan||!!quitPlan} onClick={()=>void prepareQuit(instance.id)}>正常退出</Button>:null}<Button size="sm" className="compact-button" disabled={api.preview||busy||!!plan||!!quitPlan||!instance.canTerminate} title={!instance.canTerminate?'此实例含受保护进程，可查看后逐个处理允许的进程':undefined} onClick={()=>detail&&void prepare(detail,instance.id)}>结束实例</Button></div>}
+    {title:'操作',key:'actions',width:210,render:(_,instance)=>{const reason=detail?instanceStopReason(detail,instance):'';return <div><div className="flex flex-wrap gap-1"><Button size="sm" className="compact-button" onClick={()=>{setSelectedInstance(instance.id);setCheckedInstances([]);setTab('processes');}}>查看进程</Button>{applicationState?.quitInstances?.includes(instance.id)?<Button size="sm" className="compact-button" disabled={api.preview||busy||!!plan||!!quitPlan} onClick={()=>void prepareQuit(instance.id)}>正常退出</Button>:null}<Button size="sm" className="compact-button" disabled={api.preview||busy||!!plan||!!quitPlan||!instance.canTerminate} title={reason||undefined} onClick={()=>detail&&void prepare(detail,instance.id)}>结束实例</Button></div>{reason?<p className="muted text-xs mt-1">{reason}</p>:null}</div>;}}
   ];
   const processColumns:TableColumnsType<Process>=[
     {title:'进程 / 来源',key:'name',render:(_,p)=><div className={p.exited?'exited':''}><button className="name-link" onClick={()=>setSource(p)}>{processName(p)}</button>{p.displayName?<div className="muted text-xs mt-1">可执行文件名：{p.name}</div>:null}<div className="muted text-xs mt-1">PID {p.pid}{p.ppid>0?` ← ${p.ppid} · ${p.parentName}`:' · 父进程不可读取'}{p.moved?' · 已移到其他分组':p.exited?' · 已退出':''}</div><div className="muted text-xs mt-1">{p.role} · {p.attribution}</div>{permissionLimited(p)?<div className="warning text-xs mt-1">资源指标不可读取</div>:null}{processLabels.has(processKey(p))?<div className="context-label text-xs mt-1">{(processLabels.get(processKey(p))?.length??0)>1?'共享：':'关联：'}{processLabels.get(processKey(p))?.join('、')}</div>:contexts?<div className="muted text-xs mt-1">未关联到页面或对话</div>:null}</div>},
@@ -291,7 +294,7 @@ export function App({api,context}:{api:Api;context:Context}) {
   return <main className="monitor p-3 md:p-4">
     <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
       <div className="flex items-center gap-2"><span className={`live-dot ${stale?'stale':''}`}/><span className="muted text-xs">{api.preview?'只读预览 · 模拟数据':data?.at?`本机 · ${new Date(data.at).toLocaleTimeString()} 更新${data.sampling?' · 采样中':''}`:'正在等待首次采样'}</span><HelpPopover label="统计口径与监控范围">活跃进程足迹是当前分组内进程的 phys_footprint 合计，包含脏页、压缩及换出等记账；RSS 是当前常驻内存。系统归属记账读取应用的系统资源组账本，可包含独立任务和已退出任务的余额，各行可能重叠。三者不能相加，也不等于结束后释放的内存。CPU 按单核 100% 计。页面与对话可能共享进程。</HelpPopover></div>
-      <div className="flex items-center gap-2"><Button size="sm" className="compact-button" disabled={refreshing} onClick={()=>void refresh(true)}>{refreshing?'刷新中…':'刷新'}</Button>{!api.widget?<Button size="sm" className="compact-button" disabled={api.preview} onClick={()=>void api.invoke('flowhub_status').catch(e=>setError(String(e)))}>桌面与菜单栏</Button>:null}</div>
+      <div className="flex flex-wrap items-center gap-2"><Button size="sm" className="compact-button" onClick={()=>setScriptsOpen(true)}>脚本来源{data?.scriptRunningCount?` (${data.scriptRunningCount})`:''}</Button><Button size="sm" className="compact-button" disabled={refreshing} onClick={()=>void refresh(true)}>{refreshing?'刷新中…':'刷新'}</Button>{!api.widget?<Button size="sm" className="compact-button" disabled={api.preview} onClick={()=>void api.invoke('flowhub_status').catch(e=>setError(String(e)))}>桌面与菜单栏</Button>:null}</div>
     </div>
     <div className="system-strip grid grid-cols-3 gap-3 mb-3">
       <div><span className="muted">物理内存</span><strong>{bytes(data?.system.totalMemory)}</strong></div>
@@ -318,13 +321,13 @@ export function App({api,context}:{api:Api;context:Context}) {
           <div className="flex flex-wrap items-center gap-2 ml-auto">
             {controls.canOpen?<Button size="sm" className="compact-button" disabled={api.preview||linksBusy||!!plan||!!quitPlan} onClick={()=>void openApp(detail)}>打开应用 ↗</Button>:null}
             {controls.canQuit?<Button size="sm" className="compact-button" disabled={api.preview||busy||!!plan||!!quitPlan} onClick={()=>void prepareQuit(selectedInstance)}>{controls.quitLabel}</Button>:null}
-            <Button size="sm" variant="danger" className="compact-button" disabled={api.preview||busy||!!plan||!!quitPlan||!controls.canStop} title={controls.stopHint||undefined} onClick={()=>{if(controls.chooseInstance){setSelectedInstance(undefined);setTab('instances');}else if(controls.instance){void prepare(detail,controls.instance.id);}}}>{controls.stopLabel}</Button>
+            <Button size="sm" variant="danger" className="compact-button" disabled={api.preview||busy||!!plan||!!quitPlan||!controls.canStop} title={controls.stopHint||undefined} onClick={()=>void prepare(detail,undefined,controls.stopIds)}>{controls.stopLabel}</Button>
             {controls.canQuit?<HelpPopover label="正常退出与结束实例的区别">正常退出使用应用自身的退出流程，可能提示保存。结束实例会先列出目标进程供确认，再发送退出信号，可能中断正在执行的任务。</HelpPopover>:null}
           </div>
         </div>
         <p className="muted text-xs mb-3">系统归属记账（应用级参考）：<strong className="numeric">{accountingDisplay(detail).text}</strong>。{accountingDisplay(detail).hint}{accountingDisplay(detail).available?'不能分摊给当前实例，结束操作仍只核对所选独立实例。':''}{detail.systemAccounting?.shared?'此资源组还被其他应用条目引用，不可跨行相加。':''}</p>
         <div className="muted text-xs mb-3 flex items-start gap-2"><span className="min-w-0">归组依据：{groupingBasis}</span><HelpPopover label="归组依据与结束范围">
-          <p>服务登记、来源线索和关联应用只用于识别。结束操作仍按所选独立实例核对，不会把来源应用或其他实例加入结束名单。应用自身退出时，仍可能影响它管理的连接或子任务。</p>
+          <p>服务登记、来源线索和关联应用只用于识别。结束操作按确认框列出的独立实例核对，不会额外加入来源应用或未确认的实例。应用自身退出时，仍可能影响它管理的连接或子任务。</p>
           {registeredServices.length?<p className="mt-2">服务登记：{registeredServices.map(service=>service.label===service.name?service.name:`${service.name}（${service.label}）`).join('；')}。</p>:null}
           <p className="mt-2">应用名和图标来自本机应用扫描；原始进程名、路径、工作目录和父进程可在进程信息中查看。</p>
         </HelpPopover></div>
@@ -332,10 +335,11 @@ export function App({api,context}:{api:Api;context:Context}) {
         {detail.processes.some(permissionLimited)?<Alert type="warning" showIcon title="部分进程受系统权限限制：可查看名称与路径，内存和 CPU 数据不可读取，也不能结束进程。" className="mb-3"/>:null}
         <Tabs activeKey={activeTab} onChange={key=>{setTab(key);if(key!=='processes')setSelectedInstance(undefined);}} items={[{key:'instances',label:`运行实例${detail.instances?.length?` (${detail.instances.length})`:''}`},{key:'processes',label:'进程'},...(controls.contextLabel?[{key:'pages',label:controls.contextLabel}]:[])]}/>
         {activeTab==='instances'?<>
-          <p className="muted text-xs mb-3">一次独立启动记为一个运行实例，可包含主进程和辅助进程。同一程序启动两次会显示两个实例；结束时只处理选中的一个。后台服务可能单独列为一个实例。</p>
-          <Table<Instance> size="small" rowKey="id" columns={instanceColumns} dataSource={detail.instances??[]} pagination={{pageSize:8,hideOnSinglePage:true,showSizeChanger:false,size:'small'}} scroll={{x:800}} locale={{emptyText:'暂无运行实例'}}/>
+          <p className="muted text-xs mb-3">一次独立启动记为一个运行实例，可包含主进程和辅助进程。未勾选时右上角结束全部可操作实例；勾选后仅结束所选实例。受保护实例不参与全选。</p>
+          {checkedInstances.length?<div className="flex items-center gap-2 mb-3"><span className="muted text-xs">已勾选 {checkedInstances.length} 个实例</span><Button size="sm" className="compact-button" onClick={()=>setCheckedInstances([])}>清除选择</Button></div>:null}
+          <Table<Instance> size="small" rowKey="id" columns={instanceColumns} dataSource={detail.instances??[]} rowSelection={{selectedRowKeys:checkedInstances,preserveSelectedRowKeys:true,onChange:keys=>setCheckedInstances(keys.map(String)),getCheckboxProps:instance=>({disabled:!instance.canTerminate||busy||!!plan||!!quitPlan,'aria-label':`选择实例 PID ${instance.root.pid}`})}} pagination={{pageSize:8,hideOnSinglePage:true,showSizeChanger:false,size:'small'}} scroll={{x:800}} locale={{emptyText:'暂无运行实例'}}/>
         </>:activeTab==='processes'?<>
-          {selectedInstance?<div className="flex items-center gap-2 mb-3"><Tag>当前实例：{activeInstance?`根进程 PID ${activeInstance.root.pid}`:'已退出'}</Tag><Button size="sm" className="compact-button" onClick={()=>{setTab('instances');setSelectedInstance(undefined);}}>选择其他实例</Button><Button size="sm" className="compact-button" onClick={()=>setSelectedInstance(undefined)}>查看全部进程</Button></div>:<p className="muted text-xs mb-3">显示全部运行实例的进程。可在顶部结束当前单个实例，或在“运行实例”中选择要处理的一次启动。</p>}
+          {selectedInstance?<div className="flex items-center gap-2 mb-3"><Tag>当前实例：{activeInstance?`根进程 PID ${activeInstance.root.pid}`:'已退出'}</Tag><Button size="sm" className="compact-button" onClick={()=>{setTab('instances');setSelectedInstance(undefined);}}>选择其他实例</Button><Button size="sm" className="compact-button" onClick={()=>setSelectedInstance(undefined)}>查看全部进程</Button></div>:<p className="muted text-xs mb-3">显示全部运行实例的进程。可在顶部结束全部可操作实例，或在“运行实例”中勾选要处理的实例。</p>}
           <div className="flex flex-wrap items-center gap-2 mb-3"><Input className="search-input" style={searchStyle} aria-label="搜索详情进程" placeholder="筛选进程名、PID、路径" value={processQuery} onChange={e=>setProcessQuery(e.target.value)}/><span className="muted text-xs">顺序固定，刷新只更新数值；新进程追加到末尾</span></div>
           {contexts?<label className="flex items-center gap-2 mb-3 text-xs"><Switch aria-label="只看未关联进程" checked={unmappedOnly} onChange={setUnmappedOnly}/>只看未关联进程</label>:null}
           <Table<Process> size="small" rowKey={p=>`${p.pid}:${p.started}`} dataSource={visibleProcesses} columns={processColumns} pagination={{pageSize:12,hideOnSinglePage:true,showSizeChanger:false,size:'small'}} scroll={{x:680}}/>
@@ -396,13 +400,14 @@ export function App({api,context}:{api:Api;context:Context}) {
       <p className="muted text-xs">确认剩余 {remaining} 秒 · 执行前重新核对主应用身份</p>
     </Modal>
 
-    <Modal title={plan?.scope?.kind==='instance'?(force?'强制结束此运行实例？':'结束此运行实例？'):(force?'强制结束此进程？':'结束此进程？')} open={!!plan} onCancel={()=>{if(!busy)setPlan(undefined);}} onOk={()=>void execute()} okText={remaining>0?force?'确认强制结束':'确认结束':'确认已过期'} cancelText="取消" confirmLoading={busy} okButtonProps={{danger:true,disabled:api.preview||remaining<=0}} cancelButtonProps={{disabled:busy}} closable={!busy} mask={{closable:!busy}} keyboard={!busy} zIndex={1300}>
-      {plan?.scope?.kind==='instance'?<p className="mb-3"><strong>{plan.scope.name} · 根进程 PID {plan.scope.root?.pid}</strong><br/>本次操作仅包含下面列出的此实例进程。</p>:null}
+    <Modal title={plan?.scope?.kind==='instances'?`结束这 ${plan.scope.instances?.length} 个运行实例？`:plan?.scope?.kind==='instance'?(force?'强制结束此运行实例？':'结束此运行实例？'):(force?'强制结束此进程？':'结束此进程？')} open={!!plan} onCancel={()=>{if(!busy)setPlan(undefined);}} onOk={()=>void execute()} okText={remaining>0?force?'确认强制结束':'确认结束':'确认已过期'} cancelText="取消" confirmLoading={busy} okButtonProps={{danger:true,disabled:api.preview||remaining<=0}} cancelButtonProps={{disabled:busy}} closable={!busy} mask={{closable:!busy}} keyboard={!busy} zIndex={1300}>
+      {plan?.scope?.kind==='instance'?<p className="mb-3"><strong>{plan.scope.name} · 根进程 PID {plan.scope.root?.pid}</strong><br/>本次操作仅包含下面列出的此实例进程。</p>:plan?.scope?.kind==='instances'?<p className="mb-3"><strong>{plan.scope.name} · {plan.scope.instances?.length} 个运行实例</strong><br/>实例根进程：{plan.scope.instances?.map(i=>`PID ${i.root.pid}`).join('、')}。仅结束确认列表中的实例，不包含受保护实例，也不包含随后新启动的实例。</p>:null}
       <Alert type="warning" showIcon title={force?'立即终止进程，未保存内容和正在执行的任务可能丢失。':'发送退出信号，可能中断任务或影响同一进程内的多个页面。'} className="mb-3"/>
       <p className="muted text-xs mb-3">结束 shell 或终端会话仍可能使其连接、子任务随之退出。</p>
       <label className="flex items-center gap-2 mb-3"><Switch aria-label="强制结束" checked={force} onChange={setForce} disabled={busy}/>强制结束<span className="muted text-xs">无响应时使用；不删除文件</span></label>
       <p className="muted text-xs mb-3">{plan?.targets.length??0} 个进程 · 确认剩余 {remaining} 秒 · 执行前重新核对身份</p>
       <div className="confirm-targets">{plan?.targets.map(p=><div key={`${p.pid}:${p.started}`} className="confirm-target"><strong>{processName(p)}</strong><span className="muted text-xs">PID {p.pid} · 足迹 {bytes(p.footprint)} · RSS {bytes(p.memory)}</span><span className="path muted text-xs">{p.executable}</span></div>)}</div>
     </Modal>
+    {scriptsOpen?<ScriptDrawer api={api} onClose={()=>setScriptsOpen(false)}/>:null}
   </main>;
 }

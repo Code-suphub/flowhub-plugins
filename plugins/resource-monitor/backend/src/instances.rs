@@ -108,9 +108,43 @@ pub fn members<'a>(
     ))
 }
 
+/// Batch requests name explicit independent instances. Never expand a display
+/// group to newly started instances, or silently omit a protected selection.
+pub fn batch_members<'a>(group: &'a Group, ids: &[String]) -> Result<(Vec<&'a Instance>, Vec<&'a Process>), String> {
+    let unique: HashSet<_> = ids.iter().collect();
+    if ids.is_empty() || ids.len() > 256 || unique.len() != ids.len() {
+        return Err("请选择有效且不重复的运行实例".into());
+    }
+    let selected: Vec<_> = ids.iter().map(|id| group.instances.iter().find(|i| &i.id == id)
+        .ok_or("所选运行实例已退出或归属变化，请重新确认")).collect::<Result<_, _>>()?;
+    if selected.iter().any(|i| !i.can_terminate) {
+        return Err("所选实例含受保护进程，请重新选择可操作的实例".into());
+    }
+    let processes = group.processes.iter().filter(|p| unique.contains(&p.instance_id)).collect();
+    Ok((selected, processes))
+}
+
 #[cfg(test)]
 mod tests {
     use crate::model::{group_processes, tests::process};
+    #[test]
+    fn batches_never_expand_to_unselected_instances_and_reject_invalid_or_protected_selections() {
+        use super::{assign,batch_members};
+        use std::collections::HashSet;
+        let mut group=group_processes(vec![process(10,1,"/fixture/task"),process(20,1,"/fixture/task"),process(30,1,"/fixture/task")],501).remove(0);
+        let ids=group.instances.iter().take(2).map(|i|i.id.clone()).collect::<Vec<_>>();
+        let (_,members)=batch_members(&group,&ids).unwrap();
+        assert_eq!(members.iter().map(|p|p.identity.pid).collect::<HashSet<_>>(),HashSet::from([10,20]));
+        assert!(batch_members(&group,&[]).is_err());
+        assert!(batch_members(&group,&[ids[0].clone(),ids[0].clone()]).is_err());
+        assert!(batch_members(&group,&["exited".into()]).is_err());
+        let before=members.iter().map(|p|p.identity.clone()).collect::<Vec<_>>();
+        group.processes.push(process(21,20,"/fixture/task"));assign(&mut group);
+        let (_,after)=batch_members(&group,&ids).unwrap();
+        assert!(!crate::model::same_targets(&before,&after.iter().map(|p|p.identity.clone()).collect::<Vec<_>>()));
+        group.processes.iter_mut().find(|p|p.identity.pid==10).unwrap().protected=true;assign(&mut group);
+        assert!(batch_members(&group,&ids).is_err());
+    }
     #[test]
     fn same_directory_and_same_shell_do_not_merge_separate_launches() {
         let mut first = process(10, 2, "/usr/local/bin/node");

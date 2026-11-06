@@ -37,6 +37,17 @@
   .exited {opacity:.55}
   .path {overflow-wrap:anywhere;white-space:pre-wrap;font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:12px}
   .confirm-targets {max-height:300px;overflow-y:auto}
+  .script-records {display:grid;gap:12px}
+  .script-record {border:1px solid var(--fh-border);border-radius:10px;padding:12px;background:var(--fh-surface)}
+  .script-record-toggle {display:flex;align-items:center;gap:10px;width:100%;padding:0;border:0;background:transparent;color:var(--fh-text);text-align:left}
+  .script-record-summary {display:grid;gap:5px;min-width:0;flex:1;overflow-wrap:anywhere}
+  .script-record-state {display:grid;gap:6px;justify-items:end;flex-shrink:0}
+  .script-record-state .ant-tag {margin:0}
+  .script-record-detail {margin-top:14px;padding-top:12px;border-top:1px solid var(--fh-border)}
+  .script-chain {list-style:none;margin:0 0 12px;padding:0 0 0 14px;border-left:2px solid var(--fh-border)}
+  .script-chain li {position:relative;padding:0 0 14px 0}.script-chain li:last-child {padding-bottom:0}
+  .script-chain li::before {content:'';position:absolute;left:-19px;top:4px;width:8px;height:8px;border-radius:50%;background:var(--fh-accent);border:2px solid var(--fh-surface)}
+  .script-responsibility {padding:10px;background:var(--fh-surface-soft);border-radius:7px;margin:12px 0}
   .confirm-target {display:grid;gap:5px;padding:10px 0;border-bottom:1px solid var(--fh-border)}
   .widget {min-width:0;background:var(--fh-surface)}
   .widget--card {display:flex;flex-direction:column;height:100dvh;overflow:hidden}

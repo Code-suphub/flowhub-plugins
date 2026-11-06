@@ -1,15 +1,25 @@
-import type {ApplicationState,Config,ContextEntry,Group,GroupDetail,GroupSummary,Identity,PageContexts,Process,RankingSnapshot,Snapshot,StatusSnapshot,Sort} from './types';
+import type {ApplicationState,Config,ContextEntry,Group,GroupDetail,GroupSummary,Identity,PageContexts,Process,RankingSnapshot,ScriptActivity,Snapshot,StatusSnapshot,Sort} from './types';
 
-export function detailControls(group:Group|undefined,state?:ApplicationState,selectedId?:string) {
+export function instanceStopReason(group:Group,instance:NonNullable<Group['instances']>[number]) {
+  if(instance.canTerminate)return '';
+  const protectedMembers=group.processes.filter(p=>p.instanceId===instance.id&&p.protected&&!p.exited);
+  if(protectedMembers.some(p=>p.uid===0))return 'root 进程：当前授权仅用于采集，不支持结束。';
+  const reasons=[...new Set(protectedMembers.map(p=>p.protection).filter(Boolean))];
+  return reasons.length?reasons.join('；'):'此实例含受保护进程，可查看进程了解原因。';
+}
+export function detailControls(group:Group|undefined,state?:ApplicationState,selectedId?:string,checkedIds:readonly string[]=[]) {
   const instances=group?.instances??[];
   const instance=selectedId?instances.find(item=>item.id===selectedId):instances.length===1?instances[0]:undefined;
   const chooseInstance=!selectedId&&instances.length>1;
   const application=!!group?.appPath&&!group.origin;
   const contextKind=application&&(state?.contextKind==='arc'||state?.contextKind==='codex')?state.contextKind:null;
-  const canStop=chooseInstance||!!instance?.canTerminate;
-  const stopHint=selectedId&&!instance?'所选运行实例已退出，请重新选择。':!instances.length?'当前没有仍在运行的实例。':!chooseInstance&&!canStop?'此实例含受保护进程，可在进程列表中查看允许单独处理的进程。':
-    !application?'独立进程可通过“结束此实例”停止；确认框会先列出本次目标进程。':'';
-  return {instance,chooseInstance,canStop,canOpen:application,stopHint,stopLabel:chooseInstance?'选择实例结束':'结束此实例',
+  const stopIds=selectedId?[selectedId]:checkedIds.length?[...checkedIds]:instances.filter(i=>i.canTerminate).map(i=>i.id);
+  const invalid=stopIds.some(id=>!instances.some(i=>i.id===id&&i.canTerminate));
+  const canStop=stopIds.length>0&&!invalid;
+  const protectedCount=instances.filter(i=>!i.canTerminate).length;
+  const stopHint=selectedId&&!instance||checkedIds.length&&invalid?'所选运行实例已退出或不可操作，请重新选择。':!instances.length?'当前没有仍在运行的实例。':!canStop&&instance&&group?instanceStopReason(group,instance):!canStop?'当前实例均受保护，无法结束。':
+    !selectedId&&!checkedIds.length&&protectedCount?`将结束 ${stopIds.length} 个可操作实例，${protectedCount} 个受保护实例不在本次范围内。`:'';
+  return {instance,chooseInstance,canStop,stopIds,protectedCount,canOpen:application,stopHint,stopLabel:selectedId||instances.length===1?'结束此实例':checkedIds.length?'结束所选实例':'结束全部实例',
     canQuit:application&&(selectedId?!!instance&&!!state?.quitInstances?.includes(selectedId):!!state?.canQuit||(state?.quitInstances?.length??0)>1),
     quitLabel:selectedId?'正常退出此实例':(state?.quitInstances?.length??0)>1?'选择实例退出':'正常退出应用',
     contextKind,contextLabel:contextKind==='arc'?'标签页':contextKind==='codex'?'对话与任务':undefined};
@@ -21,6 +31,15 @@ export function widgetRows(snapshot:StatusSnapshot|undefined,config:Config={}) {
     .sort((a,b)=>(value(b)??-1)-(value(a)??-1)||a.id.localeCompare(b.id));
   const limit=typeof config.limit==='number'&&Number.isFinite(config.limit)?Math.max(3,Math.min(10,Math.floor(config.limit))):5;
   return config.display==='top'?rows.slice(0,limit):rows;
+}
+export function sampleScriptActivity():ScriptActivity {
+  const at=Date.now();
+  const owner={pid:100,started:(at-600000)*1000,uid:501,executable:'/Applications/FlowHub.app/Contents/MacOS/flowhub-tauri',name:'FlowHub',appPath:'/Applications/FlowHub.app'};
+  const script={pid:101,started:(at-30000)*1000,uid:501,executable:'/usr/bin/osascript',name:'osascript',appPath:null};
+  return {at,system:{},memoryMetric:'footprint',interval:5,records:[
+    {id:'preview-running',process:script,chain:[owner,script],responsible:owner,source:{name:'FlowHub',appPath:owner.appPath,evidence:'已核验当前父进程链'},chainNote:'',firstSeen:at-25000,lastSeen:at,running:true},
+    {id:'preview-recent',process:{...script,pid:99,started:(at-120000)*1000},chain:[{...script,pid:99,started:(at-120000)*1000}],responsible:null,source:null,chainNote:'父链到达 launchd；更早的启动来源不可追溯。',firstSeen:at-120000,lastSeen:at-60000,running:false},
+  ]};
 }
 export const processKey=(p:Identity)=>`${p.pid}:${p.started}:${p.uid}:${p.executable}`;
 export function contextRows(contexts:PageContexts,snapshot:{groups:readonly {processes:readonly Process[]}[]}|undefined,now=Date.now()) {

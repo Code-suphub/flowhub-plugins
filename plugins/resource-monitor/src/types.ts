@@ -24,7 +24,10 @@ export interface SourceOrigin {name:string;appPath:string|null;evidence:string}
 export interface Presentation {name:string|null;sources:SourceOrigin[];services?:Array<{name:string;label:string;evidence:string}>}
 export interface Instance {id:string;root:Identity;count:number;memory:number|null;footprint:number|null;cpu:number|null;incomplete:boolean;footprintIncomplete:boolean;canTerminate:boolean;presentation?:Presentation|null}
 export interface SystemInfo {totalMemory?:number|null;swapUsed?:number|null;pressure?:string|null}
-export interface SnapshotState {at:number;revision?:number;sampling?:boolean;stale?:boolean;system:SystemInfo;error?:string|null;memoryMetric:'footprint';interval:number}
+export interface SnapshotState {at:number;revision?:number;sampling?:boolean;stale?:boolean;scriptRunningCount?:number;system:SystemInfo;error?:string|null;memoryMetric:'footprint';interval:number}
+export interface ScriptNode extends Identity {name:string;appPath:string|null}
+export interface ScriptRecord {id:string;process:ScriptNode;chain:ScriptNode[];responsible:ScriptNode|null;source:SourceOrigin|null;chainNote:string;firstSeen:number;lastSeen:number;running:boolean}
+export interface ScriptActivity extends SnapshotState {records:ScriptRecord[]}
 export interface Snapshot extends SnapshotState {groups:Group[]}
 export interface GroupSummary extends Omit<Group,'processes'|'instances'> {processCount:number;instanceCount:number;onlyInstanceId?:string|null;permissionLimited:boolean;hasRestrictedProcesses:boolean}
 export interface RankingSnapshot extends SnapshotState {groups:GroupSummary[];includeSystem:boolean;hasRestrictedProcesses:boolean;query:string;matchedGroupIds:string[]}
@@ -42,7 +45,7 @@ export interface PageContexts {
   diagnostics?:{state:string;hint:string;at:number;unreadable?:number;unmatchedTasks?:number;readTasks?:number;partial?:boolean}|null;
 }
 export interface Context {preview?:boolean;title?:string;config?:Config;snapshot?:StatusSnapshot}
-export interface Plan {token:string;force:boolean;expiresIn:number;targets:Process[];scope?:{kind:'instance'|'process';name?:string;instanceId?:string;root?:Identity}}
+export interface Plan {token:string;force:boolean;expiresIn:number;targets:Process[];scope?:{kind:'instance'|'instances'|'process';name?:string;instanceId?:string;root?:Identity;instances?:Array<{id:string;root:Identity;count:number}>}}
 export interface TerminateResult {results:Array<{pid:number;sent:boolean;exited:boolean;error?:string|null}>;refreshError?:string|null;snapshot:Snapshot}
 export interface Api {
   readonly preview:boolean;readonly widget:boolean;

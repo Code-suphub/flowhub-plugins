@@ -1,4 +1,4 @@
-import {detailFrom,rankingFrom,sampleContexts,sampleSnapshot,statusFrom} from './model';
+import {detailFrom,rankingFrom,sampleContexts,sampleScriptActivity,sampleSnapshot,statusFrom} from './model';
 import type {Api,Config,Context,GroupDetail} from './types';
 
 export function createApi(host:Window):Api {
@@ -55,6 +55,7 @@ export function createApi(host:Window):Api {
         if(method==='snapshot'||method==='refresh')return Promise.resolve(sampleSnapshot() as T);
         if(method==='ranking_snapshot'||method==='refresh_summary')return Promise.resolve(rankingFrom(sampleSnapshot(),String(params.query??''),params.includeSystem!==false) as T);
         if(method==='group_detail')return Promise.resolve(detailFrom(sampleSnapshot(),String(params.groupId??''),params.trackedPids as number[]|undefined,params.contextPids as number[]|undefined) as T);
+        if(method==='script_activity')return Promise.resolve(sampleScriptActivity() as T);
         if(method==='contexts')return Promise.resolve(sampleContexts(params.groupId==='app:arc'?'arc':'codex') as T);
         if(method==='application_state')return Promise.resolve({canQuit:false,quitInstances:[],message:'预览模式不执行退出操作。',contextKind:params.groupId==='app:arc'?'arc':params.groupId==='app:codex'?'codex':null} as T);
         return Promise.reject(new Error('浏览器预览不执行清理操作'));

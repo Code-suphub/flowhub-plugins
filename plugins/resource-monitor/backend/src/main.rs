@@ -5,6 +5,7 @@ mod model;
 mod cache;
 mod diagnostics;
 mod accounting;
+mod scripts;
 mod rpc;
 #[cfg(test)]
 mod cache_tests;
@@ -41,7 +42,7 @@ struct Plan {
     created: Instant,
     targets: Vec<Identity>,
     group: Option<String>,
-    instance: Option<String>,
+    instances: Vec<String>,
     force: bool,
 }
 struct Monitor {
@@ -53,6 +54,7 @@ struct Monitor {
     links: surfaces::Links,
     quitter: applications::Quitter,
     services: services::Catalog,
+    scripts: scripts::History,
 }
 impl Monitor {
     fn new() -> Self {
@@ -66,6 +68,7 @@ impl Monitor {
             links: surfaces::Links::default(),
             quitter: applications::Quitter::default(),
             services: services::Catalog::default(),
+            scripts: scripts::History::default(),
         }
     }
     fn refresh(&mut self) -> Result<(), String> {
@@ -118,8 +121,13 @@ impl Monitor {
         diagnostics::phase("accounting");
         let roots=applications::accounting_roots(&groups);
         accounting::enrich(&mut groups,roots,native::resource_accounting);
+        diagnostics::phase("scripts");
+        let at=now();
+        let script_records=self.scripts.observe(&groups,at,native::parent_matches,native::responsibility_owner,|id|native::identity(id.pid).as_ref()==Some(id));
         diagnostics::phase("system");
-        Ok(Snapshot::new(now(), groups, native::system()))
+        let mut snapshot=Snapshot::new(at, groups, native::system());
+        snapshot.script_records=Arc::new(script_records);
+        Ok(snapshot)
     }
     fn preview(&mut self, params: &Value) -> Result<Value, String> {
         self.refresh()?;
@@ -131,7 +139,7 @@ impl Monitor {
             .get("groupId")
             .and_then(Value::as_str)
             .map(String::from);
-        let mut instance = None;
+        let mut selected_instances = Vec::new();
         let mut scope = json!({"kind":"process"});
         let members: Vec<&Process> = if let Some(id) = &group {
             let selected_group = self.snapshot
@@ -142,15 +150,23 @@ impl Monitor {
             if selected_group.app_path.is_some() && selected_group.origin.is_some() {
                 return Err("来源线索不能作为应用结束范围，请单独选择任务".into());
             }
-            let (selected,members)=instances::members(selected_group,params["instanceId"].as_str())?;
+            let (selected,members)=if let Some(ids)=params.get("instanceIds") {
+                if params.get("instanceId").is_some() {return Err("实例选择参数冲突".into());}
+                let ids:Vec<String>=serde_json::from_value(ids.clone()).map_err(|_|"实例选择无效")?;
+                instances::batch_members(selected_group,&ids)?
+            } else {
+                let (instance,members)=instances::members(selected_group,params["instanceId"].as_str())?;
+                (vec![instance],members)
+            };
             if let Some(path)=selected_group.app_path.as_deref() {
                 if members.iter().any(|p|model::process_bundle(p).as_ref().is_none_or(|(key,_)|
                     key.strip_prefix("app:")!=Some(path)) && p.responsible.is_none()) {
                     return Err("来源关联任务不能随应用结束，请单独选择任务".into());
                 }
             }
-            instance=Some(selected.id.clone());
-            scope=json!({"kind":"instance","name":selected_group.name,"instanceId":selected.id,"root":selected.root});
+            selected_instances=selected.iter().map(|i|i.id.clone()).collect();
+            scope=if selected.len()==1 {json!({"kind":"instance","name":selected_group.name,"instanceId":selected[0].id,"root":selected[0].root})}
+                else {json!({"kind":"instances","name":selected_group.name,"instances":selected.iter().map(|i|json!({"id":i.id,"root":i.root,"count":i.count})).collect::<Vec<_>>()})};
             members
         } else {
             let target: Identity =
@@ -184,7 +200,7 @@ impl Monitor {
                 created: Instant::now(),
                 targets,
                 group,
-                instance,
+                instances: selected_instances,
                 force,
             },
         );
@@ -210,7 +226,7 @@ impl Monitor {
                 .groups
                 .iter()
                 .find(|g| &g.id == group)
-                .and_then(|g| instances::members(g,plan.instance.as_deref()).ok().map(|(_,members)|members))
+                .and_then(|g| instances::batch_members(g,&plan.instances).ok().map(|(_,members)|members))
                 .unwrap_or_default()
         } else {
             self.snapshot
@@ -255,6 +271,7 @@ impl Monitor {
             "snapshot" => Ok(self.snapshot.full()),
             "ranking_snapshot" => Ok(self.snapshot.ranking(params)),
             "group_detail" => self.snapshot.detail(params),
+            "script_activity" => Ok(self.snapshot.scripts()),
             "diagnostic_event" => diagnostics::client(params),
             "refresh_summary" => {
                 self.refresh()?;
@@ -316,6 +333,7 @@ impl Monitor {
                         "snapshot",
                         "ranking_snapshot",
                         "group_detail",
+                        "script_activity",
                         "diagnostic_event",
                         "refresh_summary",
                         "refresh",
@@ -373,7 +391,7 @@ mod tests {
             created: Instant::now() - Duration::from_secs(31),
             targets: vec![],
             group: None,
-            instance: None,
+            instances: vec![],
             force: false,
         };
         m.plans.insert(plan.token.clone(), plan);

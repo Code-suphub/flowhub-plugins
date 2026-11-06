@@ -10,13 +10,19 @@
   }))};
   const nativeIcon='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aOWQAAAAASUVORK5CYII=';
   let current=snapshot;
+  const fixtureProcesses=[101,102,103].map((pid,index)=>({pid,started:1700000000000000+pid,uid:index===2?0:501,name:index===2?'root-helper':'worker',executable:'/Applications/Codex.app/Contents/MacOS/worker',ppid:1,parentName:'launchd',cwd:'',role:'fixture',attribution:'fixture',avd:'',groupId:'app:codex',instanceId:`instance-${pid}`,memory:1048576,footprint:2097152,cpu:0,protected:index===2,protection:index===2?'其他用户或系统账户':''}));
+  const fixtureGroup={id:'app:codex',name:'Codex',source:'fixture',memory:3145728,footprint:6291456,cpu:0,appPath:'/Applications/Codex.app',processes:fixtureProcesses,instances:fixtureProcesses.map(p=>({id:p.instanceId,root:p,count:1,memory:p.memory,footprint:p.footprint,cpu:0,canTerminate:!p.protected})),system:false,canTerminate:false,incomplete:false};
+  const {processes:unusedProcesses,instances:unusedInstances,...fixtureSummary}=fixtureGroup;
   const hosts=new Map();
   addEventListener('message',event=>{
     const host=hosts.get(event.source);if(!host)return;
     const data=event.data;host.messages.push(data);
     if(data.type==='flowhub:request') {
-      const result={at:Date.now(),groups:[{id:'app:codex',name:'Codex',source:'fixture',memory:1048576,footprint:2097152,cpu:1,processes:[],processCount:0,instanceCount:0,system:false,canTerminate:false,incomplete:false}],query:data.params?.query??'',includeSystem:data.params?.includeSystem??true,hasRestrictedProcesses:false,matchedGroupIds:[],system:{},interval:5,memoryMetric:'footprint'};
-      event.source.postMessage({type:'flowhub:response',id:data.id,result},'*');return;
+      const at=Date.now(),owner={pid:100,started:(at-100000)*1000,uid:501,name:'FlowHub',executable:'/Applications/FlowHub.app/Contents/MacOS/flowhub-tauri',appPath:'/Applications/FlowHub.app'},script={pid:101,started:(at-50000)*1000,uid:501,name:'osascript',executable:'/usr/bin/osascript',appPath:null};
+      const result=data.method==='script_activity'?{at,records:[{id:'running',process:script,chain:[owner,script],source:{name:'FlowHub',appPath:owner.appPath,evidence:'已核验当前父进程链'},responsible:owner,firstSeen:at-50000,lastSeen:at,running:true,chainNote:''},{id:'recent',process:{...script,pid:99},chain:[{...script,pid:99}],source:null,responsible:null,firstSeen:at-100000,lastSeen:at-50000,running:false,chainNote:''}]}:data.method==='application_metadata'?{applications:[]}:{at,groups:[{id:'app:codex',name:'Codex',source:'fixture',memory:1048576,footprint:2097152,cpu:1,processes:[],processCount:0,instanceCount:0,system:false,canTerminate:false,incomplete:false}],query:data.params?.query??'',includeSystem:data.params?.includeSystem??true,hasRestrictedProcesses:false,matchedGroupIds:[],system:{},interval:5,memoryMetric:'footprint'};
+      const payload=data.method==='group_detail'?{at,groupId:'app:codex',group:fixtureGroup,elsewhere:[],contextProcesses:[]}:data.method==='application_state'?{canQuit:false,message:'fixture'}:data.method==='terminate_preview'?{token:'fixture-review-only',expiresIn:30,targets:fixtureProcesses.filter(p=>data.params.instanceIds.includes(p.instanceId)),scope:{kind:'instances',name:'Codex',instances:fixtureGroup.instances.filter(i=>data.params.instanceIds.includes(i.id))}}:data.method==='ranking_snapshot'?{...result,groups:[{...fixtureSummary,processCount:3,instanceCount:3}]}:result;
+      if(data.method==='terminate_confirm')throw Error('browser fixture must never execute termination');
+      event.source.postMessage({type:'flowhub:response',id:data.id,result:payload},'*');return;
     }
     if(data.type!=='flowhub:widget-rpc')return;
     let result;
@@ -119,6 +125,40 @@
 
     const main=await frame('index.html');
     await wait(()=>doc(main).querySelector('.ant-table-row'),'management preview failed');
+    // Modal leave motion needs animation frames; Chrome throttles an offscreen iframe.
+    main.element.scrollIntoView({block:'center'});
+    const scriptEntry=[...doc(main).querySelectorAll('button')].find(button=>button.textContent==='脚本来源');
+    assert(scriptEntry,'script source entry missing');scriptEntry.click();
+    await wait(()=>doc(main).querySelectorAll('.script-record').length===2,'script drawer did not load preview activity');
+    assert(doc(main).querySelector('.ant-drawer-title').textContent==='脚本来源','script drawer title missing');
+    doc(main).querySelector('.script-record-toggle').click();
+    await wait(()=>doc(main).querySelectorAll('.script-chain li').length===2,'verified script launch chain missing');
+    assert(doc(main).querySelector('.script-record-detail').textContent.includes('/usr/bin/osascript'),'script executable missing');
+    assert(doc(main).querySelector('.script-drawer').textContent.includes('不代表正在请求管理员授权'),'script activity is mislabeled as authorization');
+    [...doc(main).querySelectorAll('.ant-drawer .ant-tabs-tab')].find(tab=>tab.textContent.includes('本次采样可见')).click();
+    await wait(()=>doc(main).querySelectorAll('.script-record').length===1,'running script filter missing');
+    doc(main).querySelector('.ant-drawer-close').click();
+    await wait(()=>!doc(main).querySelector('.script-drawer'),'script drawer did not close');
+    checks.push('script source drawer; source app; launch chain; recent/running records; close cleanup');
+    doc(main).querySelector('button[aria-label="查看 Codex 进程"]').click();
+    await wait(()=>doc(main).querySelector('input[aria-label="选择实例 PID 103"]'),'instance checkboxes missing');
+    const rootCheckbox=doc(main).querySelector('input[aria-label="选择实例 PID 103"]');
+    assert(rootCheckbox.disabled,'root instance must remain protected');
+    assert(doc(main).body.textContent.includes('root 进程：当前授权仅用于采集，不支持结束。'),'root protection reason missing');
+    assert([...doc(main).querySelectorAll('button')].some(button=>button.textContent==='结束全部实例'),'initial bulk label missing');
+    doc(main).querySelector('.ant-modal .ant-table-thead input[type="checkbox"]').click();
+    await wait(()=>[...doc(main).querySelectorAll('button')].some(button=>button.textContent==='结束所选实例'),'checkbox selection did not change bulk action');
+    assert(!rootCheckbox.checked,'select all included root instance');
+    [...doc(main).querySelectorAll('button')].find(button=>button.textContent==='结束所选实例').click();
+    await wait(()=>doc(main).body.textContent.includes('结束这 2 个运行实例？'),'bulk review did not show instance count');
+    const bulkRequest=main.messages.findLast(message=>message.method==='terminate_preview');
+    assert(JSON.stringify(bulkRequest.params.instanceIds)===JSON.stringify(['instance-101','instance-102']),'bulk preview scope includes unselected/protected instances');
+    const cancelReview=[...doc(main).querySelectorAll('.ant-modal-footer button')].find(button=>button.textContent.replace(/\s/g,'')==='取消');
+    assert(cancelReview,'bulk review cancel button missing');
+    await wait(()=>!cancelReview.disabled,'bulk review remained busy');cancelReview.click();
+    await wait(()=>{const action=[...doc(main).querySelectorAll('button')].find(button=>button.textContent==='结束所选实例');return action&&!action.disabled;},'cancel did not release the selected action');
+    doc(main).querySelector('.detail-modal .ant-modal-close').click();
+    checks.push('instance select-all; dynamic bulk label; explicit preview scope; visible root restriction; cancellation');
     const detail=await frame('widget-detail.html',true);
     await wait(()=>detail.messages.some(message=>message.type==='flowhub:widget-ready'),'detail ready missing');
     detail.send({type:'flowhub:widget-init',context:{preview:true,config:{selection:{groupId:'app:codex'}}}});

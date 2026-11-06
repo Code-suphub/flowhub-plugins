@@ -23,7 +23,8 @@ test('independent process details expose one selected instance without applicati
   group.instances.push(second);
   controls=model.detailControls(group);
   assert.equal(controls.chooseInstance,true);assert.equal(controls.instance,undefined);
-  assert.equal(controls.stopLabel,'选择实例结束');
+  assert.equal(controls.stopLabel,'结束全部实例');
+  assert.deepEqual(controls.stopIds,[instance.id,second.id]);
   assert.equal(model.detailControls(group,undefined,second.id).instance,second);
   controls=model.detailControls(group,undefined,'no-longer-running');
   assert.equal(controls.canStop,false);assert.equal(controls.instance,undefined);
@@ -31,6 +32,20 @@ test('independent process details expose one selected instance without applicati
   second.canTerminate=false;
   controls=model.detailControls(group,undefined,second.id);
   assert.equal(controls.canStop,false);assert.match(controls.stopHint,/受保护/);
+});
+
+test('batch selection is explicit, protected instances are excluded and vanished selections never become all',()=>{
+  const group=model.sampleSnapshot().groups[0];
+  group.instances=[{id:'one',root:group.processes[0],canTerminate:true},{id:'two',root:group.processes[1],canTerminate:true},{id:'root',root:{...group.processes[2],uid:0},canTerminate:false}];
+  group.processes.push({...group.processes[0],uid:0,instanceId:'root',protected:true,protection:'其他用户或系统账户'});
+  const all=model.detailControls(group);
+  assert.equal(all.stopLabel,'结束全部实例');assert.deepEqual(all.stopIds,['one','two']);assert.match(all.stopHint,/1 个受保护/);
+  const selected=model.detailControls(group,undefined,undefined,['two']);
+  assert.equal(selected.stopLabel,'结束所选实例');assert.deepEqual(selected.stopIds,['two']);assert.equal(selected.canStop,true);
+  const expired=model.detailControls(group,undefined,undefined,['gone']);
+  assert.equal(expired.canStop,false);assert.deepEqual(expired.stopIds,['gone']);
+  assert.equal(model.detailControls(group,undefined,undefined,['root']).canStop,false);
+  assert.match(model.instanceStopReason(group,group.instances[2]),/root.*仅用于采集/);
 });
 
 test('normal quit and context tabs require actual application capabilities, never source hints',()=>{
