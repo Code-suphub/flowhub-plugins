@@ -8,6 +8,6 @@
 - [x] 插件仓库 `pnpm run build`、`pnpm test`、`pnpm run layout:machines -- --check` 完整通过；包内资源、类型、行为、机器下拉指纹和全部布局断点通过。
 - [x] 只提交包管理器、锁文件、构建／CI 命令及文档；构建输出、缓存链接、资源监控业务改动不纳入提交。原主检出保持不变。
 - [x] 首次远端计划任务的 19 项脚本检查与插件校验通过；setup-node 根据新 packageManager 字段自动保存缓存时因任务未安装依赖、缓存目录不存在而失败。计划／发布任务已关闭该自动缓存，构建任务仍显式使用锁文件缓存。
-- [ ] 上述 CI 修正后的 GitHub Actions 冷环境构建／测试仍需通过；本次没有发布标签或正式发布。
+- [x] CI 修正后，GitHub Actions 的计划任务及六个插件的 macOS ARM64 冷环境构建／测试全部通过：[运行记录](https://github.com/Code-suphub/flowhub-plugins/actions/runs/42186098872)。本次没有发布标签或正式发布。
 
 原始日志在仓库外 `/tmp/flowhub-pnpm-{typecheck,build,test,layout}-20261106.log`。本批不改插件版本，不替换安装版。
