@@ -111,7 +111,7 @@ function HostIdentity({ host, inspected, onInspect }: { host: FleetHost; inspect
         {host.name}
         {host.readOnly ? <em>仅查询</em> : null}
       </strong>
-      {host.group ? <small>{host.group}</small> : null}
+      <small><span data-host-group>{host.group}</span>{host.group ? ' · ' : ''}<code>{host.alias}</code></small>
     </span>
     </button>
   );
@@ -224,6 +224,7 @@ export function FleetPage({
   const listScroll = useRef(0);
   const root = useRef<HTMLDivElement>(null);
   const inspectedHost = inspectedId ? snapshot.hosts.find(host => host.id === inspectedId) : snapshot.hosts[0];
+  const hasInspector = detailOpen && (snapshot.hosts.length > 0 || inspectedId !== null);
   useEffect(() => {
     if (!inspectRequest) return;
     returnTarget.current = null; listScroll.current = window.scrollY;
@@ -451,7 +452,7 @@ export function FleetPage({
   }).length;
 
   return (
-    <div ref={root} className={cx('fleet', detailOpen && 'fleet--detail-open', detailRequested && 'fleet--detail-requested', className)}>
+    <div ref={root} className={cx('fleet', hasInspector && 'fleet--detail-open', detailRequested && 'fleet--detail-requested', className)}>
       <div className="fleet__split">
       <section className="fleet__panel" aria-labelledby="fleet-list-title">
         <header className="fleet__section-head">
@@ -520,7 +521,7 @@ export function FleetPage({
           onReset={resetFilters}
         />
       </section>
-      {detailOpen ? <MachineInspector host={inspectedHost} metric={inspectedHost ? snapshot.metrics[inspectedHost.id] : undefined} interval={config.intervalSeconds} now={now} api={api} active={active && (!narrow || detailRequested)} jobs={jobs} disabled={!interactive} onClose={closeDetail} onAction={action => { if (inspectedHost) actions.onHostAction(action, inspectedHost); }} /> : null}
+      {hasInspector ? <MachineInspector host={inspectedHost} metric={inspectedHost ? snapshot.metrics[inspectedHost.id] : undefined} interval={config.intervalSeconds} now={now} api={api} active={active && (!narrow || detailRequested)} jobs={jobs} disabled={!interactive} onClose={closeDetail} onAction={action => { if (inspectedHost) actions.onHostAction(action, inspectedHost); }} /> : null}
       </div>
     </div>
   );

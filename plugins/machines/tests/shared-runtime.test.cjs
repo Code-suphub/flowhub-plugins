@@ -15,9 +15,9 @@ test('installed FlowHub initializes and uses the embedded core without toolkit, 
   t.after(()=>{child.kill();fs.rmSync(root,{recursive:true,force:true});});
   let next=1;const pending=new Map();let stderr='';child.stderr.on('data',b=>{stderr+=b.toString();});
   const lines=readline.createInterface({input:child.stdout});
-  lines.on('line',line=>{const reply=JSON.parse(line);pending.get(reply.id)?.(reply);pending.delete(reply.id);});
+  lines.on('line',line=>{const reply=JSON.parse(line);if(process.env.FLOWHUB_TEST_TRACE)t.diagnostic(`RPC reply ${reply.id}`);pending.get(reply.id)?.(reply);pending.delete(reply.id);});
   child.on('exit',()=>{for(const resolve of pending.values())resolve({error:'child exited: '+stderr});});
-  const call=(action,payload={})=>new Promise(resolve=>{const id=next++;pending.set(id,resolve);child.stdin.write(JSON.stringify({id,method:'machines_api',params:{action,payload}})+'\n');});
+  const call=(action,payload={})=>new Promise(resolve=>{const id=next++;if(process.env.FLOWHUB_TEST_TRACE)t.diagnostic(`RPC ${id}: ${action}`);pending.set(id,resolve);child.stdin.write(JSON.stringify({id,method:'machines_api',params:{action,payload}})+'\n');});
   const selected=await call('sharedConfig',{path:config});assert(!selected.error,selected.error);
   assert.equal(selected.result.config.sharedConfigFile,config);assert.equal(fs.statSync(config).mode&0o777,0o600);
   const shared=await call('sharedSessions');assert(!shared.error,shared.error);assert(Array.isArray(shared.result.sessions));

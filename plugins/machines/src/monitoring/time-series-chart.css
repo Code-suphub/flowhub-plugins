@@ -12,3 +12,4 @@
 .fh-time-series__tooltip i { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; }
 .fh-time-series__tooltip strong { margin-left: auto; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .fh-time-series__empty { display: grid; min-height: 150px; place-items: center; color: var(--fh-muted,#91a99a); font-size: 13px; }
+.fh-time-series--compact .fh-time-series__grid text, .fh-time-series--compact svg > text { font-size: 12px; }

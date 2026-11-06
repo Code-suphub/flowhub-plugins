@@ -1,6 +1,6 @@
 {
   "name": "flowhub-machines-plugin",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "private": true,
   "scripts": {
     "dev": "vite --config vite.config.mjs",
@@ -9,7 +9,7 @@
     "build:widget-editor": "vite build --config vite.react.config.mjs",
     "build:fleet": "vite build --config vite.fleet.config.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "cargo test --manifest-path backend/Cargo.toml && pnpm run typecheck && node --test tests/*.test.cjs && node scripts/layout-audit.mjs --check && node scripts/preview-fingerprint.mjs",
+    "test": "cargo test --manifest-path backend/Cargo.toml && pnpm run typecheck && node --test --test-concurrency=2 tests/*.test.cjs && node scripts/layout-audit.mjs --check && node scripts/preview-fingerprint.mjs",
     "layout": "node scripts/layout-audit.mjs",
     "fingerprint": "node scripts/preview-fingerprint.mjs --write",
     "prune-css": "node scripts/prune-dead-css.mjs"

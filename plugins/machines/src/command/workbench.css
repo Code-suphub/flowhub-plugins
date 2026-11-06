@@ -8,6 +8,9 @@
 .command-react__machine-row small { margin-top: 3px; color: var(--fh-muted); font: 11px Menlo, monospace; }
 .command-react__terminal > header .fh-checkbox { font-size: 11px; }
 .command-react__terminal > p[role="alert"] { padding: 10px; color: var(--fh-danger); }
+.command-react__terminal { --fh-canvas: var(--machine-console-bg); --fh-surface: var(--machine-console-bg); --fh-text: var(--machine-console-ink); --fh-muted: var(--machine-console-muted); --fh-border: var(--machine-console-line); --fh-positive: #6ad8b4; --fh-danger: #ff899a; }
+.command-react__terminal > header > div, .command-react__terminal .command-react__job > div strong, .command-react__terminal .command-react__job pre { color: var(--fh-text); }
+.command-react__terminal .command-react__job-status--success { color: var(--fh-positive); }
 .command-react__context { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
 .command-react__context h3 { font-size: 16px; font-weight: 600; }
 .command-react__context p { margin-top: 4px; color: var(--fh-muted); font: 11px Menlo, monospace; overflow-wrap: anywhere; }

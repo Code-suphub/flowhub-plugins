@@ -43,9 +43,10 @@ function byteLength(value: string): number {
   return new TextEncoder().encode(value).length;
 }
 
-function TemplateManager({ initial, busy, onSave }: {
+function TemplateManager({ initial, busy, onSave, active = true }: {
   initial: readonly CommandTemplate[];
   busy: boolean;
+  active?: boolean;
   onSave: (templates: readonly CommandTemplate[]) => Promise<void>;
 }) {
   const [editing, setEditing] = useState<{ index: number; original: string; draft: CommandTemplate } | null>(null);
@@ -98,7 +99,7 @@ function TemplateManager({ initial, busy, onSave }: {
     </div>
     {error && !editing ? <p className="command-react__error" role="alert">{error}</p> : null}
     <DialogShell
-      open={editing !== null}
+      open={active && editing !== null}
       onOpenChange={next => { if (!next) closeEditor(); }}
       onCancel={event => { if (locked) event.preventDefault(); }}
       title={editing?.index === -1 ? '新建命令模板' : '编辑命令模板'}
@@ -172,7 +173,7 @@ function JobConsole({ jobs, selectedHosts, contextKey, onCancel, onClear }: {
   </section>;
 }
 
-export function CommandWorkspace({ api, run, active = true, selectedHostIds, onSelectionChange, onOpenMachine, onEditConnection, prefillRequest }: CommandWorkspaceProps) {
+export function CommandWorkspace({ api, run, active = true, selectedHostIds, onSelectionChange, onOpenMachine, onEditConnection, prefillRequest, refreshToken = 0 }: CommandWorkspaceProps) {
   const [state, setState] = useState<CommandState | null>(null);
   const selected = useMemo(() => new Set(selectedHostIds), [selectedHostIds]);
   const hosts = state?.config.hosts ?? [];
@@ -221,7 +222,8 @@ export function CommandWorkspace({ api, run, active = true, selectedHostIds, onS
   useEffect(() => {
     if (active) void load();
     return () => { loadVersion.current++; };
-  }, [active, load]);
+  }, [active, load, refreshToken]);
+  useEffect(() => { if (!active) setWorkspaceView('execute'); }, [active]);
 
   const [configFile, setConfigFile] = useState('');
   const [sharedSessions, setSharedSessions] = useState<{id:string;alias:string;type:string;attached:boolean;busy:boolean;dead:boolean;config_file:string}[]>([]);
@@ -327,6 +329,7 @@ export function CommandWorkspace({ api, run, active = true, selectedHostIds, onS
   function submitCommand() {
     const value = command;
     if (running || operation.current || !state?.config.enabled || !value.trim()) return;
+    if (loadedVersion.current !== loadVersion.current) { setError('正在更新目标配置，请稍后再执行。'); return; }
     if (!selectedHosts.length || selectedHosts.length > 16 || byteLength(value) > 8192) { setError('请选择 1–16 台机器，并输入不超过 8192 字节的命令。'); return; }
     if (history.commands.at(-1) !== value) history.commands = [...history.commands.slice(-99), value];
     history.index = history.commands.length; history.draft = '';
@@ -409,7 +412,7 @@ export function CommandWorkspace({ api, run, active = true, selectedHostIds, onS
         </section>
       </DialogShell>
       <DialogShell open={active && workspaceView === 'templates'} onOpenChange={open => { if (!open) setWorkspaceView('execute'); }} title="命令模板" description="选择模板仅回填命令，执行前可修改。" className="command-react__manager" contentClassName="command-react__manager-shell">
-        <TemplateManager initial={templates} busy={templateBusy} onSave={saveTemplates} />
+        <TemplateManager initial={templates} busy={templateBusy} onSave={saveTemplates} active={active && workspaceView === 'templates'} />
       </DialogShell>
   </section>;
 }

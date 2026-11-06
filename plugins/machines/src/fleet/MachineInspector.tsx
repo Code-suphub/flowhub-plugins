@@ -41,7 +41,7 @@ function InspectorHistory({ api, hostId, active }: { api: MachinesApi | null; ho
   return <section className="machine-inspector__history" aria-label="CPU 历史">
     <div className="machine-inspector__chart-tools"><span>CPU 历史</span><Select aria-label="详情历史范围" value={range} onChange={setRange} options={[{ value: '3600', label: '最近 1 小时' }, { value: '86400', label: '最近 1 天' }]} /></div>
     {current?.error ? <div role="alert"><p>历史读取失败：{current.error}</p><Button size="sm" variant="ghost" onClick={() => setAttempt(value => value + 1)}>重试</Button></div> : null}
-    {current?.data ? <><TimeSeriesChart rows={current.data.data ?? []} series={['CPU']} unit={current.data.unit ?? '%'} label="选中机器的 CPU 历史" />{current.loading ? <p role="status">正在刷新历史…</p> : null}</>
+    {current?.data ? <><TimeSeriesChart compact rows={current.data.data ?? []} series={['CPU']} unit={current.data.unit ?? '%'} label="选中机器的 CPU 历史" />{current.loading ? <p role="status">正在刷新历史…</p> : null}</>
       : <p role="status">{!api ? '当前环境无法读取历史' : current?.error ? '未取得历史采样' : '正在读取历史…'}</p>}
   </section>;
 }

@@ -38,6 +38,7 @@
     ] }, metrics: {}, active: [], history: [],
   };
   const pending = new Map();
+  if (new URLSearchParams(location.search).has('previewEmpty')) state.config.hosts = [];
   const archive = [];
   const historyDemo = document.createElement('button'); historyDemo.type = 'button'; historyDemo.textContent = '生成分页示例';
   banner.querySelector('.preview-banner__menu .actions').append(historyDemo);

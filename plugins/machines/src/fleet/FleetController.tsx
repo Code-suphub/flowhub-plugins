@@ -6,6 +6,7 @@ import { HostEditorController, type HostEditorControllerHandle } from '../host-e
 import type { MachinesApi, MachinesRun } from '../api/machines';
 import type { HistoryJob, HistoryJobDetail } from '../history/types';
 import type { CommandWorkspaceProps } from '../command/types';
+import { version as PLUGIN_VERSION } from '../../flowhub-plugin.json';
 import { FleetPage } from './FleetPage';
 import type { MachineTab } from './MachineWorkspace';
 import type { FleetActions, FleetActiveJob, FleetHost, FleetSnapshot } from './types';
@@ -29,6 +30,7 @@ export function FleetController({ api, run, backupApi = null }: { api: MachinesA
   const [focusTab, setFocusTab] = useState<MachineTab | null>(null);
   const [inspectRequest, setInspectRequest] = useState<{ hostId: string; sequence: number } | null>(null);
   const [prefillRequest, setPrefillRequest] = useState<CommandWorkspaceProps['prefillRequest']>(null);
+  const [workspaceRevision, setWorkspaceRevision] = useState(0);
   const editor = useRef<HostEditorControllerHandle>(null);
   const current = useRef(state);
   const alive = useRef(false);
@@ -144,6 +146,7 @@ export function FleetController({ api, run, backupApi = null }: { api: MachinesA
     },
   };
   return <MachineShell
+    refreshToken={workspaceRevision}
     prefillRequest={prefillRequest}
     onRefillCommand={(job: HistoryJobDetail) => {
       const host = current.current.config.hosts.find(host => host.id === job.hostId && host.alias === job.alias);
@@ -155,8 +158,8 @@ export function FleetController({ api, run, backupApi = null }: { api: MachinesA
       setInspectRequest({ hostId, sequence: ++inspectSequence.current }); navigate('fleet', true);
     }}
     onEditConnection={hostId => { const host = current.current.config.hosts.find(host => host.id === hostId); if (host) actions.onHostAction('connection', host); }}
-    onMonitorSaved={() => { void refresh.current().catch(error => message(String(error), true)); }}
-    editor={<HostEditorController ref={editor} api={api} onSaved={() => { void refresh.current().catch(error => message(String(error), true)); }} />}
+    onMonitorSaved={() => { setWorkspaceRevision(value => value + 1); void refresh.current().catch(error => message(String(error), true)); }}
+    editor={<HostEditorController ref={editor} api={api} onSaved={() => { setWorkspaceRevision(value => value + 1); void refresh.current().catch(error => message(String(error), true)); }} />}
     backupApi={backupApi}
     collections={<CollectionWorkspace host={state.config.hosts.find(host => host.id === collectionHostId) ?? null} jobs={[...state.active, ...state.history]} api={api} onClose={() => setCollectionHostId(null)} />}
     selectedHostIds={selected}
@@ -167,7 +170,7 @@ export function FleetController({ api, run, backupApi = null }: { api: MachinesA
     api={api}
     run={run}
     available={!!state.config.installed && state.config.enabled}
-    version={state.config.installed ? `v${state.config.installed.version}${state.config.enabled ? '' : ' · 已停用'}` : '未安装'}
+    version={state.config.installed ? `v${PLUGIN_VERSION}${state.config.enabled ? '' : ' · 已停用'}` : '未安装'}
     notice={notice}
     fleet={<FleetPage api={api} active={activeTab === 'fleet'} inspectRequest={inspectRequest} jobs={[...state.active, ...state.history]} snapshot={{ hosts: state.config.hosts, metrics: state.metrics, activeJobs: state.active }} config={{ enabled, monitoring: !!state.config.monitoring, intervalSeconds: state.config.interval || 60 }} selectedHostIds={selected} actions={actions} now={Date.now()} />}
   />;

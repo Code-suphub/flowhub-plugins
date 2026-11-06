@@ -105,6 +105,7 @@ function controllerHarness(api, settings = {}) {
       if (name === '../collections/CollectionWorkspace') return { CollectionWorkspace() {} };
       if (name === '../host-editor/HostEditorController') return { HostEditorController() {} };
       if (name === './FleetPage') return { FleetPage() {} };
+      if (name === '../../flowhub-plugin.json') return { version: 'test' };
       throw Error(name);
     },
   });
@@ -335,8 +336,8 @@ test('standalone development adapter simulates execution and never calls a nativ
   const source = fs.readFileSync(path.join(__dirname, '../dev/machines-preview.js'), 'utf8');
   const outcome = { value: 'success' };
   let tick;
-  const window = { location: { reload() {} } }; window.parent = window;
-  const context = { window, structuredClone, setTimeout(fn) { tick = fn; return 1; }, clearTimeout() {}, document: {
+  const window = { location: { search: '', reload() {} } }; window.parent = window;
+  const context = { window, location: window.location, URLSearchParams, structuredClone, setTimeout(fn) { tick = fn; return 1; }, clearTimeout() {}, document: {
     createElement: () => ({ setAttribute() {}, querySelector: () => ({ append() {} }) }), body: { prepend() {} },
     querySelector: id => id === '#previewOutcome' ? outcome : {},
   } };

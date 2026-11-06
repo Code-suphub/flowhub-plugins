@@ -65,8 +65,8 @@ const MEASURE_FLEET = `(() => {
     extraSearchIcon: Boolean(root.querySelector('.fleet__search-icon')),
     hostHeader: hostHeader?.textContent.trim(),
     hostWidth: hostHeader?.getBoundingClientRect().width,
-    hostGroups: identities.map(identity => identity.querySelector('small')?.textContent.trim()),
-    aliasHidden: identities.every(identity => !identity.textContent.includes(identity.title.replace('连接标识：', ''))),
+    hostGroups: identities.map(identity => identity.querySelector('[data-host-group]')?.textContent.trim()),
+    aliasVisible: identities.every(identity => identity.textContent.includes(identity.title.replace('连接标识：', ''))),
     summary: visible('.fleet__summary').length
   };
 })()`;
@@ -85,7 +85,7 @@ const VIEWS = [
       if (row.legacyNodes) problems.push('旧列表或导入节点残留');
       if (row.controlsOverflow) problems.push('操作控件超出视口');
       if (row.extraSearchIcon) problems.push('搜索框仍有图标');
-      if (row.hostHeader !== '机器' || row.hostGroups.join('|') !== '开发环境|测试环境' || !row.aliasHidden) problems.push('机器列标题、副行或别名展示异常');
+      if (row.hostHeader !== '机器' || row.hostGroups.join('|') !== '开发环境|测试环境' || !row.aliasVisible) problems.push('机器列标题、副行或别名展示异常');
       if (row.width >= 850 && (row.hostWidth < 215 || row.hostWidth > 310)) problems.push('机器列桌面宽度异常');
       if (row.width <= 600 && row.hostWidth > 190) problems.push('机器列窄屏宽度异常');
       if (row.groupWidth < 160 || Math.abs(row.searchHeight - row.groupHeight) > 1 || row.filterHeight > row.groupHeight + 1) problems.push('分组筛选尺寸或单行布局异常');
@@ -410,7 +410,8 @@ async function cdp(url, onEvent) {
   socket.addEventListener('message', event => {
     const message = JSON.parse(event.data);
     if (message.id && pending.has(message.id)) {
-      const { resolve: done, reject } = pending.get(message.id);
+      const { resolve: done, reject, timer } = pending.get(message.id);
+      clearTimeout(timer);
       pending.delete(message.id);
       if (message.error) reject(new Error(`${message.error.message} (${message.method || ''})`));
       else done(message.result);
@@ -423,11 +424,11 @@ async function cdp(url, onEvent) {
       const id = nextId++;
       socket.send(JSON.stringify({ id, method, params }));
       return new Promise((resolve, reject) => {
-        pending.set(id, { resolve, reject });
-        setTimeout(() => { if (pending.delete(id)) reject(new Error(`${method} 超时`)); }, 15000);
+        const timer = setTimeout(() => { if (pending.delete(id)) reject(new Error(`${method} 超时`)); }, 15000);
+        pending.set(id, { resolve, reject, timer });
       });
     },
-    close() { socket.close(); }
+    close() { for (const item of pending.values()) clearTimeout(item.timer); pending.clear(); socket.close(); }
   };
 }
 
@@ -856,6 +857,94 @@ async function main() {
       } finally { document.body.classList.remove('widget-settings'); }
     })()` });
     if (widgetShell.exceptionDetails || !widgetShell.result.value) failures.push('Widget 设置模式未正确隐藏页面壳');
+
+    if (process.env.FLOWHUB_MACHINE_ARTIFACT_DIR) {
+      const directory = process.env.FLOWHUB_MACHINE_ARTIFACT_DIR;
+      await mkdir(directory, { recursive: true });
+      const screenshots = [];
+      const evaluatePreview = async expression => {
+        const result = await client.send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
+        if (result.exceptionDetails) throw Error(result.exceptionDetails.exception?.description || result.exceptionDetails.text);
+        return result.result?.value;
+      };
+      const freshPage = async (query = '') => {
+        const nextLoad = new Promise(resolve => { loaded = resolve; });
+        await client.send('Page.navigate', { url: `http://127.0.0.1:${pagePort}/__audit.html${query}` });
+        await nextLoad;
+        for (let attempt = 0; attempt < 100; attempt++) {
+          if (await evaluatePreview(`!!document.querySelector('.fleet__identity, .fleet__empty:not([hidden])')?.getBoundingClientRect().width`)) return;
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+        throw Error('截图页面未就绪');
+      };
+      const save = async (name, full = true) => {
+        await evaluatePreview(`(async () => {
+          await document.fonts.ready;
+          await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+          await Promise.all(document.getAnimations().filter(animation => animation.effect?.getTiming().iterations !== Infinity).map(animation => animation.finished.catch(() => {})));
+        })()`);
+        const metrics = await client.send('Page.getLayoutMetrics');
+        const clip = { x: 0, y: 0, width: metrics.cssContentSize.width, height: Math.min(1800, metrics.cssContentSize.height), scale: 1 };
+        const screenshot = await client.send('Page.captureScreenshot', { format: 'png', ...(full ? { captureBeyondViewport: true, clip } : {}) });
+        await writeFile(join(directory, name), Buffer.from(screenshot.data, 'base64'));
+        screenshots.push(name);
+      };
+      for (const theme of ['light', 'dark']) {
+        await client.send('Emulation.setDeviceMetricsOverride', { width: 1400, height: 900, deviceScaleFactor: 1, mobile: false });
+        await freshPage();
+        await evaluatePreview(`(async () => {
+          window.FlowHubTheme.set('${theme}');
+          [...document.querySelectorAll('.preview-banner__menu button')].find(button => button.textContent === '生成分页示例').click();
+          await window.__TAURI__.core.invoke('machines_api', {action:'monitor',payload:{enabled:true,interval:60}});
+          for(let n=0;n<100&&!document.querySelector('.fleet__metric-value')?.textContent.includes('23.4');n++)await new Promise(resolve=>setTimeout(resolve,50));
+          document.querySelector('[data-inspect-host="demo-app"]').click();
+          await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+          for(let n=0;n<100&&!document.querySelector('.machine-inspector .fh-time-series svg');n++)await new Promise(resolve=>setTimeout(resolve,50));
+          return true;
+        })()`);
+        await save(`implemented-fleet-${theme}-1400.png`);
+        await evaluatePreview(`(async()=>{
+          [...document.querySelectorAll('.machine-inspector__actions button')].find(button=>button.textContent==='执行命令').click();
+          for(let n=0;n<100&&!document.querySelector('#command-targets')?.value;n++)await new Promise(resolve=>setTimeout(resolve,50));
+          const input=document.querySelector('.command-react__composer textarea');
+          Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(input,'uptime');input.dispatchEvent(new Event('input',{bubbles:true}));
+          await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+          input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}));
+          for(let n=0;n<120&&!document.querySelector('.command-react__job-status--success');n++)await new Promise(resolve=>setTimeout(resolve,50));
+          if(!document.querySelector('.command-react__job pre')?.textContent.includes('模拟输出'))throw Error('截图任务不是隔离模拟结果');
+          return true;
+        })()`);
+        await save(`implemented-workbench-${theme}-1400.png`);
+        if (theme === 'light') {
+          await evaluatePreview(`(async()=>{
+            [...document.querySelectorAll('.command-react__tools button')].find(button=>button.textContent==='连接配置').click();
+            for(let n=0;n<100&&(!document.querySelector('dialog.host-editor[open]')||document.querySelector('#host-editor-hostname')?.value!=='demo-app.example.test');n++)await new Promise(resolve=>setTimeout(resolve,50));
+            return true;
+          })()`);
+          await save('implemented-connection-light-1400.png', false);
+          await evaluatePreview(`document.querySelector('dialog.host-editor[open] [aria-label="关闭"]').click()`);
+        }
+        await evaluatePreview(`(async()=>{
+          document.querySelector('.machine-tabs [data-tabs-value="history"]').click();
+          for(let n=0;n<100&&!document.querySelector('[data-history-job]');n++)await new Promise(resolve=>setTimeout(resolve,50));
+          document.querySelector('[data-history-job]').click();
+          for(let n=0;n<100&&!document.querySelector('.history-inspector__command');n++)await new Promise(resolve=>setTimeout(resolve,50));
+          return true;
+        })()`);
+        await save(`implemented-history-${theme}-1400.png`);
+      }
+      await client.send('Emulation.setDeviceMetricsOverride', { width: 380, height: 800, deviceScaleFactor: 1, mobile: false });
+      await evaluatePreview(`(async()=>{window.FlowHubTheme.set('light');document.querySelector('.machine-tabs [data-tabs-value="fleet"]').click();document.querySelector('[data-inspect-host="demo-app"]').click();await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));if(document.querySelector('.machine-tabs [aria-selected="true"]')?.dataset.tabsValue!=='fleet')throw Error('窄窗详情导航状态不一致');})()`);
+      await save('implemented-detail-light-380.png');
+      await freshPage('?previewEmpty=1');
+      const empty = await evaluatePreview(`(async()=>{
+        for(let n=0;n<100&&!document.querySelector('.fleet__empty:not([hidden])');n++)await new Promise(resolve=>setTimeout(resolve,50));
+        return !!document.querySelector('.fleet__empty:not([hidden])')&&!document.querySelector('.machine-inspector')&&document.documentElement.scrollWidth<=innerWidth;
+      })()`);
+      if (!empty) throw Error('首次空列表被误标记为目标已移除');
+      await save('implemented-empty-light-380.png');
+      await writeFile(join(directory, 'redesign-browser-evidence.json'), JSON.stringify({ at: new Date().toISOString(), screenshots, fixtureOnly: true, emptyState: true, assertions: failures.length ? failures : 'passed' }, null, 2));
+    }
 
     if (jsonOnly) {
       console.log(JSON.stringify({ report, failures }, null, 2));

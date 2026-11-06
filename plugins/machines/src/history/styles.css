@@ -32,7 +32,7 @@
 .history-inspector__command { margin: 12px 0; padding: 10px; border: 1px solid var(--fh-border); border-radius: 5px; background: var(--fh-canvas); white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.6 Menlo, monospace; }
 .history-inspector [role="tablist"] { gap: 12px; }
 .history-inspector [role="tab"] { font-size: 12px; padding-inline: 3px; }
-.history-inspector__output { min-height: 200px; max-height: 50vh; overflow: auto; margin: 0; padding: 12px; background: var(--fh-canvas); color: var(--fh-text); border-radius: 6px; font: 12px/1.7 Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.history-inspector__output { min-height: 200px; max-height: 50vh; overflow: auto; margin: 0; padding: 12px; background: var(--machine-console-bg); color: var(--machine-console-ink); border-radius: 6px; font: 12px/1.7 Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 .history-inspector__actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 14px; }
 .history-inspector__muted, .history-inspector > p { color: var(--fh-muted); font-size: 12px; }
 @media (max-width: 1100px) {
