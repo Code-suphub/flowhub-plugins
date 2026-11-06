@@ -52,7 +52,8 @@ test('React shell owns availability, escaped notices and embedded layout', () =>
   window.parent = window;
   const location = { search: '' };
   vm.runInNewContext(code, { exports, window, location, URLSearchParams, require(name) {
-    if (name === './MachineWorkspace') return { MachineWorkspace: ({ fleet }) => fleet };
+    if (name === './MachineWorkspace') return { MachineWorkspace: ({ fleet }) => fleet, MachineNavigation: () => React.createElement('nav', { 'aria-label': '机器管理页面' }) };
+    if (name === '@flowhub/plugin-common/react') return { Tabs: ({ children }) => React.createElement('div', null, children) };
     if (name === '../monitoring/MonitorSettings') return { MonitorSettings: () => null };
     if (name === '../backup/BackupWorkspace') return { BackupWorkspace: () => null };
     if (name === './ThemeSwitch') return { ThemeSwitch: () => null };
@@ -104,6 +105,7 @@ function controllerHarness(api, settings = {}) {
       if (name === '../collections/CollectionWorkspace') return { CollectionWorkspace() {} };
       if (name === '../host-editor/HostEditorController') return { HostEditorController() {} };
       if (name === './FleetPage') return { FleetPage() {} };
+      if (name === '../../flowhub-plugin.json') return { version: 'test' };
       throw Error(name);
     },
   });
@@ -334,8 +336,8 @@ test('standalone development adapter simulates execution and never calls a nativ
   const source = fs.readFileSync(path.join(__dirname, '../dev/machines-preview.js'), 'utf8');
   const outcome = { value: 'success' };
   let tick;
-  const window = { location: { reload() {} } }; window.parent = window;
-  const context = { window, structuredClone, setTimeout(fn) { tick = fn; return 1; }, clearTimeout() {}, document: {
+  const window = { location: { search: '', reload() {} } }; window.parent = window;
+  const context = { window, location: window.location, URLSearchParams, structuredClone, setTimeout(fn) { tick = fn; return 1; }, clearTimeout() {}, document: {
     createElement: () => ({ setAttribute() {}, querySelector: () => ({ append() {} }) }), body: { prepend() {} },
     querySelector: id => id === '#previewOutcome' ? outcome : {},
   } };
@@ -383,7 +385,7 @@ test('React owns command execution, history and templates without legacy DOM ada
   assert.match(workspace, /api\('templates', \{ templates: next \}\)/);
   assert.match(workspace, /run\(\{ hostId: job\.hostId, expectedAlias: job\.alias/);
   assert.match(shell, /activeTab/);
-  assert.match(shell, /onTabChange/);
+  assert.match(fs.readFileSync(path.join(__dirname, '../src/fleet/MachineShell.tsx'), 'utf8'), /onTabChange/);
   assert.match(script, /navigate\('command', true\)/);
   assert(!script.includes('FlowHubMachineTabs'));
 });

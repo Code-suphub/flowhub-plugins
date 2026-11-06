@@ -343,9 +343,11 @@ struct Active {
 }
 impl Job {
     fn summary(&self) -> Value {
+        let command_preview = self.command.as_deref().filter(|_| self.kind == "command")
+            .map(machine_history::redact).map(|text| text.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(160).collect::<String>());
         json!({"id": self.id, "hostId": self.host_id, "alias": self.alias, "kind": self.kind,
             "startedAt": self.started_at, "finishedAt": self.finished_at, "status": self.status,
-            "exitCode": self.exit_code, "truncated": self.truncated})
+            "exitCode": self.exit_code, "truncated": self.truncated, "commandPreview": command_preview})
     }
 }
 pub(crate) struct Runtime {
@@ -1083,7 +1085,8 @@ pub(crate) async fn machines_api(
             }
             if let Some(path)=crate::ssh::shared::path(rt.path.parent().unwrap()) {
                 let response=crate::ssh::shared::request(path,json!({"action":"exec","alias":alias,"command":"hostname","isolated":true,"timeout":20})).await?;
-                return Ok(json!({"success":response["exit_code"]==0,"reason":"共享会话 hostname 查询完成","output":response["output"]}));
+                let success=response["exit_code"]==0;
+                return Ok(json!({"success":success,"reason":if success{"共享会话 hostname 查询完成"}else{"共享会话 hostname 查询失败"},"output":response["output"],"durationMs":chrono::Utc::now().timestamp_millis()-job.started_at}));
             }
             if !payload["profile"].is_null() {
                 let profile: crate::ssh::ssh_profiles::Profile =
@@ -1933,6 +1936,20 @@ pub(crate) fn start_monitor(app: &Context) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn history_summary_masks_and_bounds_command_previews() {
+        let mut job = super::Job { id: "preview".into(), host_id: "host".into(), alias: "demo".into(), kind: "command".into(), command: Some("curl --password 'fixture secret' --token=fixture-token".into()), started_at: 1, finished_at: Some(2), status: "success".into(), exit_code: Some(0), stdout: "private output".into(), stderr: String::new(), truncated: false };
+        let summary = job.summary();
+        let preview = summary["commandPreview"].as_str().unwrap();
+        assert!(!preview.contains("fixture secret") && !preview.contains("fixture-token"));
+        assert!(preview.contains("[已隐藏]"));
+        assert!(summary.get("stdout").is_none() && summary.get("command").is_none());
+        job.command = Some("测".repeat(400));
+        assert_eq!(job.summary()["commandPreview"].as_str().unwrap().chars().count(), 160);
+        job.kind = "collect".into();
+        assert!(job.summary()["commandPreview"].is_null());
+    }
+
     #[tokio::test]
     async fn writable_bastion_templates_record_results_and_read_only_rejects_custom_commands() {
         use std::os::unix::fs::PermissionsExt;
