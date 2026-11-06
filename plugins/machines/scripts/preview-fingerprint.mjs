@@ -162,6 +162,13 @@ const EXPRESSION = `(async () => {
 const INTERACTIONS = `(async () => {
   const tick = () => new Promise(resolve => setTimeout(resolve, 30));
   const check = (condition, message) => { if (!condition) throw Error(message); };
+  const waitFor = async (condition, message) => {
+    const deadline = performance.now() + 3000;
+    while (!condition()) {
+      check(performance.now() < deadline, message);
+      await tick();
+    }
+  };
   const init = context => window.postMessage({type:'flowhub:widget-init',token:null,context}, '*');
   if (location.pathname.includes('editor')) {
     init({config:{row:'ssh-one',metrics:['cpu']},snapshot:{rows:[
@@ -215,13 +222,13 @@ const INTERACTIONS = `(async () => {
   if (location.pathname.includes('detail')) {
     const calls = [];
     window.FlowHubWidget.invoke = params => new Promise((resolve,reject) => calls.push({params,resolve,reject}));
-    init({config:{row:'first'},preview:false}); await tick();
-    check(calls.length === 6, '应查询六项历史指标');
-    init({config:{row:'second'},preview:false}); await tick();
-    check(calls.length === 12, '目标更新应重新读取历史');
+    // React schedules render/effects asynchronously; a fixed 30 ms is not a completion signal on CI.
+    init({config:{row:'first'},preview:false});
+    await waitFor(() => calls.length === 6, '应查询六项历史指标');
+    init({config:{row:'second'},preview:false});
+    await waitFor(() => calls.length === 12, '目标更新应重新读取历史');
     calls.slice(6).forEach((call,index) => index === 0 ? call.reject(Error('mock failed')) : call.resolve({data:[[1,22],[2,23]],unit:'%'}));
-    await tick();
-    check(document.querySelector('[role="alert"]')?.textContent.includes('mock failed'), '错误必须可见，不能丢弃其它成功曲线');
+    await waitFor(() => document.querySelector('[role="alert"]')?.textContent.includes('mock failed'), '错误必须可见，不能丢弃其它成功曲线');
     check(document.querySelectorAll('#charts svg').length === 5, '成功指标仍应显示');
     calls.slice(0,6).forEach(call=>call.resolve({data:[[1,99]],unit:'%'})); await tick();
     check(!document.querySelector('#charts')?.textContent.includes('99.00'), '过期请求不得覆盖当前结果');
