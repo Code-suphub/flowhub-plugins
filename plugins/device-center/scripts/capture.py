@@ -80,6 +80,12 @@ def run():
         page.get_by_text('设备详情',exact=True).first.wait_for()
         page.screenshot(path=str(out/'device-detail.png'),full_page=True)
         report['screenshots'].append({'name':'device-detail','path':'device-detail.png','viewport':[1168,940],'errors':[]})
+        # Explicit offline gallery demonstration: real remote searches never run in preview.
+        display(page,'index.html?imageDemo=1')
+        page.get_by_role('button',name='AirPods Pro 2').first.click()
+        page.get_by_text('图片选择器 · 视觉演示',exact=False).first.wait_for()
+        page.screenshot(path=str(out/'device-image-picker.png'),full_page=True,animations='disabled')
+        report['screenshots'].append({'name':'device-image-picker','path':'device-image-picker.png','viewport':[1168,940],'errors':[]})
         browser.close()
     (out/'report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
     print(json.dumps({'captures':len(report['screenshots']),'errors':report['errors'],'output':str(out)},ensure_ascii=False))
