@@ -30,8 +30,8 @@
 ### 无线模块续查
 
 - 完整 BLE HID 描述符另有厂商 Usage Page `0xff02`、Report `0x13`。该报告有输入和输出方向，各 19 字节载荷，主机 IOKit 缓冲区另计一个 Report ID。Mac mini 上按设备名、VID/PID、BLE 传输和描述符匹配到唯一的 K75，以只读 `GetReport(Input, 0x13)` 取得 19 字节全零载荷。输出报告有描述符声明，命令及配置写入仍待验证。[Bluetooth HID over GATT](https://www.bluetooth.com/specifications/specs/hid-over-gatt-profile-hogp/)
-- 标准版主控串口接收器在 `0x9a34` 把 `0x08` 帧长度设为 22 字节，校验位于 `0x11bd`。`0x1221` 按帧内第三字节低七位分派，长度与两字节帧头、19 字节载荷和一字节校验相符。无线模块是否将 Report `0x13` 转换为此帧仍需抓包确认。现有 K75 Windows 驱动的 HID 导入表使用 `GetFeature` 与 `SetFeature`，可继续用于对照有线协议。
-- Mac mini 当时未枚举到可辨认的 K75 2.4G 接收器。没有实机发送 BLE 写命令。键盘 HID、GATT 和已验证 USB 诊断均未提供 CPU 或内存占用。证据位于 `wireless-module/` 的 `hid-descriptor.json`、`probe-result.json`、`uart-dispatch.json`。
+- 标准版主控串口接收器在 `0x9a34` 把 `0x08` 帧长度设为 22 字节，校验位于 `0x11bd`。`0x1221` 按帧内第三字节低七位分派，长度与两字节帧头、19 字节载荷和一字节校验相符。分片序号乘 14、灯光分支 `0x08` 取长度字段低四位、配置分支 `0x04` 等字段与 AULA F75 的同型 2.4G 报告抓包吻合。K75 的 BLE 模块转换规则和无线配置读回仍待实机确认。现有 K75 Windows 驱动的 HID 导入表使用 `GetFeature` 与 `SetFeature`，可继续用于对照有线协议。[Keylux 的 AULA F75 无线抓包](https://github.com/SibteProf/keylux/blob/main/docs/PROTOCOL.md#wireless-24-ghz--a-different-protocol-on-a-different-device)
+- USB 读取命令 `0x84` 若被原样转发到上述无线帧，会被低七位分派归到 `0x04` 配置分支。无线配置读回需要独立确认。Mac mini 当时未枚举到可辨认的 K75 2.4G 接收器。本轮实机仅执行厂商输入报告读取。键盘 HID、GATT 和已验证 USB 诊断均未提供 CPU 或内存占用。证据位于 `wireless-module/` 的 `hid-descriptor.json`、`probe-result.json`、`uart-dispatch.json`。
 
 ## 固件离线拆解
 
