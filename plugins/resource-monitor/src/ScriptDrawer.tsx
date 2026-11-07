@@ -1,5 +1,6 @@
 import {useEffect,useRef,useState} from 'react';
-import {Alert,Descriptions,Drawer,Empty,Tabs,Tag} from 'antd';
+import {Alert,Descriptions,Drawer,Empty,Switch,Tabs,Tag} from 'antd';
+import {AuthorizationRecords,useScriptObserver} from './ScriptObservation';
 import {RequestDetails} from './RequestDetails';
 import {displayError,errorText,RequestError} from './errors';
 import type {DisplayError} from './errors';
@@ -8,17 +9,23 @@ import {AppMark,applicationIdentity,useApplications} from './applications';
 import type {Api,ScriptActivity,ScriptNode} from './types';
 
 const date=(at:number)=>at?new Date(at).toLocaleTimeString():'未读取';
-export function ScriptDrawer({api,onClose}:{api:Api;onClose:()=>void}) {
-  const [data,setData]=useState<ScriptActivity>();
-  const [error,setError]=useState<DisplayError>('');
-  const [loading,setLoading]=useState(false);
-  const [filter,setFilter]=useState('all');
+export function ScriptDrawer({api,onClose,selectedEventId}:{api:Api;onClose:()=>void;selectedEventId?:string}) {
+  const native=useScriptObserver(api);
+  const [legacyData,setData]=useState<ScriptActivity>();
+  const [legacyError,setError]=useState<DisplayError>('');
+  const [legacyLoading,setLoading]=useState(false);
+  const [filter,setFilter]=useState(selectedEventId?'authorizations':'all');
+  const observer=native.observer;
+  const data=observer?{at:observer.at,records:observer.records,error:observer.error,stale:!observer.at||Date.now()-observer.at>20000}:legacyData;
+  const error=native.error||legacyError,loading=native.loading||legacyLoading;
   const [expanded,setExpanded]=useState<string>();
   const refresh=useRef<()=>void>(()=>{});
   const records=data?.records??[];
   const applications=useApplications(api,records.flatMap(record=>[record.source,...record.chain,...(record.responsible?[record.responsible]:[])].filter((item):item is NonNullable<typeof item>=>!!item)));
   const nodeName=(node:ScriptNode)=>node.appPath?applicationIdentity(node,applications).name:node.name;
+  useEffect(()=>{if(selectedEventId)setFilter('authorizations');},[selectedEventId]);
   useEffect(()=>{
+    if(!native.legacy)return;
     let alive=true,running=false,timer:ReturnType<typeof setTimeout>|undefined;
     async function read(){
       if(running||document.hidden)return;
@@ -33,14 +40,16 @@ export function ScriptDrawer({api,onClose}:{api:Api;onClose:()=>void}) {
     const visible=()=>{if(!document.hidden)void read();};
     void read();document.addEventListener('visibilitychange',visible);
     return()=>{alive=false;clearTimeout(timer);document.removeEventListener('visibilitychange',visible);};
-  },[api]);
+  },[api,native.legacy]);
   const visible=records.filter(record=>filter==='all'||record.running);
   const stale=!!data&&(!!data.error||data.stale||Date.now()-data.at>20000);
   return <Drawer title="脚本来源" open placement="right" onClose={onClose} size="large" styles={{wrapper:{width:'min(620px,100vw)'},body:{padding:16},header:{padding:16}}} className="script-drawer">
-    <p className="muted text-xs mb-3">{api.preview?'只读预览 · 模拟记录。':''}查看 AppleScript / 自动操作的来源线索。脚本运行不代表正在请求管理员授权。</p>
-    <div className="flex items-center justify-between gap-2 mb-3"><span className="muted text-xs">{data?.at?`${date(data.at)} 采样${stale?' · 数据可能已过期':''}`:'正在读取脚本活动…'}</span><Button size="sm" className="compact-button" disabled={loading} onClick={()=>refresh.current()}>{loading?'读取中…':'刷新记录'}</Button></div>
+    <p className="muted text-xs mb-3">{api.preview?'只读预览 · 模拟记录。':''}查看系统认证窗口与脚本来源线索。脚本运行不代表请求了授权，同时出现也不能证明它是弹窗发起方。</p>
+    {observer?<div className="flex items-center justify-between gap-3 mb-3"><label className="flex items-center gap-2 text-xs"><Switch aria-label="自动观察与右上角提示" checked={observer.enabled} disabled={api.preview||!observer.supported||!observer.available||native.changing} loading={native.changing} onChange={value=>void native.configure(value)}/>自动观察与右上角提示</label><span className="muted text-xs">{!observer.supported?'当前系统不支持':!observer.available?'监控插件未启用':observer.enabled?'后台每秒观察':'观察已暂停'}</span></div>:native.legacy?<Alert type="info" title="自动观察暂不可用，显示原有的每 5 秒采样记录；请使用新版 FlowHub。" className="mb-3"/>:null}
+    <div className="flex items-center justify-between gap-2 mb-3"><span className="muted text-xs">{data?.at?`${date(data.at)} 采样${stale?' · 数据可能已过期':''}`:'正在读取脚本活动…'}</span><Button size="sm" className="compact-button" disabled={loading} onClick={()=>observer?void native.refresh():refresh.current()}>{loading?'读取中…':'刷新记录'}</Button></div>
     {error||data?.error?<Alert type="warning" showIcon title={errorText(error||data?.error)} description={error instanceof RequestError?<RequestDetails error={error}/>:undefined} className="mb-3"/>:null}
-    <Tabs activeKey={filter} onChange={setFilter} items={[{key:'all',label:`近期记录 (${records.length})`},{key:'running',label:`本次采样可见 (${records.filter(r=>r.running).length})`}]}/>
+    <Tabs activeKey={observer?filter:filter==='authorizations'?'all':filter} onChange={setFilter} items={[...(observer?[{key:'authorizations',label:`认证窗口 (${observer.observations.length})`}]:[]),{key:'all',label:`脚本记录 (${records.length})`},{key:'running',label:`本次可见 (${records.filter(r=>r.running).length})`}]}/>
+    {filter==='authorizations'&&observer?<AuthorizationRecords api={api} observations={observer.observations} selectedEventId={selectedEventId} stale={stale} enabled={observer.enabled}/>:<>
     {!visible.length&&!loading?<Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={filter==='running'?'本次采样未发现脚本工具':'尚未记录到脚本活动'}/>:null}
     <div className="script-records">{visible.map(record=>{
       const sourceName=record.source?applicationIdentity(record.source,applications).name:'来源未确认';
@@ -60,7 +69,7 @@ export function ScriptDrawer({api,onClose}:{api:Api;onClose:()=>void}) {
           <Descriptions size="small" column={1} items={[{key:'first',label:'首次采集',children:new Date(record.firstSeen).toLocaleString()},{key:'last',label:'最近采集',children:new Date(record.lastSeen).toLocaleString()}]}/>
         </div>:null}
       </section>;
-    })}</div>
-    <p className="muted text-xs mt-4">每 5 秒采样；仅保留本次采集服务运行期间最近 30 分钟、最多 64 条记录，重载后清空。短于采样间隔的活动可能遗漏；“最近未见”表示进程已退出或本次不可读取。仅记录进程与来源元数据，不读取脚本正文、密码或完整命令行。</p>
+    })}</div></>}
+    <p className="muted text-xs mt-4">{observer?'宿主每秒观察；关闭抽屉后继续，暂停开关可停止观察。脚本和认证窗口记录各保留最近 30 分钟、最多 64 条，重启 FlowHub 后清空。':'每 5 秒采样；记录保留最近 30 分钟、最多 64 条，重载采集服务后清空。'} 同一进程更新原记录，不重复累加。短暂活动仍可能遗漏。不读取窗口正文、截图、脚本正文、密码或完整命令行。</p>
   </Drawer>;
 }

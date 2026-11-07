@@ -31,6 +31,8 @@ export interface SnapshotState {at:number;revision?:number;sampling?:boolean;sta
 export interface ScriptNode extends Identity {name:string;appPath:string|null}
 export interface ScriptRecord {id:string;process:ScriptNode;chain:ScriptNode[];responsible:ScriptNode|null;source:SourceOrigin|null;chainNote:string;firstSeen:number;lastSeen:number;running:boolean}
 export interface ScriptActivity extends SnapshotState {records:ScriptRecord[]}
+export interface ScriptObservation {id:string;windowId:number;owner:Identity;firstSeen:number;lastSeen:number;visible:boolean;candidateCount:number;candidates?:ScriptRecord[];canReplay?:boolean}
+export interface ScriptObserver {supported:boolean;enabled:boolean;available:boolean;at:number;revision?:number;interval:number;records:ScriptRecord[];observations:ScriptObservation[];error?:string|null}
 export interface Snapshot extends SnapshotState {groups:Group[]}
 export interface GroupSummary extends Omit<Group,'processes'|'instances'> {processCount:number;instanceCount:number;onlyInstanceId?:string|null;permissionLimited:boolean;hasRestrictedProcesses:boolean}
 export interface RankingSnapshot extends SnapshotState {groups:GroupSummary[];includeSystem:boolean;hasRestrictedProcesses:boolean;query:string;matchedGroupIds:string[]}
@@ -39,7 +41,7 @@ export interface StatusRow {id:string;name:string;systemAccounting?:SystemAccoun
 export interface StatusSnapshot {at:number;rows:StatusRow[];system:SystemInfo;error?:string|null}
 export type Sort = 'footprint'|'memory'|'cpu'|'accounting';
 export type SortOrder = 'ascend'|'descend';
-export interface Config {title?:string;sort?:Sort;display?:'all'|'top';limit?:number;groupId?:string;selection?:{groupId?:string}}
+export interface Config {title?:string;sort?:Sort;display?:'all'|'top';limit?:number;groupId?:string;selection?:{groupId?:string};sourceView?:string;scriptEventId?:string}
 export interface ApplicationState {canQuit:boolean;message:string;instances?:number;quitInstances?:string[];contextKind?:'arc'|'codex'|null}
 export interface QuitPlan {token:string;expiresIn:number;name:string;appPath:string;targets:Identity[];instanceId?:string;root?:Identity}
 export interface ContextEntry {id:string;token:string|null;title:string;detail:string;processes:Identity[];source:string;shared:boolean;ambiguous:boolean}

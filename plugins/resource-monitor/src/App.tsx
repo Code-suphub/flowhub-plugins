@@ -43,6 +43,9 @@ export function App({api,context}:{api:Api;context:Context}) {
   const [selectedInstance,setSelectedInstance]=useState<string>();
   const [checkedInstances,setCheckedInstances]=useState<string[]>([]);
   const [scriptsOpen,setScriptsOpen]=useState(false);
+  const scriptEventId=typeof context.config?.scriptEventId==='string'?context.config.scriptEventId:undefined;
+  const openedScriptEvent=useRef('');
+  useEffect(()=>{if(context.config?.sourceView==='scripts'&&scriptEventId&&openedScriptEvent.current!==scriptEventId){openedScriptEvent.current=scriptEventId;setScriptsOpen(true);}},[scriptEventId,context.config?.sourceView]);
   const [servicesScope,setServicesScope]=useState<{appPath?:string;ids?:string[];name?:string}>();const [servicesOpen,setServicesOpen]=useState(false);
   const background=useBackgroundServices(api,!!detailId||servicesOpen);
   const serviceFor=(process:Process)=>background.data?.services.find(service=>!process.exited&&!process.moved&&sameServiceProcess(service,process));
@@ -439,6 +442,6 @@ export function App({api,context}:{api:Api;context:Context}) {
       <div className="confirm-targets">{plan?.targets.map(p=><div key={`${p.pid}:${p.started}`} className="confirm-target"><strong>{processName(p)}</strong><span className="muted text-xs">PID {p.pid} · 足迹 {bytes(p.footprint)} · RSS {bytes(p.memory)}</span><span className="path muted text-xs">{p.executable}</span></div>)}</div>
     </Modal>
     {servicesOpen?<BackgroundServices api={api} data={background.data} error={background.error} scope={servicesScope} onClose={()=>setServicesOpen(false)} onRefresh={background.refresh} withOperation={background.withOperation} onChanged={()=>void refresh(true)} onAuthorize={()=>{setServicesOpen(false);confirmPrivileged('enable');}}/>:null}
-    {scriptsOpen?<ScriptDrawer api={api} onClose={()=>setScriptsOpen(false)}/>:null}
+    {scriptsOpen?<ScriptDrawer api={api} selectedEventId={scriptEventId} onClose={()=>setScriptsOpen(false)}/>:null}
   </main>;
 }
