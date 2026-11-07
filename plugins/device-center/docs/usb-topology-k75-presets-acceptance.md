@@ -30,4 +30,6 @@
 
 隔离浏览器对打包产物通过 127 项行为检查和 24 组响应式检查，含窄屏连接树、上下游导航、同型号连接入口、记录和应用预设、诊断原始值。
 
-证据目录为 `~/.local/state/flowhub-k75-usb-20261107/deep-diagnostics/`，包含工程版完整配置恢复读回和蓝牙 GATT 授权检查。Mac mini 的 0.3.17 隔离后端已通过 USB 父链、Billboard 分类、预设持久化、过期状态拒绝和恢复后完整配置指纹检查。正常安装版验收单独记录。
+证据目录为 `~/.local/state/flowhub-k75-usb-20261107/deep-diagnostics/`，包含工程版完整配置恢复读回和蓝牙 GATT 授权检查。Mac mini 的 0.3.17 隔离后端已通过 USB 父链、Billboard 分类、预设持久化、过期状态拒绝和恢复后完整配置指纹检查。
+
+Mac mini 正式安装使用 FlowHub 插件市场，更新前备份 0.3.16 安装目录和插件登记。0.3.17 的 29 个文件指纹、登记目录、启用状态和正式宿主子进程均核对通过。通过屏幕共享验证 USB 分类内的 Genesys Logic → Terminus → Gaming Keyboard 层级，打开键盘详情并展开「有线配置与预设」，确认 Mac 模式、关灯状态、切换和记录入口可见。正式界面本轮只做展示验收，预设保存和键位写入以隔离验收为准。证据见 `install-staged.json` 与 `installed-proof.json`。
