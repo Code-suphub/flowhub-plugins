@@ -40,6 +40,19 @@ const server=createServer(async(req,res)=>{
    window.addEventListener('message',event=>{if(event.source===document.querySelector('iframe').contentWindow&&event.data?.type==='flowhub:widget-navigate')window.__qa.navigation=event.data;});
    window.addEventListener('message',event=>{const frame=document.querySelector('iframe');if(event.source!==frame.contentWindow)return;const m=event.data;if(m.type==='flowhub:theme-ready'){frame.contentWindow.postMessage({type:'flowhub:theme',theme:'light'},'*');return;}if(m.type==='flowhub:widget-ready'){frame.contentWindow.postMessage({type:'flowhub:widget-init',token:'qa-token',context:${JSON.stringify(context)}},'*');return;}if(!['flowhub:request','flowhub:widget-rpc'].includes(m.type))return;const widget=m.type==='flowhub:widget-rpc',method=widget?m.params.method:m.method;window.__qa.requests.push(method);const reply={type:widget?'flowhub:widget-result':'flowhub:response',token:widget?'qa-token':undefined,id:m.id};
    if(method==='open_display_settings'){if(window.__qa.settingsError)reply.error=window.__qa.settingsError;else reply.result={opened:true};if(window.__qa.holdSettings){window.__qa.finishSettings=()=>frame.contentWindow.postMessage(reply,'*');return;}frame.contentWindow.postMessage(reply,'*');return;}
+   if(method==='adb_set_alias'||method==='adb_set_low_battery_threshold'){
+    const params=widget?m.params.params:m.params;
+    const previous=window.__qa.snapshot.adbPreferences||{aliases:{},lowBatteryThreshold:30,revision:0};
+    if(window.__qa.preferenceError)reply.error=window.__qa.preferenceError;
+    else{
+     const next={...previous,aliases:{...previous.aliases},revision:previous.revision+1};
+     if(method==='adb_set_alias'){if(params.alias)next.aliases[params.id]=params.alias;else delete next.aliases[params.id];}
+     else next.lowBatteryThreshold=params.threshold;
+     reply.result=next;
+     window.__qa.snapshot.adbPreferences=next;
+    }
+    frame.contentWindow.postMessage(reply,'*');return;
+   }
    if(method==='widget_order_set'){const params=widget?m.params.params:m.params,old=window.__qa.snapshot.widgetOrder||{ids:[],revision:0};if(window.__qa.orderError)reply.error=window.__qa.orderError;else if(params.expectedRevision!==old.revision)reply.error='设备顺序已在其他组件更新，请重新排序';else {reply.result={ids:params.ids,revision:old.revision+1};window.__qa.snapshot.widgetOrder=reply.result;}if(window.__qa.holdOrder){window.__qa.finishOrder=()=>frame.contentWindow.postMessage(reply,'*');return;}frame.contentWindow.postMessage(reply,'*');return;}
    if(window.__qa.error&&method!=='device_icons')reply.error=window.__qa.error;else reply.result=method==='device_icons'?window.__qa.artwork:pending?{at:0,stale:true,devices:[],power:{},events:[]}:window.__qa.snapshot;if(method!=='device_icons')pending=false;frame.contentWindow.postMessage(reply,'*');});`);return;
   }
@@ -73,7 +86,7 @@ try{
  const click=async(selector,focus=true)=>{await evaluate(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e)throw Error('Missing control');${focus?'e.focus();':''}e.click()})()`);await sleep(70);};
  // The test iframe fills this headless viewport; CDP movement never moves the system mouse.
  const hover=async selector=>{await send('Input.dispatchMouseEvent',{type:'mouseMoved',x:1,y:1});const point=await evaluate(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});e.scrollIntoView({block:'nearest'});const r=e.getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2}})()`);await send('Input.dispatchMouseEvent',{type:'mouseMoved',...point});await sleep(70);};
- const fill=async value=>{await evaluate(`(()=>{const e=document.querySelector('input[aria-label="搜索设备"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,${JSON.stringify(value)});e.dispatchEvent(new Event('input',{bubbles:true}))})()`);await sleep(70);};
+ const fill=async(value,selector='input[aria-label="搜索设备"]')=>{await evaluate(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,${JSON.stringify(value)});e.dispatchEvent(new Event('input',{bubbles:true}))})()`);await sleep(70);};
  const size=(width,height=560)=>send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:2,mobile:false});
  const keyboard=async(key,code=key,vk=0,modifiers=0)=>{await send('Input.dispatchKeyEvent',{type:'keyDown',key,code,windowsVirtualKeyCode:vk,modifiers,...(key==='Enter'?{text:'\r'}:key.length===1?{text:key}:{})});await send('Input.dispatchKeyEvent',{type:'keyUp',key,code,windowsVirtualKeyCode:vk,modifiers});await sleep(80);};
  const capture=async name=>{await writeFile(join(out,name+'.png'),Buffer.from((await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false})).data,'base64'));report.screenshots.push(name+'.png');};
@@ -163,6 +176,12 @@ try{
  report.checks.push('widget display detail requests the same settings action');
  await navigate('/qa?scenario=adb');await click('[data-category=adb]');
  await check('document.querySelectorAll("[data-device]").length===3 && document.querySelector(".dc-adb").textContent.includes("未授权") && document.querySelector(".dc-adb").textContent.includes("离线")','ADB category keeps unauthorized and offline devices visible');
+ await check('document.querySelector("[data-device=adb-usb] .dc-card-title [data-tone=connected]")?.textContent==="已连接" && document.querySelector("[data-device=adb-offline] .dc-card-title [data-tone=disconnected]")?.textContent==="离线" && document.querySelector("[data-device=adb-usb] .dc-card-value strong.low")?.textContent==="26%" && document.querySelector("[data-device=adb-offline] .dc-card-value")?.textContent==="电量未知"','ADB title contains connection status and marks only real low batteries');
+ await evaluate('[...document.querySelectorAll(".dc-adb-actions button")].find(button=>button.textContent==="电量设置").click()');
+ await fill('20','.dc-adb-preference input[type=number]');
+ await click('.dc-adb-preference .dc-button');
+ await wait('!document.querySelector("[data-device=adb-usb] .dc-card-value strong.low")');
+ await check('document.querySelector(".dc-adb-preference input").value==="20"','changing the saved threshold immediately updates the low-battery cue');
  await check('!document.querySelector("[aria-label=刷新设备]") && [...document.querySelectorAll("button")].filter(b=>b.getAttribute("aria-label")==="刷新 ADB 设备").length===1','ADB view has a single refresh control');
  await fill('PUBLIC-USB');await check('document.querySelectorAll("[data-device]").length===1','ADB search matches serial numbers');
  const adbRequests=await parent('window.__qa.requests.filter(m=>m==="adb_refresh").length');await click('[aria-label="刷新 ADB 设备"]');
@@ -170,11 +189,22 @@ try{
  if(await parent('window.__qa.requests.filter(m=>m==="adb_refresh").length')!==adbRequests+1)throw Error('ADB refresh did not use its dedicated route');report.checks.push('ADB refresh avoids system profiler route');
  await click('[data-device=adb-usb]');await wait('document.querySelector("dialog").open');
  await check('document.querySelector("dialog").textContent.includes("PUBLIC-USB") && document.querySelector("dialog").textContent.includes("Pixel 8 Pro") && !document.querySelector("dialog .dc-display-settings")','ADB detail exposes serial, model and transport without display settings');
+ await fill('测试手机','dialog .dc-adb-preference input');
+ await parent('window.__qa.preferenceError="QA 保存失败"');
+ await click('dialog .dc-adb-preference .dc-button');
+ await check('document.querySelector("dialog .dc-adb-preference [role=alert]")?.textContent==="QA 保存失败" && document.querySelector("dialog .dc-adb-preference input").value==="测试手机"','failed alias save preserves the draft and shows the error');
+ await parent('window.__qa.preferenceError=null');
+ await click('dialog .dc-adb-preference .dc-button');
+ await wait('document.querySelector(".dc-detail-hero h3").textContent==="测试手机"');
+ await check('document.querySelector("[data-device=adb-usb] .dc-card-title strong").textContent==="测试手机" && document.querySelector("dialog").textContent.includes("PUBLIC-USB")','alias updates the row and detail while retaining the original identity');
  await evaluate('Object.defineProperty(navigator,"clipboard",{configurable:true,value:{writeText:async text=>{window.__qaCopied=text}}})');
  await click('dialog footer .dc-button');await check('window.__qaCopied==="PUBLIC-USB"','ADB copy action copies the full serial only');
  const adbFocusPoint=await evaluate('(()=>{const r=document.querySelector(".dc-detail-hero h3").getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2}})()');
  await send('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',clickCount:1,...adbFocusPoint});await send('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',clickCount:1,...adbFocusPoint});
- await evaluate('document.querySelector("dialog footer .dc-button").focus()');await keyboard('Escape','Escape',27);await wait('!document.querySelector("dialog").open');await fill('');await capture('adb-light');
+ await evaluate('document.querySelector("dialog footer .dc-button").focus()');await keyboard('Escape','Escape',27);await wait('!document.querySelector("dialog").open');
+ await fill('测试手机');
+ await check('document.querySelectorAll("[data-device]").length===1 && !!document.querySelector("[data-device=adb-usb]")','ADB search finds saved aliases');
+ await fill('');await capture('adb-light');
  for(const theme of ['light','dark'])for(const width of [800,640,520,390]){await size(width);await evaluate(`document.documentElement.dataset.theme='${theme}'`);await sleep(80);await check('document.documentElement.scrollWidth<=innerWidth+1 && [...document.querySelectorAll(".dc-toolbar button,.dc-adb button")].every(e=>{const r=e.getBoundingClientRect();return !r.width || (r.left>=0 && r.right<=innerWidth+1)})','ADB '+theme+' '+width+' layout fits');if(width===800)await capture('adb-'+theme);}
  await parent('window.__qa.snapshot='+JSON.stringify(fixture('adb-error')));await click('[aria-label="刷新 ADB 设备"]');
  await check('document.querySelector(".dc-adb [role=alert]").textContent.includes("上次采集结果") && document.querySelectorAll(".dc-adb .is-stale").length===3','ADB query failure keeps and labels cached rows');
@@ -185,6 +215,9 @@ try{
  await navigate('/qa?scenario=adb-missing');await click('[data-category=adb]');await check('document.querySelector(".dc-adb [role=alert]").textContent.includes("Platform-Tools")','missing ADB has an installation hint rather than a false empty result');
  await navigate('/qa?surface=card&scenario=adb');await click('[data-widget-category=adb]');
  await check('document.querySelectorAll(".device-row").length===3 && document.querySelector(".widget-device-list").textContent.includes("未授权") && document.querySelector(".widget-device-list").textContent.includes("离线")','desktop widget lists ADB states in its own category');
+ await parent('window.__qa.snapshot.adbPreferences={aliases:{"adb-usb":"测试手机"},lowBatteryThreshold:30,revision:2}');
+ await wait('document.querySelector("[data-device=adb-usb] .device-name").textContent==="测试手机"');
+ await check('document.querySelector("[data-device=adb-usb] .device-title [data-tone=connected]")?.textContent==="已连接" && document.querySelector("[data-device=adb-usb] .battery-reading.low")?.textContent==="26%" && document.querySelector("[data-device=adb-offline] .battery-unknown")?.textContent==="电量未知"','desktop widget reads the saved alias and low-battery threshold');
  for(const theme of ['light','dark'])for(const width of [360,280]){await size(width);await evaluate(`document.documentElement.dataset.theme='${theme}'`);await sleep(80);await check('document.documentElement.scrollWidth<=innerWidth+1 && [...document.querySelectorAll(".widget-metric")].every(e=>{const r=e.getBoundingClientRect();return r.left>=0 && r.right<=innerWidth+1})','ADB widget '+theme+' '+width+' fits');if(width===360)await capture('adb-widget-'+theme);}
  await click('[data-device=adb-auth]');if(await parent('window.__qa.navigation?.selection?.deviceId')!=='adb-auth')throw Error('Missing ADB widget detail selection');report.checks.push('desktop ADB card selects its matching detail');
  await size(800);await navigate('/qa?widget=1&scenario=adb&device=adb-auth');await wait('document.querySelector("dialog").open');await check('document.querySelector("dialog").textContent.includes("未授权") && document.querySelector("dialog").textContent.includes("PUBLIC-AUTH")','widget detail preserves ADB authorization state');
@@ -203,7 +236,7 @@ try{
  await send('Input.dispatchMouseEvent',{type:'mouseMoved',buttons:1,...edgePoints.edge});await sleep(350);
  await check('document.querySelector(".widget-device-list").scrollTop>35 && document.querySelector(".is-order-dragging")','dragging near the list edge scrolls to devices outside the visible rows');
  await keyboard('Escape','Escape',27);await send('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',buttons:0,clickCount:1,...edgePoints.edge});
- await check('!document.querySelector(".is-order-dragging") && !document.querySelector("[data-drop]")','Escape cancels dragging and clears its insertion marker');
+ await check('!document.querySelector(".is-order-dragging") && !document.querySelector("[data-drop]") && !document.querySelector(".widget-drag-ghost")','Escape removes the floating card and restores the original slots');
  if(await parent('window.__qa.requests.includes("widget_order_set")'))throw Error('Cancelled drag persisted an order');
  report.checks.push('cancelled edge drag does not write device preferences');
  await click('[data-widget-category=usb]');
@@ -230,6 +263,8 @@ try{
  await evaluate('window.__qaPointer=[];for(const type of ["pointerdown","pointermove","pointerup","pointercancel","gotpointercapture","lostpointercapture"])document.addEventListener(type,e=>window.__qaPointer.push({type:e.type,target:e.target.closest?.("[data-order-handle]")?.dataset.orderHandle,id:e.pointerId,primary:e.isPrimary,x:e.clientX,y:e.clientY,buttons:e.buttons}),true)');
  await send('Input.dispatchMouseEvent',{type:'mouseMoved',...points.source});await send('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',buttons:1,clickCount:1,...points.source});
  await send('Input.dispatchMouseEvent',{type:'mouseMoved',buttons:1,...points.belowSsd});
+ await check('document.querySelector(".widget-drag-ghost")?.getAttribute("aria-hidden")==="true" && document.querySelectorAll("[data-device]").length===4 && document.querySelector("[data-order-item=ssd]").style.getPropertyValue("--drag-shift")==="-42px"','a single floating copy follows the pointer while neighbors slide into the vacated space');
+ await sleep(190);await capture('widget-drag-lift');
  await evaluate('window.__qaGapMarker=document.querySelector("[data-drop]");window.__qaGapEdge=window.__qaGapMarker?.dataset.drop');
  await send('Input.dispatchMouseEvent',{type:'mouseMoved',buttons:1,...points.aboveReader});
  await check('window.__qaGapMarker && document.querySelector("[data-drop]")===window.__qaGapMarker && window.__qaGapMarker.dataset.drop===window.__qaGapEdge','both halves of neighboring rows use the same insertion marker for their shared gap');
@@ -238,6 +273,7 @@ try{
  report.checks.push('pointer capture starts dragging only from the device handle');
  await send('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',buttons:0,clickCount:1,...points.target});
  await wait('document.querySelector(".widget-order-notice").textContent==="顺序已保存"');
+ await check('!document.querySelector(".widget-drag-ghost")','the floating drag card is removed after drop');
  if(JSON.stringify(await deviceIds())!==JSON.stringify(['iphone','pixel','ssd','reader']))throw Error('Native drag did not persist the USB order');
  report.checks.push('CDP pointer drag from its handle saves the device order without opening detail');
  if(await parent('Boolean(window.__qa.navigation)'))throw Error('Dragging opened a device detail');

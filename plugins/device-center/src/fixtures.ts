@@ -16,7 +16,7 @@ export function demo(scenario=''):Snapshot {
  if(scenario.startsWith('adb')) {
   data.adb={available:true,at,checkedAt:at,stale:false,intervalSeconds:10};
   data.devices.push(...[
-   {id:'adb-usb',name:'Pixel 8 Pro',category:'adb' as const,kind:'phone',detail:'PUBLIC-USB',status:'connected',adb:{serial:'PUBLIC-USB',state:'device',transport:'usb',model:'Pixel 8 Pro',product:'husky',transportId:'1'}},
+   {id:'adb-usb',name:'Pixel 8 Pro',category:'adb' as const,kind:'phone',detail:'PUBLIC-USB',status:'connected',battery:'26%',adb:{serial:'PUBLIC-USB',state:'device',transport:'usb',model:'Pixel 8 Pro',product:'husky',transportId:'1'}},
    {id:'adb-auth',name:'PUBLIC-AUTH',category:'adb' as const,kind:'phone',detail:'PUBLIC-AUTH',status:'unauthorized',adb:{serial:'PUBLIC-AUTH',state:'unauthorized',transport:'usb'}},
    {id:'adb-offline',name:'192.0.2.1:5555',category:'adb' as const,kind:'phone',detail:'192.0.2.1:5555',status:'offline',adb:{serial:'192.0.2.1:5555',state:'offline',transport:'tcp'}}
   ]);

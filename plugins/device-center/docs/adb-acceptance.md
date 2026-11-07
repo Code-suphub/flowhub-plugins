@@ -36,3 +36,13 @@
 证据、构建日志、截图和原始设备标识保留在 Git 外的私有目录 `/Users/bilibili/.local/state/flowhub-device-adb-list-20261107/`。正式替换前备份目标旧包和注册信息，不直接改写运行中宿主登记，不更换主体或其他插件。
 
 构建来源为本任务 worktree 的 `plugins/device-center/build`，部署沿用已保存的 `/Users/bilibili/.codex/worktrees/device-display-settings/flowhub-plugins/plugins/device-center/build`；原工作区源码保持原样，本轮实现以新 worktree 为准。最终证据为 `plugin-tests-036.log`、`build-036.log`、`repo-tests-final.log`、`repo-build.log`、`layout.log`、`browser-036/report.json`、`rpc-report.json`、`installed-proof-036.json`、`installed-main-036.*` 与 `installed-widget-036.*`。CLI 坐标点击未生效的尝试没有计为通过，后续使用正常原生控件完成重载。
+
+## 0.3.9 连接标识、电量与拖拽
+
+- ADB 名称和状态同排。已连接为绿色，未连接为红色，过期状态标为“上次”。已授权在线设备用固定的 Android 电量诊断命令读取百分比，缺失、过期或离线时显示未知。低电量默认低于 30% 标红，可在设备页的“电量设置”调整共用阈值。
+- 别名入口在 ADB 设备详情。保存后主页面、详情、搜索和桌面组件都能读到别名，清空恢复原名。别名绑定 ADB 连接标识的哈希，切换到不同连接时可以分别命名。
+- 拖拽时只有一张浮起的卡片跟随鼠标。邻行滑动留出落点，松手后保存，Esc 恢复原位置。系统减少动态效果设置会关闭邻行的过渡。
+- 自动验证通过。目标插件 40 项 Rust 与 32 项 Node 测试、类型检查、全仓测试、全仓构建和机器管理布局检查通过。最终包在隔离浏览器通过 94 项行为检查、24 组响应式检查，控制台无错误。覆盖拖拽浮层、移位、取消、别名保存失败后重试、别名搜索和阈值变色。
+- 独立原生后端读到 3 条真实 ADB 连接，其中 2 条在线连接返回电量，1 条离线显示未知。通过隔离数据目录验证别名和阈值写入后重启读回，文件权限为 0600。
+- 正常插件市场重载 0.3.9，27 项包文件指纹和新后端进程核对通过。已安装主页面与桌面组件均读回在线电量和离线未知。安装版打开了默认阈值 30 的设置控件及设备别名编辑框。正式用户偏好与重载前一致。
+- 原生鼠标拖拽的手感保留待验，浮层和行位移通过浏览器指针事件验证。证据位于 `/Users/bilibili/.local/state/flowhub-device-widget-polish-20261107/`，其中 `browser-delivery/` 为最终浏览器报告及示例截图，`rpc-proof.json` 为隔离后端验证，`installed-proof.json` 为安装读回。

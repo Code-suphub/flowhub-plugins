@@ -5,6 +5,8 @@ mod power_source;
 mod smc_power;
 mod device_icons;
 mod adb;
+mod adb_preferences;
+mod local_preferences;
 mod widget_order;
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
@@ -58,6 +60,7 @@ struct Scan {
 }
 struct State {
     widget_order: widget_order::Store,
+    adb_preferences: adb_preferences::Store,
     adb: adb::Report,
     adb_query: Arc<Mutex<()>>,
     scan: Scan,
@@ -373,7 +376,7 @@ fn profile() -> Result<Scan, String> {
 }
 impl State {
     fn new() -> Self {
-        Self { widget_order:widget_order::Store::default(), adb:adb::Report::default(), adb_query:Arc::new(Mutex::new(())), scan: Scan { devices: vec![], power: power(&Value::Null) },
+        Self { widget_order:widget_order::Store::default(), adb_preferences:adb_preferences::Store::default(), adb:adb::Report::default(), adb_query:Arc::new(Mutex::new(())), scan: Scan { devices: vec![], power: power(&Value::Null) },
             at: 0, error: None, events: VecDeque::new(), power_sample: None, power_checked_at: 0 }
     }
     fn apply(&mut self, result: Result<Scan, String>) {
@@ -405,7 +408,7 @@ impl State {
             for (key, value) in sample { power[key] = value.clone(); }
         }
         let devices:Vec<_> = self.scan.devices.iter().chain(self.adb.devices.iter()).collect();
-        json!({"at":self.at, "stale":self.stale(), "devices":devices,"adb":self.adb.value(),"widgetOrder":self.widget_order.value(),
+        json!({"at":self.at, "stale":self.stale(), "devices":devices,"adb":self.adb.value(),"widgetOrder":self.widget_order.value(),"adbPreferences":self.adb_preferences.value(),
             "power":power, "events":self.events, "error":self.error,
             "intervalSeconds":45,"powerIntervalSeconds":5})
     }
@@ -453,6 +456,19 @@ fn dispatch(state: &Arc<Mutex<State>>, method: &str, params: &Value) -> Result<V
         "health" => Ok(json!({"protocol":2,"name":"device-center","version":env!("CARGO_PKG_VERSION")})),
         "device_icons" => Ok(device_icons::snapshot()),
         "widget_order_set" => state.lock().map_err(|_| "状态缓存不可用")?.widget_order.update(params),
+        "adb_set_alias" => {
+            let id = params["id"].as_str().ok_or("缺少设备标识")?;
+            let alias = params["alias"].as_str().ok_or("别名格式无效")?;
+            let mut state = state.lock().map_err(|_| "状态缓存不可用")?;
+            if !state.adb.devices.iter().any(|device| device.id == id) {
+                return Err("该 ADB 连接已不在列表中，请刷新后重试".into());
+            }
+            state.adb_preferences.set_alias(id, alias)
+        },
+        "adb_set_low_battery_threshold" => {
+            let threshold = params["threshold"].as_u64().ok_or("低电量阈值须为 0 到 100 的整数")?;
+            state.lock().map_err(|_| "状态缓存不可用")?.adb_preferences.set_threshold(threshold)
+        },
         "adb_refresh" => { refresh_adb(state); state.lock().map_err(|_| "状态缓存不可用".to_string()).map(|s|s.full()) },
         "open_display_settings" => {
             if !cfg!(target_os = "macos") { return Err("显示器设置仅支持 macOS".into()); }
@@ -488,6 +504,7 @@ fn dispatch(state: &Arc<Mutex<State>>, method: &str, params: &Value) -> Result<V
                 Some("device_icons") => dispatch(state, "device_icons", &params["params"]),
                 Some("open_display_settings") => dispatch(state, "open_display_settings", &params["params"]),
                 Some("adb_refresh") => dispatch(state, "adb_refresh", &params["params"]),
+                Some(method @ ("adb_set_alias" | "adb_set_low_battery_threshold")) => dispatch(state, method, &params["params"]),
                 Some("widget_order_set") => dispatch(state, "widget_order_set", &params["params"]),
                 _ => Err("不支持的组件操作".into()),
             },
@@ -498,7 +515,9 @@ fn dispatch(state: &Arc<Mutex<State>>, method: &str, params: &Value) -> Result<V
 }
 fn main() {
     let mut initial = State::new();
-    initial.widget_order = widget_order::Store::open(std::env::var_os("FLOWHUB_PLUGIN_DATA").map(Into::into));
+    let root = std::env::var_os("FLOWHUB_PLUGIN_DATA").map(std::path::PathBuf::from);
+    initial.widget_order = widget_order::Store::open(root.clone());
+    initial.adb_preferences = adb_preferences::Store::open(root);
     let state = Arc::new(Mutex::new(initial));
     let adb_worker=Arc::clone(&state);
     thread::spawn(move || loop { refresh_adb(&adb_worker); thread::sleep(Duration::from_secs(10)); });

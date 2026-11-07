@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::{collections::BTreeSet, fs, io::{Read, Write}, path::PathBuf};
+use std::{collections::BTreeSet, path::PathBuf};
+use crate::local_preferences;
 
 const MAX_IDS: usize = 1024;
 const MAX_FILE: u64 = 192 * 1024;
@@ -35,17 +36,8 @@ impl Store {
         let mut store = Self { root, ..Self::default() };
         let result = (|| -> Result<Saved, String> {
             let root = store.root.as_ref().ok_or("无法确定设备排序的保存目录")?;
-            let path = root.join("widget-order.json");
-            let metadata = match fs::symlink_metadata(&path) {
-                Ok(metadata) => metadata,
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Saved::default()),
-                Err(_) => return Err("无法读取已保存的设备顺序".into()),
-            };
-            if !metadata.is_file() || metadata.file_type().is_symlink() || metadata.len() > MAX_FILE { return Err("设备排序文件无效".into()); }
-            let mut bytes = Vec::new();
-            fs::File::open(path).map_err(|_| "无法读取已保存的设备顺序")?.take(MAX_FILE + 1).read_to_end(&mut bytes).map_err(|_| "无法读取已保存的设备顺序")?;
-            if bytes.len() as u64 > MAX_FILE { return Err("设备排序文件过大".into()); }
-            let saved: Saved = serde_json::from_slice(&bytes).map_err(|_| "设备排序文件格式无效")?;
+            let saved: Saved = local_preferences::read(root, "widget-order.json", MAX_FILE)
+                .map_err(|_| "无法读取已保存的设备顺序")?.unwrap_or_default();
             validate(&saved.ids)?;
             if saved.revision >= 9_007_199_254_740_991 { return Err("设备排序版本无效".into()); }
             Ok(saved)
@@ -64,23 +56,8 @@ impl Store {
         if ids == self.saved.ids { return Ok(self.value()); }
         let next = Saved { revision: self.saved.revision.checked_add(1).filter(|n| *n < 9_007_199_254_740_991).ok_or("设备排序版本已达上限")?, ids };
         if let Some(root) = &self.root {
-            use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
-            if !root.exists() { fs::DirBuilder::new().recursive(true).mode(0o700).create(root).map_err(|_| "无法创建设备排序目录")?; }
-            let metadata = fs::symlink_metadata(root).map_err(|_| "无法访问设备排序目录")?;
-            if !metadata.is_dir() || metadata.file_type().is_symlink() { return Err("设备排序目录无效".into()); }
-            let path = root.join("widget-order.json");
-            if fs::symlink_metadata(&path).is_ok_and(|m| !m.is_file() || m.file_type().is_symlink()) { return Err("设备排序文件无效".into()); }
-            let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos();
-            let temporary = root.join(format!(".widget-order-{}-{stamp}.tmp", std::process::id()));
-            let mut created = false;
-            let result = (|| -> Result<(), String> {
-                let mut file = fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&temporary).map_err(|_| "无法保存设备顺序")?;
-                created = true;
-                file.write_all(&serde_json::to_vec(&next).map_err(|_| "无法编码设备顺序")?).and_then(|_| file.sync_all()).map_err(|_| "无法保存设备顺序")?;
-                fs::rename(&temporary, &path).map_err(|_| "无法保存设备顺序".to_string())
-            })();
-            if result.is_err() && created { let _ = fs::remove_file(&temporary); }
-            result?;
+            local_preferences::write(root, "widget-order.json", &next)
+                .map_err(|_| "无法保存设备顺序")?;
         }
         self.saved = next;
         Ok(self.value())
@@ -90,6 +67,7 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
     #[test]
     fn persists_order_and_rejects_stale_or_invalid_writes_without_changing_saved_data() {
         use std::os::unix::fs::PermissionsExt;

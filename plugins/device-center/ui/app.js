@@ -80,15 +80,33 @@ function displaySpec(d){
     '6144x3456':'6K','7680x4320':'8K'};
   return [names[key]||d.pixelResolution,d.refreshRate].filter(Boolean).join(' · ');
 }
-function battery(pct){
-  const level=Number(String(pct).replace(/%$/,''));
+function battery(pct,threshold){
+  const match=/^(\d+(?:\.\d+)?)%$/.exec(String(pct).trim());
+  const level=match?Number(match[1]):NaN;
   if(!Number.isFinite(level)||level<0||level>100)return '';
-  return `<span class="battery-val">${level}%</span><span class="battery-indicator${level<=20?' low':''}" style="--battery-level:${level/100}" aria-label="电量 ${level}%"></span>`;
+  const low=threshold===undefined?level<=20:level<threshold;
+  return `<span class="battery-reading${low?' low':''}" aria-label="${low&&threshold!==undefined?'低电量':'电量'} ${level}%"><span class="battery-val">${level}%</span><span class="battery-indicator${low?' low':''}" style="--battery-level:${level/100}" aria-hidden="true"></span></span>`;
 }
 function row(d,position,total){
- const cached=d.adb&&(!data.adb?.at||data.adb.stale||data.adb.error);
- const description=d.adb?[(cached?'上次 · ':'')+adbState(d.adb.state),adbTransport(d.adb.transport),d.adb.serial].join(' · '):displaySpec(d)||'已连接';
- return '<div class="device-row" role="listitem" aria-posinset="'+position+'" aria-setsize="'+total+'" data-order-item="'+safe(d.id)+'"><button class="device-open" type="button" data-device="'+safe(d.id)+'">'+photo(d)+'<span class="device-name-wrap"><span class="device-name">'+safe(d.name)+displayBadge(d)+'</span><span class="device-sub">'+safe(description)+'</span></span>'+(d.battery?battery(d.battery):'')+'</button><button class="device-order-handle" type="button" data-order-handle="'+safe(d.id)+'" aria-label="调整 '+safe(d.name)+' 的顺序" aria-description="拖动排序，也可使用上下方向键移动，Home 和 End 移到首尾" title="拖动排序，或用上下方向键移动"'+(preview||orderSaving||orderDraft?' disabled':'')+'>'+svg('grip')+'</button></div>';
+ const adb=d.adb,preferences=data.adbPreferences;
+ const cached=adb&&(!data.adb?.at||data.adb.stale||data.adb.error||Date.now()-data.adb.at>30_000);
+ const name=(adb&&preferences?.aliases?.[d.id])||d.name;
+ const description=adb?[adbTransport(adb.transport),adb.serial].join(' · '):displaySpec(d)||'已连接';
+ const state=adb?`<span class="device-adb-state" data-tone="${cached?'stale':adb.state==='device'?'connected':'disconnected'}">${cached?'上次 · ':''}${safe(adbState(adb.state))}</span>`:'';
+ const reading=adb
+   ?(!cached&&adb.state==='device'&&d.battery?battery(d.battery,preferences?.lowBatteryThreshold??30):'')||'<span class="battery-unknown">电量未知</span>'
+   :d.battery?battery(d.battery):'';
+ return `<div class="device-row" role="listitem" aria-posinset="${position}" aria-setsize="${total}" data-order-item="${safe(d.id)}">
+   <button class="device-open" type="button" data-device="${safe(d.id)}">
+     ${photo(d)}<span class="device-name-wrap">
+       <span class="device-title"><span class="device-name" title="${safe(name)}">${safe(name)}${displayBadge(d)}</span>${state}</span>
+       <span class="device-sub" title="${safe(description)}">${safe(description)}</span>
+     </span>${reading}
+   </button>
+   <button class="device-order-handle" type="button" data-order-handle="${safe(d.id)}"
+     aria-label="调整 ${safe(name)} 的顺序" aria-description="拖动排序，也可使用上下方向键移动，Home 和 End 移到首尾"
+     title="拖动排序，或用上下方向键移动"${preview||orderSaving||orderDraft?' disabled':''}>${svg('grip')}</button>
+ </div>`;
 }
 function powerValues(power){
   const number=value=>{const n=value===null||value===undefined||value===''?null:Number(value);return n!==null&&Number.isFinite(n)?n:null;};
@@ -194,8 +212,55 @@ function moveDevice(source,target,after=false,ensureVisible=false){
 function endDrag(){
   if(dragFrame!==null){cancelAnimationFrame(dragFrame);dragFrame=null;}
   const previous=drag;drag=null;
+  previous?.ghost?.remove();
   try{if(previous?.handle.hasPointerCapture(previous.pointerId))previous.handle.releasePointerCapture(previous.pointerId);}catch{}
   node.querySelector('.widget')?.classList.remove('is-order-dragging');
+}
+function liftDevice(active){
+  const {list,sourceRow}=active;
+  const bounds=list.getBoundingClientRect();
+  const origin=sourceRow.getBoundingClientRect();
+  active.rows=[...list.querySelectorAll('[data-order-item]')].map(row=>{
+    const rect=row.getBoundingClientRect();
+    return {row,midpoint:rect.top-bounds.top+list.scrollTop+rect.height/2};
+  });
+  active.sourceIndex=active.rows.findIndex(item=>item.row===sourceRow);
+  active.height=origin.height;
+  active.pointerOffset=active.startY-origin.top;
+  const ghost=sourceRow.cloneNode(true);
+  ghost.className='device-row widget-drag-ghost';
+  ghost.removeAttribute('data-order-item');
+  ghost.setAttribute('aria-hidden','true');
+  ghost.inert=true;
+  for(const child of ghost.querySelectorAll('[data-device],[data-order-handle]')){
+    child.removeAttribute('data-device');
+    child.removeAttribute('data-order-handle');
+  }
+  ghost.style.left=origin.left+'px';
+  ghost.style.width=origin.width+'px';
+  ghost.style.height=origin.height+'px';
+  document.body.append(ghost);
+  active.ghost=ghost;
+  sourceRow.classList.add('is-dragging');
+  node.querySelector('.widget')?.classList.add('is-order-dragging');
+}
+function showDropGap(active,gap){
+  if(active.gap===gap)return;
+  active.gap=gap;
+  active.target?.removeAttribute('data-drop');
+  const {rows,sourceIndex,height}=active;
+  const moved=gap!==null&&gap!==sourceIndex&&gap!==sourceIndex+1;
+  const destination=moved?(gap>sourceIndex?gap-1:gap):sourceIndex;
+  active.target=moved?(rows[gap]||rows[rows.length-1]).row:null;
+  active.after=moved&&gap===rows.length;
+  if(active.target)active.target.dataset.drop=active.after?'after':'before';
+  rows.forEach(({row},index)=>{
+    let shift=0;
+    if(index===sourceIndex)shift=destination-sourceIndex;
+    else if(destination<sourceIndex&&index>=destination&&index<sourceIndex)shift=1;
+    else if(destination>sourceIndex&&index>sourceIndex&&index<=destination)shift=-1;
+    row.style.setProperty('--drag-shift',shift*height+'px');
+  });
 }
 function dragPosition(list,x,y){
   if(!drag)return;
@@ -203,32 +268,13 @@ function dragPosition(list,x,y){
   drag.y=y;
   const bounds=list.getBoundingClientRect();
   const inside=x>=bounds.left&&x<=bounds.right&&y>=bounds.top&&y<=bounds.bottom;
-  let row=inside?document.elementFromPoint(x,y)?.closest('[data-order-item]'):null;
-  if(inside&&!row){
-    const first=list.firstElementChild,last=list.lastElementChild;
-    if(first&&y<first.getBoundingClientRect().top)row=first;
-    else if(last&&y>last.getBoundingClientRect().bottom)row=last;
-  }
-  let after=false;
-  if(row?.dataset.orderItem){
-    const rect=row.getBoundingClientRect();
-    after=y>=rect.top+rect.height/2;
-    // Both sides of a shared gap anchor to the top of the same row.
-    if(after&&row.nextElementSibling){
-      row=row.nextElementSibling;
-      after=false;
-    }
-    // Gaps immediately before and after the source both leave it in place.
-    if(row===drag.sourceRow||(!after&&row.previousElementSibling===drag.sourceRow))row=null;
-  }else{
-    row=null;
-  }
-  if(row!==drag.target||after!==drag.after){
-    drag.target?.removeAttribute('data-drop');
-    if(row)row.dataset.drop=after?'after':'before';
-    drag.target=row;
-    drag.after=after;
-  }
+  // Use the original row positions so animated neighbors never move the hit targets.
+  const contentY=y-bounds.top+list.scrollTop;
+  const next=inside?drag.rows.findIndex(({midpoint})=>contentY<midpoint):-1;
+  showDropGap(drag,inside?(next===-1?drag.rows.length:next):null);
+  const left=Math.max(-5,Math.min(5,x-drag.startX));
+  const top=Math.max(bounds.top,Math.min(bounds.bottom-drag.height,y-drag.pointerOffset));
+  drag.ghost.style.transform=`translate3d(${left}px,${top}px,0)`;
   drag.scroll=!inside?0:y<bounds.top+24?-6:y>bounds.bottom-24?6:0;
 }
 function scrollDrag(list){
@@ -243,8 +289,7 @@ function movePointer(event){
   event.stopPropagation();
   if(!drag.moved){
     drag.moved=true;
-    drag.sourceRow.classList.add('is-dragging');
-    node.querySelector('.widget')?.classList.add('is-order-dragging');
+    liftDevice(drag);
   }
   dragPosition(drag.list,event.clientX,event.clientY);scrollDrag(drag.list);
 }

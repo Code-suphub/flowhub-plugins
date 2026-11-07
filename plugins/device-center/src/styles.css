@@ -14,5 +14,27 @@ html:root[data-theme=dark]{--fh-canvas:#151922;--fh-surface:#1d2330;--fh-surface
 @media(max-width:480px){.dc-header{gap:15px;padding:0 11px}.dc-brand{font-size:13px;gap:6px}.dc-brand>.dc-icon{width:22px;height:22px}.dc-navigation .fh-tabs__trigger{padding:0 10px}.dc-refresh{padding:5px}.dc-refresh>span{display:none}.dc-toolbar{flex-wrap:wrap;gap:8px}.dc-search{width:100%;flex:none}.dc-filters{flex:1}.dc-device-grid{grid-template-columns:1fr}.dc-card{height:57px;gap:10px;padding:8px 10px}.dc-card-name strong{font-size:12px}.dc-card-name small{font-size:10px}.dc-card-value>strong{font-size:15px}.dc-card-value>strong.dc-spec{font-size:10px}.dc-device-art{height:34px;width:34px}.dc-device-art img{height:32px;width:32px}.dc-power-metrics{grid-template-columns:1fr 1fr}.dc-power-metric.is-primary{grid-column:1/-1;min-height:145px}.dc-metric-label{gap:7px;font-size:11px}.dc-metric-number{font-size:34px}.is-primary .dc-metric-number{font-size:43px}.dc-power-facts{padding:13px 0}.dc-power-facts>div{padding:0 9px;gap:5px}.dc-power-facts strong{font-size:12px}.dc-power-facts span,.dc-power-facts small{font-size:9px}.dc-power-note{font-size:9px}.dc-footer{font-size:8px;padding:0 12px}.dc-detail-facts{grid-template-columns:1fr}.dc-detail-hero h3{font-size:15px}.dc-detail-battery{font-size:25px}.dc-detail-spec{max-width:80px;font-size:10px}.dc-detail-hero{gap:9px}.dc-detail-hero>.dc-device-art{height:43px;width:43px}.dc-detail-hero img{height:42px;width:42px}}
 .dc-group-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px;min-height:23px}.dc-group-heading h2{margin:0}.dc-display-settings{white-space:nowrap}.dc-group-heading>.dc-display-settings{min-height:23px;padding:2px 6px;font-size:10px}.dc-group-heading>.dc-display-settings>.dc-icon{height:12px;width:12px}
 @media(prefers-reduced-motion:reduce){.is-spinning{animation:none}}
-.dc-adb-actions{display:flex;align-items:center;gap:6px}.dc-adb-actions>.dc-button{min-height:23px;padding:2px 6px;font-size:10px}.dc-adb>.dc-warning{margin-bottom:7px;border-radius:6px}.dc-adb-hint{margin:4px 0 8px;color:var(--fh-warning);font-size:10px;line-height:1.5}.dc-card-value>strong.dc-adb-state{font-size:11px;font-weight:550;color:var(--fh-muted);overflow-wrap:anywhere;text-align:right}.dc-card-value>strong.dc-adb-state[data-state=device]{color:var(--fh-positive)}.dc-card-value>strong.dc-adb-state[data-state=unauthorized],.dc-card-value>strong.dc-adb-state[data-state="no permissions"]{color:var(--fh-warning)}.dc-adb-empty{min-height:120px;padding:22px 12px}
+.dc-adb-actions{display:flex;align-items:center;gap:6px}
+.dc-adb-actions>.dc-button{min-height:23px;padding:2px 6px;font-size:10px}
+.dc-adb>.dc-warning{margin-bottom:7px;border-radius:6px}
+.dc-adb-hint{margin:4px 0 8px;color:var(--fh-warning);font-size:10px;line-height:1.5}
+.dc-adb-empty{min-height:120px;padding:22px 12px}
+.dc-card-title{display:flex;align-items:baseline;gap:6px;min-width:0}
+.dc-card-title>strong{min-width:0}
+.dc-adb-state{flex:none;max-width:62%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--fh-muted);font-size:10px}
+.dc-adb-state[data-tone=connected]{color:var(--fh-positive)}
+.dc-adb-state[data-tone=disconnected],
+.dc-adb .dc-card-value>strong.low,.dc-detail-battery.low{color:var(--fh-danger)}
+.dc-adb .dc-card:has(.low) .dc-battery-track i{background:var(--fh-danger)}
+.dc-adb-preference{margin:0 0 9px;padding:9px 11px;border:1px solid var(--fh-border);border-radius:8px;background:var(--fh-surface)}
+.dc-adb>.dc-adb-preference{width:max-content;max-width:100%;margin-inline-start:auto}
+.dc-adb-preference>label{display:block;margin-bottom:5px;font-size:11px;font-weight:600}
+.dc-adb-preference-controls{display:flex;align-items:center;gap:7px}
+.dc-adb-preference .dc-input{width:min(100%,250px);min-width:0;min-height:30px;padding:5px 8px}
+.dc-adb-preference-controls>.dc-button{flex:none;white-space:nowrap}
+.dc-adb-threshold{width:122px;border-radius:7px}
+.dc-adb-threshold>.fh-number-input__field{min-height:30px;padding:0 3px;font-size:12px}
+.dc-adb-threshold>button{width:30px;min-height:30px;font-size:14px}
+.dc-adb-preference p{margin:5px 0 0;color:var(--fh-muted);font-size:10px}
+.dc-adb-preference p.dc-adb-save-error{color:var(--fh-danger)}
 @media(min-width:481px) and (max-width:600px){.dc-toolbar{flex-wrap:wrap}.dc-search{width:100%;flex:none}.dc-filters{flex:1}}

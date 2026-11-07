@@ -1,7 +1,7 @@
 use super::{device, now, short, stable_id, Device};
 use serde::Serialize;
 use serde_json::{json, Value};
-use std::{collections::BTreeSet, path::PathBuf, time::Duration};
+use std::{collections::BTreeSet, path::PathBuf, thread, time::{Duration, Instant}};
 
 #[derive(Clone, Debug, Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -58,15 +58,58 @@ fn find() -> Option<PathBuf> {
 
 pub(crate) fn read() -> Result<Vec<Device>, Error> {
     let program = find().ok_or(Error::Missing)?;
-    read_program(&program, Duration::from_secs(5))
+    let mut devices = read_program(&program, Duration::from_secs(5))?;
+    sample_batteries(&program, &mut devices);
+    Ok(devices)
 }
 fn read_program(program: &std::path::Path, timeout: Duration) -> Result<Vec<Device>, Error> {
-    // Fixed listing only. Never reconnect devices, stop the server or run a device shell.
+    // Only the fixed listing command discovers eligible device connections.
     let output = super::read_system_query(program.to_str().ok_or_else(|| Error::Query("ADB 路径无效".into()))?,
         &["devices", "-l"], timeout, 128 * 1024)
         .map_err(|e| Error::Query(if e.contains("超时") { "ADB 读取超时，请检查本机 ADB 服务后重试。".into() }
             else { "ADB 读取失败，请确认本机可执行 adb devices -l 后重试。".into() }))?;
     parse(std::str::from_utf8(&output).map_err(|_| Error::Query("ADB 返回的设备列表编码无效".into()))?).map_err(Error::Query)
+}
+
+fn battery_percentage(text: &str) -> Option<String> {
+    let field = |name: &str| text.lines().filter_map(|line| line.trim().split_once(':'))
+        .find_map(|(key, value)| (key == name).then_some(value.trim()));
+    if field("present") == Some("false") {
+        return None;
+    }
+    let level: u32 = field("level")?.parse().ok()?;
+    let scale: u32 = field("scale")?.parse().ok()?;
+    if scale == 0 || level > scale {
+        return None;
+    }
+    Some(format!("{}%", u64::from(level) * 100 / u64::from(scale)))
+}
+
+fn sample_batteries(program: &std::path::Path, devices: &mut [Device]) {
+    let Some(program) = program.to_str() else { return; };
+    let mut connected: Vec<_> = devices.iter_mut()
+        .filter(|device| device.adb.as_ref().is_some_and(|info| info.state == "device"))
+        .collect();
+    let chunk = connected.len().div_ceil(4).max(1);
+    let deadline = Instant::now() + Duration::from_millis(2500);
+    thread::scope(|scope| {
+        for group in connected.chunks_mut(chunk) {
+            scope.spawn(move || {
+                for device in group {
+                    let Some(remaining) = deadline.checked_duration_since(Instant::now()) else { break; };
+                    let serial = &device.adb.as_ref().expect("eligible ADB device").serial;
+                    // A single fixed read-only diagnostic. The serial comes only from adb devices.
+                    let output = super::read_system_query(
+                        program, &["-s", serial, "shell", "dumpsys", "battery"],
+                        remaining.min(Duration::from_millis(1250)), 8192,
+                    );
+                    device.battery = output.ok().and_then(|bytes| {
+                        battery_percentage(std::str::from_utf8(&bytes).ok()?)
+                    });
+                }
+            });
+        }
+    });
 }
 
 fn parse(text: &str) -> Result<Vec<Device>, String> {
@@ -108,6 +151,15 @@ fn parse(text: &str) -> Result<Vec<Device>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_real_battery_scale_and_rejects_unavailable_values() {
+        assert_eq!(battery_percentage("Current Battery Service state:\n  present: true\n  level: 57\n  scale: 200\n"), Some("28%".into()));
+        assert_eq!(battery_percentage("level: 0\nscale: 100"), Some("0%".into()));
+        for response in ["level: 30", "level: 10\nscale: 0", "level: 101\nscale: 100", "present: false\nlevel: 50\nscale: 100"] {
+            assert_eq!(battery_percentage(response), None);
+        }
+    }
     #[test]
     fn lists_usb_wireless_emulators_and_unavailable_states_without_hiding_them() {
         let result = parse("List of devices attached\r\nUSB1 device usb:1-2 product:husky model:Pixel_8_Pro device:husky transport_id:1\r\nUSB2 unauthorized usb:1-3 transport_id:2\n192.0.2.1:5555 offline transport_id:3\nemulator-5554 device model:sdk_phone\nadb-public._adb-tls-connect._tcp device model:Android_phone\nDENIED no permissions (user is not in the plugdev group)\nREC recovery\n").unwrap();
