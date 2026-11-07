@@ -13,7 +13,8 @@ const pending=new Map();
 let poll=null;
 let widgetCategory='overview';
 const widgetScroll={};
-const widgetLimit=value=>value==='all'?'all':[3,5,8].includes(Number(value))?Number(value):3;
+const orderTools=window.FlowHubDeviceOrder;
+let orderDraft=null,orderSaving=false,orderError='',orderNotice='',drag=null,dragFrame=null;
 const powerIntervals=[5,10,30,60];
 const powerInterval=()=>powerIntervals.includes(Number(widgetContext?.config?.powerIntervalSeconds))?Number(widgetContext.config.powerIntervalSeconds):5;
 const paths={
@@ -33,6 +34,7 @@ const paths={
   refresh:'<path d="M20 7v5h-5M4 17v-5h5"/><path d="M6 9A7 7 0 0 1 18 7l2 5M4 12l2 5a7 7 0 0 0 12-2"/>',
   info:'<circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10h.01"/>',
   close:'<path d="m5 5 14 14M19 5 5 19"/>',
+  grip:'<circle cx="9" cy="5" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="19" r="1"/>',
   headset:'<path d="M4 13v-2a8 8 0 0 1 16 0v2M4 13h4v7H6a2 2 0 0 1-2-2v-5Zm16 0h-4v7h2a2 2 0 0 0 2-2v-5Z"/>',
   device:'<rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/>'
 };
@@ -83,10 +85,10 @@ function battery(pct){
   if(!Number.isFinite(level)||level<0||level>100)return '';
   return `<span class="battery-val">${level}%</span><span class="battery-indicator${level<=20?' low':''}" style="--battery-level:${level/100}" aria-label="电量 ${level}%"></span>`;
 }
-function row(d){
+function row(d,position,total){
  const cached=d.adb&&(!data.adb?.at||data.adb.stale||data.adb.error);
  const description=d.adb?[(cached?'上次 · ':'')+adbState(d.adb.state),adbTransport(d.adb.transport),d.adb.serial].join(' · '):displaySpec(d)||'已连接';
- return '<button class="device-row" type="button" data-device="'+safe(d.id)+'">'+photo(d)+'<span class="device-name-wrap"><span class="device-name">'+safe(d.name)+displayBadge(d)+'</span><span class="device-sub">'+safe(description)+'</span></span>'+(d.battery?battery(d.battery):'')+'</button>';
+ return '<div class="device-row" role="listitem" aria-posinset="'+position+'" aria-setsize="'+total+'" data-order-item="'+safe(d.id)+'"><button class="device-open" type="button" data-device="'+safe(d.id)+'">'+photo(d)+'<span class="device-name-wrap"><span class="device-name">'+safe(d.name)+displayBadge(d)+'</span><span class="device-sub">'+safe(description)+'</span></span>'+(d.battery?battery(d.battery):'')+'</button><button class="device-order-handle" type="button" data-order-handle="'+safe(d.id)+'" aria-label="调整 '+safe(d.name)+' 的顺序" aria-description="拖动排序，也可使用上下方向键移动，Home 和 End 移到首尾" title="拖动排序，或用上下方向键移动"'+(preview||orderSaving||orderDraft?' disabled':'')+'>'+svg('grip')+'</button></div>';
 }
 function powerValues(power){
   const number=value=>{const n=value===null||value===undefined||value===''?null:Number(value);return n!==null&&Number.isFinite(n)?n:null;};
@@ -109,24 +111,31 @@ function powerFlow(power){
   return {source:'未提供',state:power.powerSourceError||'供电状态未提供',detail:''};
 }
 function widgetView(){
-  const config=widgetContext?.config||{},limit=widgetLimit(config.limit);
-  const devices=data.devices.filter(d=>d.category==='adb'||d.status==='connected');
+  const config=widgetContext?.config||{};
+  const devices=orderTools.sort(data.devices.filter(d=>d.category==='adb'||d.status==='connected'),orderDraft||data.widgetOrder?.ids||[]);
   const filtered=widgetCategory==='overview'?devices:devices.filter(d=>d.category===widgetCategory);
-  const s=limit==='all'?filtered:filtered.slice(0,limit),w=data.power||{};
+  const s=filtered,w=data.power||{};
   const title=String(config.title||'外设中心').slice(0,40),stale=widgetCategory==='adb'?(!data.adb?.at||data.adb.stale||Boolean(data.adb.error)):data.stale||Boolean(data.error),error=widgetCategory==='adb'?data.adb?.error:data.error;
   const status=!preview&&stale?`<p class="warning-message" role="status">${error?'设备读取失败：'+safe(error):'设备状态已过期'}，以下为上次采集结果。</p>`:'';
   const heading=(stale?'上次':'当前')+(filtered.some(d=>d.category==='adb')?'设备记录':'连接设备')+(widgetCategory==='overview'?'':` · ${label[widgetCategory]}`);
-  const shown=s.length<filtered.length?` · 显示 ${s.length}/${filtered.length}`:` · ${filtered.length} 个`;
+  const shown=` · ${filtered.length} 个`;
   const reading=powerValues(w),flow=powerFlow(w);
   const powerError=w.telemetryError?`<p class="warning-message" role="status">当前功率读取失败：${safe(w.telemetryError)}</p>`:'';
   const counts=[['全部',devices.length,'overview'],['蓝牙',devices.filter(d=>d.category==='bluetooth').length,'bluetooth'],['USB',devices.filter(d=>d.category==='usb').length,'usb'],['显示器',devices.filter(d=>d.category==='display').length,'display'],['ADB',devices.filter(d=>d.category==='adb').length,'adb']];
   const filters=counts.map(([title,value,key])=>`<button type="button" class="widget-metric" data-widget-category="${key}" aria-pressed="${widgetCategory===key}" aria-label="查看${title}设备">${svg(key)}<span>${safe(title)}</span><strong>${value}</strong></button>`).join('');
-  const items=s.length?s.map(d=>row(d,{widget:true})).join(''):`<p class="empty">${widgetCategory==='overview'?'当前没有检测到已连接设备':'当前分类没有检测到已连接设备'}</p>`;
-  return `<main class="widget"><header class="widget-head"><span class="brand-mark">${svg('overview')}</span><strong>${safe(title)}</strong><button class="icon-control more" id="widgetOpen" type="button" aria-label="打开外设中心">${svg('dots')}</button></header>${status}<div class="widget-counts">${filters}</div><button type="button" class="widget-power" id="widgetPower" aria-label="查看供电详情" title="${safe(w.powerUnavailableReason||w.note||'查看输入功率、电池充放电与适配器详情')}"><span class="widget-power-metric"><span>整机耗电</span><strong>${reading.system}</strong></span><span class="widget-power-metric"><span>供电来源</span><span class="widget-source-value" title="${safe(flow.state)}"><strong>${flow.source}</strong>${flow.detail?`<small>${safe(flow.detail)}</small>`:''}</span></span></button>${powerError}<p class="widget-section">${heading}${shown}</p><div class="widget-device-list">${items}</div></main>${preview?'<span class="preview-tag">演示数据</span>':''}`;
+  const items=s.length?s.map((d,index)=>row(d,index+1,s.length)).join(''):`<p class="empty">${widgetCategory==='overview'?'当前没有检测到已连接设备':'当前分类没有检测到已连接设备'}</p>`;
+  const issue=orderError||data.widgetOrder?.error;
+  const orderStatus=issue?`<div class="widget-order-error" role="alert">${safe(issue)}${orderDraft&&!orderSaving?'<div><button id="widgetOrderRetry" type="button">重试保存</button><button id="widgetOrderDiscard" type="button">撤销排序</button></div>':''}</div>`:'';
+  return `<main class="widget"><header class="widget-head"><span class="brand-mark">${svg('overview')}</span><strong>${safe(title)}</strong><button class="icon-control more" id="widgetOpen" type="button" aria-label="打开外设中心">${svg('dots')}</button></header>${status}<div class="widget-counts">${filters}</div><button type="button" class="widget-power" id="widgetPower" aria-label="查看供电详情" title="${safe(w.powerUnavailableReason||w.note||'查看输入功率、电池充放电与适配器详情')}"><span class="widget-power-metric"><span>整机耗电</span><strong>${reading.system}</strong></span><span class="widget-power-metric"><span>供电来源</span><span class="widget-source-value" title="${safe(flow.state)}"><strong>${flow.source}</strong>${flow.detail?`<small>${safe(flow.detail)}</small>`:''}</span></span></button>${powerError}<div class="widget-section"><span>${heading}${shown}</span><span class="widget-order-notice" role="status">${safe(orderNotice)}</span></div>${orderStatus}<div class="widget-device-list" data-widget-list-category="${widgetCategory}" role="list" aria-label="设备列表">${items}</div></main>${preview?'<span class="preview-tag">演示数据</span>':''}`;
 }
-function editorView(){const conf=widgetContext?.config||{};return `<main class="editor"><h1>桌面组件</h1><label>组件名称<input id="widget-title" maxlength="40" value="${safe(conf.title||'外设中心')}"></label><label>显示数量<select id="widget-limit">${[3,5,8,'all'].map(n=>`<option value="${n}" ${widgetLimit(conf.limit)===n?'selected':''}>${n==='all'?'全部设备（列表可滚动）':n+' 个'}</option>`).join('')}</select></label><label>功率采样间隔<select id="widget-interval">${powerIntervals.map(n=>`<option value="${n}" ${powerInterval()===n?'selected':''}>${n} 秒</option>`).join('')}</select></label></main>`;}
-function redraw(){
-  if(done)return;
+function editorView(){const conf=widgetContext?.config||{};return `<main class="editor"><h1>桌面组件</h1><label>组件名称<input id="widget-title" maxlength="40" value="${safe(conf.title||'外设中心')}"></label><label>功率采样间隔<select id="widget-interval">${powerIntervals.map(n=>`<option value="${n}" ${powerInterval()===n?'selected':''}>${n} 秒</option>`).join('')}</select></label></main>`;}
+function redraw(focusId,ensureVisible=false){
+  if(done||drag)return;
+  const previousList=node.querySelector('.widget-device-list');
+  if(previousList?.dataset?.widgetListCategory)widgetScroll[previousList.dataset.widgetListCategory]=previousList.scrollTop;
+  const active=document.hasFocus?.()?document.activeElement:null;
+  const ownFocus=focusId&&(!active||active===document.body||active.dataset?.orderHandle===focusId);
+  const focus=ownFocus?{handle:focusId}:active?.dataset?.orderHandle?{handle:active.dataset.orderHandle}:active?.dataset?.device?{device:active.dataset.device}:active?.dataset?.widgetCategory?{category:active.dataset.widgetCategory}:null;
   node.innerHTML=surface==='editor'?editorView():widgetView();
   node.querySelectorAll('[data-widget-category]').forEach(btn=>btn.addEventListener('click',()=>{widgetCategory=btn.dataset.widgetCategory;redraw();}));
   const widgetList=node.querySelector('.widget-device-list'),category=widgetCategory;
@@ -137,19 +146,109 @@ function redraw(){
   }));
   node.querySelector('#widgetOpen')?.addEventListener('click',()=>{if(!preview&&widgetToken)window.parent.postMessage({type:'flowhub:widget-navigate',token:widgetToken,action:'detail',selection:{view:widgetCategory}},'*');});
   node.querySelector('#widgetPower')?.addEventListener('click',()=>{if(!preview&&widgetToken)window.parent.postMessage({type:'flowhub:widget-navigate',token:widgetToken,action:'detail',selection:{view:'power'}},'*');});
+  node.querySelector('#widgetOrderRetry')?.addEventListener('click',()=>{if(orderDraft)void saveOrder(orderDraft);});
+  node.querySelector('#widgetOrderDiscard')?.addEventListener('click',()=>{orderDraft=null;orderError='';orderNotice='';redraw();});
+  bindOrder(widgetList);
+  if(focus&&document.hasFocus?.()){
+    const selector=focus.handle?'[data-order-handle]':focus.device?'[data-device]':'[data-widget-category]';
+    const target=[...node.querySelectorAll(selector)].find(el=>(el.dataset.orderHandle||el.dataset.device||el.dataset.widgetCategory)===(focus.handle||focus.device||focus.category));
+    target?.focus({preventScroll:true});
+    if(ensureVisible&&ownFocus){target?.scrollIntoView({block:'nearest'});if(widgetList)widgetScroll[widgetCategory]=widgetList.scrollTop;}
+  }
   for(const img of node.querySelectorAll('img'))img.addEventListener('error',()=>{img.replaceWith(document.createTextNode('◇'));},{once:true});
   if(isWidget&&widgetToken&&widgetReady){window.parent.postMessage({type:'flowhub:widget-size',token:widgetToken,height:Math.ceil(document.documentElement.scrollHeight)},'*');}
 }
-function rpc(method){
+function rpc(method,extra={}){
   if(preview)return Promise.resolve(demo);
   const id='dc-preview-'+Date.now()+'-'+Math.random().toString(16).slice(2);
   return new Promise((resolve,reject)=>{
     const timer=setTimeout(()=>{pending.delete(id);reject(new Error('设备响应超时'));},44000);
     pending.set(id,{resolve,reject,timer});
-    const params={powerIntervalSeconds:powerInterval()};
+    const params={...extra,powerIntervalSeconds:powerInterval()};
     const msg=isWidget?{type:'flowhub:widget-rpc',id,token:widgetToken,params:{action:'management',method,params}}:{type:'flowhub:request',id,method,params};
     window.parent.postMessage(msg,'*');
   });
+}
+async function saveOrder(ids,focusId,ensureVisible=false){
+  if(preview||orderSaving)return;
+  orderDraft=ids;orderSaving=true;orderError='';orderNotice='保存中…';redraw(focusId,ensureVisible);
+  try{
+    const result=await rpc('widget_order_set',{ids,expectedRevision:data.widgetOrder?.revision||0});
+    if(done)return;
+    data={...data,widgetOrder:result};orderDraft=null;orderNotice='顺序已保存';
+  }catch(error){
+    if(done)return;
+    orderError=String(error);orderNotice='尚未保存';
+    // A timeout can happen after a successful write. Read back before offering
+    // a retry; never blindly repeat a preference write with an old revision.
+    try{const next=await rpc('snapshot');if(!done&&Array.isArray(next.devices)){data=next;if(JSON.stringify(data.widgetOrder?.ids)===JSON.stringify(ids)){orderDraft=null;orderError='';orderNotice='顺序已保存';}}}catch{}
+  }finally{orderSaving=false;if(!done)redraw(focusId);}
+}
+function moveDevice(source,target,after=false,ensureVisible=false){
+  if(preview||orderSaving||orderDraft)return false;
+  const order=orderTools.merge(data.widgetOrder?.ids||[],data.devices);
+  const next=orderTools.move(order,source,target,after);
+  if(JSON.stringify(next)===JSON.stringify(order))return false;
+  void saveOrder(next,source,ensureVisible);return true;
+}
+function endDrag(){
+  if(dragFrame!==null){cancelAnimationFrame(dragFrame);dragFrame=null;}
+  const previous=drag;drag=null;
+  try{if(previous?.handle.hasPointerCapture(previous.pointerId))previous.handle.releasePointerCapture(previous.pointerId);}catch{}
+  node.querySelector('.widget')?.classList.remove('is-order-dragging');
+}
+function dragPosition(list,x,y){
+  if(!drag)return;
+  drag.x=x;drag.y=y;
+  const bounds=list.getBoundingClientRect();
+  let row=document.elementFromPoint(x,y)?.closest('[data-order-item]');
+  if(!row&&x>=bounds.left&&x<=bounds.right&&y>=bounds.top&&y<=bounds.bottom){const rows=list.querySelectorAll('[data-order-item]'),first=rows[0],last=rows[rows.length-1];if(first&&y<first.getBoundingClientRect().top)row=first;else if(last&&y>last.getBoundingClientRect().bottom)row=last;}
+  for(const old of list.querySelectorAll('[data-drop]'))old.removeAttribute('data-drop');
+  if(row&&list.contains(row)&&row.dataset.orderItem!==drag.id){const rect=row.getBoundingClientRect();drag.target=row.dataset.orderItem;drag.after=y>rect.top+rect.height/2;row.dataset.drop=drag.after?'after':'before';}else drag.target=null;
+  drag.scroll=x<bounds.left||x>bounds.right||y<bounds.top||y>bounds.bottom?0:y<bounds.top+24?-6:y>bounds.bottom-24?6:0;
+}
+function scrollDrag(list){
+  if(dragFrame!==null||!drag?.scroll)return;
+  const scroll=()=>{dragFrame=null;if(!drag?.scroll)return;const before=list.scrollTop;list.scrollTop+=drag.scroll;if(list.scrollTop!==before){dragPosition(list,drag.x,drag.y);if(drag?.scroll)dragFrame=requestAnimationFrame(scroll);}};
+  dragFrame=requestAnimationFrame(scroll);
+}
+function movePointer(event){
+  if(!drag||event.pointerId!==drag.pointerId)return;
+  if(!drag.moved&&Math.hypot(event.clientX-drag.startX,event.clientY-drag.startY)<5)return;
+  event.preventDefault();event.stopPropagation();drag.moved=true;
+  drag.handle.closest('[data-order-item]')?.classList.add('is-dragging');node.querySelector('.widget')?.classList.add('is-order-dragging');
+  dragPosition(drag.list,event.clientX,event.clientY);scrollDrag(drag.list);
+}
+function finishPointer(event){
+  if(!drag||event.pointerId!==drag.pointerId)return;
+  event.preventDefault();event.stopPropagation();if(drag.moved)dragPosition(drag.list,event.clientX,event.clientY);
+  const {id,target,after,moved}=drag;endDrag();
+  if(!moved||!target||!moveDevice(id,target,after))redraw(id);
+}
+function cancelPointer(){if(drag){const id=drag.id;endDrag();redraw(id);}}
+function leaveWidget(event){if(!event.relatedTarget)cancelPointer();}
+function bindOrder(list){
+  if(!list)return;
+  for(const handle of node.querySelectorAll('[data-order-handle]')){
+    handle.addEventListener('keydown',event=>{
+      if(event.key==='Escape'&&drag){event.preventDefault();event.stopPropagation();endDrag();redraw(handle.dataset.orderHandle);return;}
+      if(preview||orderSaving||orderDraft||event.isComposing||event.altKey||event.ctrlKey||event.metaKey||event.shiftKey)return;
+      if(!['ArrowUp','ArrowDown','Home','End'].includes(event.key))return;
+      event.preventDefault();event.stopPropagation();
+      if(event.repeat)return;
+      const keys=[...node.querySelectorAll('[data-order-item]')].map(el=>el.dataset.orderItem),id=handle.dataset.orderHandle,index=keys.indexOf(id);
+      const target=event.key==='Home'?0:event.key==='End'?keys.length-1:event.key==='ArrowUp'?index-1:index+1;
+      if(keys[target])moveDevice(id,keys[target],event.key==='ArrowDown'||event.key==='End',true);
+    });
+    handle.addEventListener('pointerdown',event=>{
+      if(preview||orderSaving||orderDraft||drag||event.button!==0||!event.isPrimary)return;
+      event.preventDefault();event.stopPropagation();handle.focus({preventScroll:true});
+      drag={id:handle.dataset.orderHandle,handle,list,pointerId:event.pointerId,startX:event.clientX,startY:event.clientY,target:null,after:false,scroll:0,moved:false};
+      handle.setPointerCapture(event.pointerId);
+    });
+    for(const type of ['pointercancel','lostpointercapture'])handle.addEventListener(type,cancelPointer);
+    handle.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();});
+  }
 }
 async function refresh(force=false){
   if(done||loading)return;
@@ -173,7 +272,7 @@ function receive(event){
   }
   if(isWidget&&msg.type==='flowhub:widget-save'){
     const interval=Number(node.querySelector('#widget-interval')?.value||5);
-    const config={title:String(node.querySelector('#widget-title')?.value||'外设中心').slice(0,40),limit:widgetLimit(node.querySelector('#widget-limit')?.value??3),powerIntervalSeconds:powerIntervals.includes(interval)?interval:5};
+    const config={title:String(node.querySelector('#widget-title')?.value||'外设中心').slice(0,40),limit:'all',powerIntervalSeconds:powerIntervals.includes(interval)?interval:5};
     window.parent.postMessage({type:'flowhub:widget-config',id:msg.id,token:widgetToken,config},'*');return;
   }
   if(msg.type===(isWidget?'flowhub:widget-result':'flowhub:response')){
@@ -183,9 +282,13 @@ function receive(event){
   }
 }
 window.addEventListener('message',receive);
+document.addEventListener?.('pointermove',movePointer,true);
+document.addEventListener?.('pointerup',finishPointer,true);
+document.addEventListener?.('pointerout',leaveWidget);
+window.addEventListener('blur',cancelPointer);
 redraw();
 if(isWidget&&hostWindow&&widgetToken)window.parent.postMessage({type:'flowhub:widget-ready',token:widgetToken},'*');
 else if(!preview)void refresh();
 if(!isWidget)startPolling();
-window.addEventListener('pagehide',()=>{done=true;clearInterval(poll);window.removeEventListener('message',receive);for(const entry of pending.values()){clearTimeout(entry.timer);entry.reject(Error('页面已关闭'));}pending.clear();},{once:true});
+window.addEventListener('pagehide',()=>{done=true;endDrag();clearInterval(poll);window.removeEventListener('message',receive);window.removeEventListener('blur',cancelPointer);document.removeEventListener?.('pointermove',movePointer,true);document.removeEventListener?.('pointerup',finishPointer,true);document.removeEventListener?.('pointerout',leaveWidget);for(const entry of pending.values()){clearTimeout(entry.timer);entry.reject(Error('页面已关闭'));}pending.clear();},{once:true});
 })();

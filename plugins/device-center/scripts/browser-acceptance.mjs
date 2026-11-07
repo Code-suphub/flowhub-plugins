@@ -10,7 +10,7 @@ import {buildSync} from 'esbuild';
 // Test the shipped bundle and CSP in an opaque iframe. No real application,
 // keyboard, mouse, clipboard, hardware state or installed plugin is modified.
 const root=fileURLToPath(new URL('../',import.meta.url));
-const out=resolve(process.argv[2]||join(root,'screenshots'));
+const out=resolve(process.argv.slice(2).find(arg=>arg!=='--')||join(root,'screenshots'));
 await mkdir(out,{recursive:true});
 const compiled=buildSync({entryPoints:[join(root,'src/fixtures.ts')],bundle:true,platform:'node',format:'cjs',write:false}).outputFiles[0].text;
 const module={exports:{}};new Function('module','exports',compiled)(module,module.exports);
@@ -24,7 +24,7 @@ const server=createServer(async(req,res)=>{
   const url=new URL(req.url,'http://localhost');
   if(url.pathname==='/qa'){
    const card=url.searchParams.get('surface')==='card',widget=url.searchParams.get('widget')==='1'||card;
-   const context={config:{powerIntervalSeconds:5},selection:{deviceId:url.searchParams.get('device')||undefined,view:url.searchParams.get('view')||undefined}};
+   const context={config:{powerIntervalSeconds:5,limit:3},selection:{deviceId:url.searchParams.get('device')||undefined,view:url.searchParams.get('view')||undefined}};
    context.scenario=url.searchParams.get('scenario')||'';
    const source=widget?(card?'widget-card.html#flowhubWidgetToken=qa-token':'widget-detail.html#flowhubWidgetToken=qa-token'):'index.html';
    if(url.searchParams.get('pending')==='1')context.pending=true;
@@ -40,6 +40,7 @@ const server=createServer(async(req,res)=>{
    window.addEventListener('message',event=>{if(event.source===document.querySelector('iframe').contentWindow&&event.data?.type==='flowhub:widget-navigate')window.__qa.navigation=event.data;});
    window.addEventListener('message',event=>{const frame=document.querySelector('iframe');if(event.source!==frame.contentWindow)return;const m=event.data;if(m.type==='flowhub:theme-ready'){frame.contentWindow.postMessage({type:'flowhub:theme',theme:'light'},'*');return;}if(m.type==='flowhub:widget-ready'){frame.contentWindow.postMessage({type:'flowhub:widget-init',token:'qa-token',context:${JSON.stringify(context)}},'*');return;}if(!['flowhub:request','flowhub:widget-rpc'].includes(m.type))return;const widget=m.type==='flowhub:widget-rpc',method=widget?m.params.method:m.method;window.__qa.requests.push(method);const reply={type:widget?'flowhub:widget-result':'flowhub:response',token:widget?'qa-token':undefined,id:m.id};
    if(method==='open_display_settings'){if(window.__qa.settingsError)reply.error=window.__qa.settingsError;else reply.result={opened:true};if(window.__qa.holdSettings){window.__qa.finishSettings=()=>frame.contentWindow.postMessage(reply,'*');return;}frame.contentWindow.postMessage(reply,'*');return;}
+   if(method==='widget_order_set'){const params=widget?m.params.params:m.params,old=window.__qa.snapshot.widgetOrder||{ids:[],revision:0};if(window.__qa.orderError)reply.error=window.__qa.orderError;else if(params.expectedRevision!==old.revision)reply.error='设备顺序已在其他组件更新，请重新排序';else {reply.result={ids:params.ids,revision:old.revision+1};window.__qa.snapshot.widgetOrder=reply.result;}if(window.__qa.holdOrder){window.__qa.finishOrder=()=>frame.contentWindow.postMessage(reply,'*');return;}frame.contentWindow.postMessage(reply,'*');return;}
    if(window.__qa.error&&method!=='device_icons')reply.error=window.__qa.error;else reply.result=method==='device_icons'?window.__qa.artwork:pending?{at:0,stale:true,devices:[],power:{},events:[]}:window.__qa.snapshot;if(method!=='device_icons')pending=false;frame.contentWindow.postMessage(reply,'*');});`);return;
   }
   if(url.pathname==='/favicon.ico'){res.writeHead(204).end();return;}
@@ -76,7 +77,7 @@ try{
  const size=(width,height=560)=>send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:2,mobile:false});
  const keyboard=async(key,code=key,vk=0,modifiers=0)=>{await send('Input.dispatchKeyEvent',{type:'keyDown',key,code,windowsVirtualKeyCode:vk,modifiers,...(key==='Enter'?{text:'\r'}:key.length===1?{text:key}:{})});await send('Input.dispatchKeyEvent',{type:'keyUp',key,code,windowsVirtualKeyCode:vk,modifiers});await sleep(80);};
  const capture=async name=>{await writeFile(join(out,name+'.png'),Buffer.from((await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false})).data,'base64'));report.screenshots.push(name+'.png');};
- const navigate=async(path='/qa')=>{frame=undefined;const params=new URL(origin+path).searchParams,card=params.get('surface')==='card';await send('Page.navigate',{url:origin+path});for(let n=0;n<120;n++){for(const ctx of contexts.values()){if(!ctx.auxData?.isDefault)continue;try{if(await evaluate('!!document.querySelector("'+(card?'.widget':'.dc-app')+'")',ctx.id)){frame=ctx.id;break;}}catch{}}if(frame)break;await sleep(50);}if(!frame)throw Error('No plugin iframe');const view=params.get('view'),count=fixture(params.get('scenario')||'').devices.filter(d=>!['bluetooth','usb','display','adb'].includes(view)||d.category===view).length,expected=card?Math.min(3,count):count;await wait('document.querySelectorAll("[data-device]").length==='+expected);await evaluate('document.fonts.ready');await sleep(100);};
+ const navigate=async(path='/qa')=>{frame=undefined;const params=new URL(origin+path).searchParams,card=params.get('surface')==='card'||path.startsWith('/ui/widget-card.html');await send('Page.navigate',{url:origin+path});for(let n=0;n<120;n++){for(const ctx of contexts.values()){if(!ctx.auxData?.isDefault)continue;try{if(await evaluate('!!document.querySelector("'+(card?'.widget':'.dc-app')+'")',ctx.id)){frame=ctx.id;break;}}catch{}}if(frame)break;await sleep(50);}if(!frame)throw Error('No plugin iframe');const view=params.get('view'),count=fixture(params.get('scenario')||'').devices.filter(d=>!['bluetooth','usb','display','adb'].includes(view)||d.category===view).length,expected=count;await wait('document.querySelectorAll("[data-device]").length==='+expected);await evaluate('document.fonts.ready');await sleep(100);};
  const tab=async name=>click('[role=tab][data-tabs-value="'+name+'"]');
  const refresh=async()=>{await parent('window.__qa.snapshot.at=Date.now()');await click('[aria-label="刷新设备"]');await wait('!document.querySelector("[aria-label=刷新设备]").disabled');};
  await send('Page.enable');await send('Runtime.enable');await send('Network.enable');await send('Emulation.setFocusEmulationEnabled',{enabled:true});await size(800);await navigate();
@@ -190,6 +191,65 @@ try{
  await navigate('/ui/index.html');await check('document.querySelector(".dc-group-heading .dc-display-settings").disabled','standalone preview disables system settings');
  await click('[data-category=adb]');await check('document.querySelector(".dc-adb-empty").textContent.includes("没有检测到 ADB 设备") && !document.querySelector(".dc-adb-empty").textContent.includes("正在读取")','standalone ADB preview finishes its empty state without native access');await click('[data-category=all]');
  await click('[data-device=dell]');await wait('document.querySelector("dialog").open');await check('document.querySelector("dialog .dc-display-settings").disabled','standalone display detail also remains read-only');
+ // The legacy limit=3 in the parent config must not truncate existing cards.
+ await size(360,320);await navigate('/qa?surface=card&scenario=adb');
+ await check('document.querySelectorAll("[data-device]").length===12 && document.querySelector(".widget-device-list").scrollHeight>document.querySelector(".widget-device-list").clientHeight','old three-device cards now have all devices in a bounded scrolling list');
+ const listPoint=await evaluate('(()=>{const r=document.querySelector(".widget-device-list").getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2}})()');
+ await send('Input.dispatchMouseEvent',{type:'mouseWheel',...listPoint,deltaY:650,deltaX:0});await sleep(200);
+ await check('document.querySelector(".widget-device-list").scrollTop>0 && document.querySelector("[data-device=adb-offline]").getBoundingClientRect().bottom<=innerHeight+1','wheel scroll reaches devices after the first eight without moving the page');
+ await send('Input.dispatchMouseEvent',{type:'mouseWheel',...listPoint,deltaY:-1000,deltaX:0});await wait('document.querySelector(".widget-device-list").scrollTop===0');
+ const edgePoints=await evaluate('(()=>{const a=document.querySelector("[data-order-handle=airpods]").getBoundingClientRect(),b=document.querySelector(".widget-device-list").getBoundingClientRect();return {source:{x:a.left+a.width/2,y:a.top+a.height/2},edge:{x:b.right-35,y:b.bottom-8}}})()');
+ await send('Input.dispatchMouseEvent',{type:'mouseMoved',...edgePoints.source});await send('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',buttons:1,clickCount:1,...edgePoints.source});
+ await send('Input.dispatchMouseEvent',{type:'mouseMoved',buttons:1,...edgePoints.edge});await sleep(350);
+ await check('document.querySelector(".widget-device-list").scrollTop>35 && document.querySelector(".is-order-dragging")','dragging near the list edge scrolls to devices outside the visible rows');
+ await keyboard('Escape','Escape',27);await send('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',buttons:0,clickCount:1,...edgePoints.edge});
+ await check('!document.querySelector(".is-order-dragging") && !document.querySelector("[data-drop]")','Escape cancels dragging and clears its insertion marker');
+ if(await parent('window.__qa.requests.includes("widget_order_set")'))throw Error('Cancelled drag persisted an order');
+ report.checks.push('cancelled edge drag does not write device preferences');
+ await click('[data-widget-category=usb]');
+ const deviceIds=()=>evaluate('[...document.querySelectorAll("[data-device]")].map(e=>e.dataset.device)');
+ const points=await evaluate('(()=>{const a=document.querySelector("[data-order-handle=iphone]").getBoundingClientRect(),b=document.querySelector("[data-order-item=pixel]").getBoundingClientRect();return {source:{x:a.left+a.width/2,y:a.top+a.height/2},target:{x:b.left+b.width/2,y:b.top+5}}})()');
+ await evaluate('window.__qaPointer=[];for(const type of ["pointerdown","pointermove","pointerup","pointercancel","gotpointercapture","lostpointercapture"])document.addEventListener(type,e=>window.__qaPointer.push({type:e.type,target:e.target.closest?.("[data-order-handle]")?.dataset.orderHandle,id:e.pointerId,primary:e.isPrimary,x:e.clientX,y:e.clientY,buttons:e.buttons}),true)');
+ await send('Input.dispatchMouseEvent',{type:'mouseMoved',...points.source});await send('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',buttons:1,clickCount:1,...points.source});
+ await send('Input.dispatchMouseEvent',{type:'mouseMoved',buttons:1,x:points.source.x-8,y:points.source.y-8});await send('Input.dispatchMouseEvent',{type:'mouseMoved',buttons:1,...points.target});
+ if(!await evaluate('document.querySelectorAll(".is-dragging").length===1 && document.querySelectorAll("[data-drop]").length===1')){report.dragDebug=await evaluate('({events:window.__qaPointer,scrollY,innerHeight,dragging:document.querySelectorAll(".is-dragging").length,drops:document.querySelectorAll("[data-drop]").length})');report.dragPoints=points;report.parentGeometry=await parent('({scrollY,height:innerHeight,frame:document.querySelector("iframe").getBoundingClientRect().toJSON()})');await capture('pointer-debug');throw Error('Pointer drag did not establish a drop target');}
+ report.checks.push('pointer capture starts dragging only from the device handle');
+ await send('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',buttons:0,clickCount:1,...points.target});
+ await wait('document.querySelector(".widget-order-notice").textContent==="顺序已保存"');
+ if(JSON.stringify(await deviceIds())!==JSON.stringify(['iphone','pixel','ssd','reader']))throw Error('Native drag did not persist the USB order');
+ report.checks.push('CDP pointer drag from its handle saves the device order without opening detail');
+ if(await parent('Boolean(window.__qa.navigation)'))throw Error('Dragging opened a device detail');
+ const keyPoint=await evaluate('(()=>{const r=document.querySelector("[data-order-handle=pixel]").getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2}})()');
+ await send('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',clickCount:1,...keyPoint});await send('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',clickCount:1,...keyPoint});
+ await keyboard('ArrowDown','ArrowDown',40);await wait('!document.querySelector("[data-order-handle=pixel]").disabled');
+ if(JSON.stringify(await deviceIds())!==JSON.stringify(['iphone','ssd','pixel','reader']))throw Error('Keyboard ordering failed');
+ await check('document.activeElement.dataset.orderHandle==="pixel"','keyboard reorder retains the same device handle focus');
+ const saved=await parent('JSON.stringify(window.__qa.snapshot.widgetOrder)');
+ await parent('window.__qa.orderError="QA 无法保存设备顺序"');
+ await keyboard('ArrowUp','ArrowUp',38);await wait('document.querySelector(".widget-order-error")?.textContent.includes("QA 无法保存")');
+ if(await parent('JSON.stringify(window.__qa.snapshot.widgetOrder)')!==saved)throw Error('Failed saving modified the stored order');
+ await check('!!document.querySelector("#widgetOrderRetry") && !!document.querySelector("#widgetOrderDiscard")','save failure preserves the proposed order with explicit retry and discard');
+ await parent('window.__qa.orderError=null');await click('#widgetOrderRetry');await wait('!document.querySelector(".widget-order-error")');
+ if(JSON.stringify(await deviceIds())!==JSON.stringify(['iphone','pixel','ssd','reader']))throw Error('Explicit retry failed');
+ report.checks.push('failed preference write retries against the latest revision and leaves unrelated devices intact');
+ // A fresh sandbox instance reads the saved host snapshot, not child storage.
+ const previousFrame=frame;await parent('document.querySelector("iframe").src="/ui/widget-card.html?reopen=1#flowhubWidgetToken=qa-token"');frame=undefined;
+ for(let i=0;i<100&&!frame;i++){for(const ctx of contexts.values()){if(ctx.id===previousFrame||!ctx.auxData?.isDefault)continue;try{if(await evaluate('!!document.querySelector(".widget")',ctx.id)){frame=ctx.id;break;}}catch{}}if(!frame)await sleep(50);}
+ if(!frame)throw Error('Reopened widget did not mount');await wait('document.querySelectorAll("[data-device]").length===12');
+ await click('[data-widget-category=usb]');if(JSON.stringify(await deviceIds())!==JSON.stringify(['iphone','pixel','ssd','reader']))throw Error('Reopen lost the saved device order');
+ report.checks.push('a fresh opaque widget restores saved ordering and categories keep all devices');
+ const firstHandle=await evaluate('(()=>{const r=document.querySelector("[data-order-handle=iphone]").getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2}})()');
+ await send('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',clickCount:1,...firstHandle});await send('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',clickCount:1,...firstHandle});
+ await keyboard('End','End',35);await wait('!document.querySelector("[data-order-handle=iphone]").disabled');
+ await check('document.activeElement.dataset.orderHandle==="iphone" && document.activeElement.getBoundingClientRect().bottom<=innerHeight+1 && document.querySelector(".widget-device-list").scrollTop>0','keyboard End keeps the moved handle visible in a short widget');
+ await keyboard('Home','Home',36);await wait('!document.querySelector("[data-order-handle=iphone]").disabled');
+ await check('document.activeElement.getBoundingClientRect().top>=document.querySelector(".widget-device-list").getBoundingClientRect().top','keyboard Home scrolls the same handle back into view');
+ await parent('window.__qa.holdOrder=true');await keyboard('ArrowDown','ArrowDown',40);await click('[data-widget-category=overview]');
+ await parent('window.__qa.holdOrder=false;window.__qa.finishOrder()');await wait('!document.querySelector("[data-order-handle=iphone]").disabled');
+ await check('document.activeElement.dataset.widgetCategory==="overview" && document.querySelectorAll("[data-device]").length===12','a delayed save preserves the newly chosen category and its focus');
+ await click('[data-widget-category=usb]');
+ for(const theme of ['light','dark'])for(const width of [280,360]){await size(width,320);await parent(`document.querySelector('iframe').contentWindow.postMessage({type:'flowhub:theme',theme:'${theme}'},'*')`);await sleep(100);await check('document.documentElement.scrollWidth<=innerWidth && document.querySelectorAll("[data-order-handle]").length===4','full-list order handles fit '+theme+' '+width);if(width===360)await capture('widget-order-'+theme);}
+ await navigate('/ui/widget-card.html');await check('[...document.querySelectorAll("[data-order-handle]")].every(e=>e.disabled)','standalone widget preview never persists preferences');
  if(report.errors.length)throw Error(report.errors.join('\n'));
  await writeFile(join(out,'report.json'),JSON.stringify(report,null,2));console.log(JSON.stringify({checks:report.checks.length,responsive:report.responsive.length,errors:report.errors,output:out}));
 }catch(error){report.failure=String(error);await writeFile(join(out,'report.json'),JSON.stringify(report,null,2));throw error;}

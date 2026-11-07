@@ -5,6 +5,7 @@ mod power_source;
 mod smc_power;
 mod device_icons;
 mod adb;
+mod widget_order;
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
     io::{BufRead, Read, Write},
@@ -56,6 +57,7 @@ struct Scan {
     power: Value,
 }
 struct State {
+    widget_order: widget_order::Store,
     adb: adb::Report,
     adb_query: Arc<Mutex<()>>,
     scan: Scan,
@@ -371,7 +373,7 @@ fn profile() -> Result<Scan, String> {
 }
 impl State {
     fn new() -> Self {
-        Self { adb:adb::Report::default(), adb_query:Arc::new(Mutex::new(())), scan: Scan { devices: vec![], power: power(&Value::Null) },
+        Self { widget_order:widget_order::Store::default(), adb:adb::Report::default(), adb_query:Arc::new(Mutex::new(())), scan: Scan { devices: vec![], power: power(&Value::Null) },
             at: 0, error: None, events: VecDeque::new(), power_sample: None, power_checked_at: 0 }
     }
     fn apply(&mut self, result: Result<Scan, String>) {
@@ -403,7 +405,7 @@ impl State {
             for (key, value) in sample { power[key] = value.clone(); }
         }
         let devices:Vec<_> = self.scan.devices.iter().chain(self.adb.devices.iter()).collect();
-        json!({"at":self.at, "stale":self.stale(), "devices":devices,"adb":self.adb.value(),
+        json!({"at":self.at, "stale":self.stale(), "devices":devices,"adb":self.adb.value(),"widgetOrder":self.widget_order.value(),
             "power":power, "events":self.events, "error":self.error,
             "intervalSeconds":45,"powerIntervalSeconds":5})
     }
@@ -448,8 +450,9 @@ fn update_power_sample(state: &Arc<Mutex<State>>, force: bool, interval_seconds:
 }
 fn dispatch(state: &Arc<Mutex<State>>, method: &str, params: &Value) -> Result<Value, String> {
     match method {
-        "health" => Ok(json!({"protocol":2,"name":"device-center"})),
+        "health" => Ok(json!({"protocol":2,"name":"device-center","version":env!("CARGO_PKG_VERSION")})),
         "device_icons" => Ok(device_icons::snapshot()),
+        "widget_order_set" => state.lock().map_err(|_| "状态缓存不可用")?.widget_order.update(params),
         "adb_refresh" => { refresh_adb(state); state.lock().map_err(|_| "状态缓存不可用".to_string()).map(|s|s.full()) },
         "open_display_settings" => {
             if !cfg!(target_os = "macos") { return Err("显示器设置仅支持 macOS".into()); }
@@ -485,6 +488,7 @@ fn dispatch(state: &Arc<Mutex<State>>, method: &str, params: &Value) -> Result<V
                 Some("device_icons") => dispatch(state, "device_icons", &params["params"]),
                 Some("open_display_settings") => dispatch(state, "open_display_settings", &params["params"]),
                 Some("adb_refresh") => dispatch(state, "adb_refresh", &params["params"]),
+                Some("widget_order_set") => dispatch(state, "widget_order_set", &params["params"]),
                 _ => Err("不支持的组件操作".into()),
             },
             _ => Err("不支持的组件操作".into())
@@ -493,7 +497,9 @@ fn dispatch(state: &Arc<Mutex<State>>, method: &str, params: &Value) -> Result<V
     }
 }
 fn main() {
-    let state = Arc::new(Mutex::new(State::new()));
+    let mut initial = State::new();
+    initial.widget_order = widget_order::Store::open(std::env::var_os("FLOWHUB_PLUGIN_DATA").map(Into::into));
+    let state = Arc::new(Mutex::new(initial));
     let adb_worker=Arc::clone(&state);
     thread::spawn(move || loop { refresh_adb(&adb_worker); thread::sleep(Duration::from_secs(10)); });
     let worker = Arc::clone(&state);
@@ -564,6 +570,16 @@ mod tests {
         for bad in [json!(0),json!(1),json!(-5),json!(99999),json!("10"),Value::Null] {
             assert_eq!(power_interval_seconds(&json!({"powerIntervalSeconds":bad})),5);
         }
+    }
+    #[test]
+    fn widget_order_management_route_saves_only_opaque_device_identities() {
+        let state = Arc::new(Mutex::new(State::new()));
+        let result = dispatch(&state, "widget_api", &json!({"action":"management","method":"widget_order_set","params":{"ids":["adb-aaaaaaaaaaaaaaaa","usb-bbbbbbbbbbbbbbbb"],"expectedRevision":0}})).unwrap();
+        assert_eq!(result["revision"], 1);
+        assert_eq!(state.lock().unwrap().full()["widgetOrder"]["ids"][0], "adb-aaaaaaaaaaaaaaaa");
+        assert!(dispatch(&state, "widget_api", &json!({"action":"management","method":"widget_order_set","params":{"ids":["PUBLIC-SERIAL"],"expectedRevision":1}})).is_err());
+        assert!(dispatch(&state, "widget_api", &json!({"action":"management","method":"arbitrary_write","params":{}})).is_err());
+        assert_eq!(state.lock().unwrap().full()["widgetOrder"], result);
     }
     #[test]
     fn collects_nested_usb_without_identifying_serials() {
