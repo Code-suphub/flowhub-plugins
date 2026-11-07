@@ -37,7 +37,8 @@
 
 - 标准版主控收到 `0x44` 后在 `0x1730` 设置 10 个回包。`0x2b80` 生成 Report `0x13`／命令 `0x44`，读取 `0xa400 + 14 × 分片序号`。前 9 个分片各 14 字节，最后 2 字节，总计 128 字节。固件内该块以 `5a a5` 结尾。`0x05` 则读取固件内的 10 字节设备信息。两条路径的响应均由内部串口转发。
 - Mac mini 同时枚举到 BLE `3554:fa07` 和 USB `258a:0112` 时，分别向匹配的 BLE 厂商报告发送一次 `0x44` 与 `0x05` 读取请求。IOKit 均返回发送成功，应用未收到对应的厂商报告通知，轮询读到的厂商载荷仍全零。有线配置在两次试验前后的 128 字节均一致。BLE 配置读回未通过，配置写入未进入测试。
-- 同一远程执行环境的输入监控权限检查返回 `Granted`。纯 BLE 拨杆模式下的对照待验。证据见 `wireless-module/readback/` 的 `firmware-read-path.json`、`result.json`、`dual-transport-capabilities.json` 和 `input-access.json`。
+- 拔掉数据线后，Mac mini 确认 K75 的 USB HID 条目为零，蓝牙仍连接，系统显示电量 100%。向 BLE Report `0x13` 发送 `0x44` 和 `0x05` 读取请求，以及直接读取该输入报告，均返回 `0xe00002e2`（IOKit `kIOReturnNotPermitted`）。同一远程执行环境的输入监控权限检查仍返回 `Granted`。错误层级尚未定位，纯蓝牙下也未取得配置回包。本次未发送修改配置的命令。
+- 证据见 `wireless-module/readback/` 的 `firmware-read-path.json`、`result.json`、`dual-transport-capabilities.json`、`ble-only-enumeration.json`、`ble-only-config.json`、`ble-only-capabilities-and-input.json` 和 `ble-only-input-access.json`。
 
 ## 固件离线拆解
 
