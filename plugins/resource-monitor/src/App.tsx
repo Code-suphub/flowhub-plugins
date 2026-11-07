@@ -8,6 +8,7 @@ import {accountingDisplay,bytes,contextRows,cpu,detailControls,detailFrom,filter
 import {AppMark,applicationIdentity,useApplications} from './applications';
 import {readGroupDetail} from './api';
 import {ScriptDrawer} from './ScriptDrawer';
+import {BackgroundServices,restartLabel,sameServiceProcess,useBackgroundServices} from './BackgroundServices';
 import {RequestDetails} from './RequestDetails';
 import {displayError,errorText,RequestError} from './errors';
 import type {DisplayError} from './errors';
@@ -25,7 +26,8 @@ export function Theme({children}:{children:React.ReactNode}) {
 const searchStyle={width:'min(330px,100%)',minHeight:30};
 const identity=(p:Process)=>({pid:p.pid,started:p.started,executable:p.executable,uid:p.uid});
 const permissionLimited=(p:Process)=>p.protection.startsWith('当前用户权限不足');
-type PrivilegedStatus={ok:boolean;status:string;message:string;rootControl?:boolean;checking?:boolean;warning?:string;stale?:boolean};
+type PrivilegedStatus={ok:boolean;status:string;message:string;rootControl?:boolean;serviceControl?:boolean;checking?:boolean;warning?:string;stale?:boolean};
+const settledPrivilege=(value:PrivilegedStatus,action:'enable'|'disable')=>!value.checking&&!value.stale&&!value.warning&&value.status===(action==='enable'?'enabled':'notRegistered');
 
 export function App({api,context}:{api:Api;context:Context}) {
   const [data,setData]=useState<RankingSnapshot>();
@@ -41,6 +43,10 @@ export function App({api,context}:{api:Api;context:Context}) {
   const [selectedInstance,setSelectedInstance]=useState<string>();
   const [checkedInstances,setCheckedInstances]=useState<string[]>([]);
   const [scriptsOpen,setScriptsOpen]=useState(false);
+  const [servicesScope,setServicesScope]=useState<{appPath?:string;ids?:string[];name?:string}>();const [servicesOpen,setServicesOpen]=useState(false);
+  const background=useBackgroundServices(api,!!detailId||servicesOpen);
+  const serviceFor=(process:Process)=>background.data?.services.find(service=>!process.exited&&!process.moved&&sameServiceProcess(service,process));
+  function openServices(scope?:{appPath?:string;ids?:string[];name?:string}){setServicesScope(scope);setServicesOpen(true);}
   const [contexts,setContexts]=useState<PageContexts>();const [contextError,setContextError]=useState<DisplayError>('');
   contextsRef.current=contexts;
   const [contextQuery,setContextQuery]=useState('');const [linkedOnly,setLinkedOnly]=useState(false);
@@ -52,6 +58,9 @@ export function App({api,context}:{api:Api;context:Context}) {
   const [busy,setBusy]=useState(false);const [refreshing,setRefreshing]=useState(false);
   const [privilegedWarning,setPrivilegedWarning]=useState<DisplayError>('');const privilegedReading=useRef(false);
   const [privilegedStatus,setPrivilegedStatus]=useState<PrivilegedStatus>();const [privilegedBusy,setPrivilegedBusy]=useState(false);
+  const [privilegedFailure,setPrivilegedFailure]=useState<{action:'enable'|'disable';error:DisplayError}>();
+  const [privilegedChecking,setPrivilegedChecking]=useState(false);const privilegedCheck=useRef<()=>Promise<void>>(async()=>{});
+  const privilegedOperating=useRef(false);
   const alive=useRef(true);const operation=useRef(false);const reading=useRef(false);const readAgain=useRef(false);
   const queryRef=useRef(deferredQuery);queryRef.current=deferredQuery;
   const systemRef=useRef(system);systemRef.current=system;
@@ -60,6 +69,8 @@ export function App({api,context}:{api:Api;context:Context}) {
   const hasOtherUserProcesses=!!data?.hasRestrictedProcesses;
   const helperMissing=privilegedStatus?.status==='missingHelper'||privilegedStatus?.status==='unsupported';
   const helperInstalled=['enabled','needsRepair','needsUpdate','unreachable'].includes(privilegedStatus?.status??'');
+  const canEnable=!!privilegedStatus&&['notRegistered','needsUpdate','needsRepair','unreachable'].includes(privilegedStatus.status)&&!helperMissing;
+  const canRetryPrivilege=!!privilegedFailure&&!!privilegedStatus&&!privilegedStatus.checking&&!privilegedStatus.stale&&!privilegedStatus.warning&&(privilegedFailure.action==='enable'?canEnable:helperInstalled);
   const actionNotice=notice===privilegedStatus?.message?'':notice;
   const applications=useApplications(api,data?.groups??[]);
   const sourcePresentation=detail?.instances?.find(instance=>instance.id===source?.instanceId)?.presentation;
@@ -100,23 +111,23 @@ export function App({api,context}:{api:Api;context:Context}) {
     return()=>{current=false;};
   },[api,detail?.id,data?.at]);
   useEffect(()=>{
-    if(api.preview||!hasOtherUserProcesses)return;
+    if(api.preview||!hasOtherUserProcesses&&!privilegedFailure)return;
     let current=true,timer:ReturnType<typeof setTimeout>|undefined;
     async function check(){
       clearTimeout(timer);
       if(document.hidden||privilegedBusy||privilegedReading.current){if(current)timer=setTimeout(check,5000);return;}
-      privilegedReading.current=true;
+      privilegedReading.current=true;if(current)setPrivilegedChecking(true);
       try {
         const value=await api.invoke<PrivilegedStatus>('privileged_status');
-        if(current){setPrivilegedStatus(value);setPrivilegedWarning(value.warning??'');}
+        if(current){setPrivilegedStatus(value);setPrivilegedWarning(value.warning??'');setPrivilegedFailure(previous=>previous&&settledPrivilege(value,previous.action)?undefined:previous);}
       } catch(reason){
         if(current){setPrivilegedWarning(displayError(reason));setPrivilegedStatus(previous=>previous??{ok:false,status:'checking',message:'正在重新检查进程服务，尚未取得授权状态。'});}
-      } finally{privilegedReading.current=false;if(current)timer=setTimeout(check,5000);}
+      } finally{privilegedReading.current=false;if(current){setPrivilegedChecking(false);timer=setTimeout(check,5000);}}
     }
     const visible=()=>{if(!document.hidden)void check();};
-    void check();document.addEventListener('visibilitychange',visible);
-    return()=>{current=false;clearTimeout(timer);document.removeEventListener('visibilitychange',visible);};
-  },[api,hasOtherUserProcesses,privilegedBusy]);
+    privilegedCheck.current=check;void check();document.addEventListener('visibilitychange',visible);
+    return()=>{current=false;clearTimeout(timer);document.removeEventListener('visibilitychange',visible);privilegedCheck.current=async()=>{};};
+  },[api,hasOtherUserProcesses,privilegedBusy,!!privilegedFailure]);
 
   function rankingError(next:DisplayError){setError(previous=>previous instanceof RequestError&&previous.method!=='ranking_snapshot'&&previous.method!=='refresh_summary'?previous:next);}
   function accept(next:RankingSnapshot){
@@ -129,20 +140,22 @@ export function App({api,context}:{api:Api;context:Context}) {
     if(selection.id){selection.request++;acceptDetail(detailFrom(next,selection.id,(detailRef.current?.processes??[]).map(p=>p.pid),(contextsRef.current?.entries??[]).flatMap(entry=>entry.processes.map(p=>p.pid))),selection.generation);}
   }
   async function managePrivileged(action:'enable'|'disable'){
-    setPrivilegedBusy(true);setError('');setNotice('');
+    if(privilegedOperating.current)return;privilegedOperating.current=true;
+    setPrivilegedBusy(true);setPrivilegedChecking(false);setPrivilegedFailure(undefined);setError('');setNotice('');
     try{
       const value=await api.invoke<PrivilegedStatus>(`privileged_${action}`);
       if(!alive.current)return;
       setPrivilegedStatus(value);setPrivilegedWarning('');
       if(action==='enable'&&value.status==='enabled')await refresh(true);
       if(action==='disable')await refresh(true);
-    }catch(error){if(alive.current)setError(displayError(error));}
-    finally{if(alive.current)setPrivilegedBusy(false);}
+    }catch(error){if(alive.current)setPrivilegedFailure({action,error:displayError(error)});}
+    finally{privilegedOperating.current=false;if(alive.current)setPrivilegedBusy(false);}
   }
   function confirmPrivileged(action:'enable'|'disable'){
     Modal.confirm({
-      title:action==='enable'?'授权系统进程采集与 root 控制？':'停用完整系统进程监控？',
-      content:action==='enable'?'macOS 将请求管理员授权安装或升级常驻进程服务。服务读取系统进程资源，并允许已核验的 FlowHub 采集插件结束你确认选择的第三方 root 进程；系统核心进程、FlowHub 及采集服务本身继续受保护。不执行任意管理员命令，也不读取或保存密码。升级应用或采集插件后可能需要重新授权。服务随系统启动，可随时在此停用并卸载。':'macOS 将请求管理员认证，停止并卸载该系统服务。随后使用当前用户权限采集进程数据。',
+      zIndex:2000,
+      title:action==='enable'?'授权系统进程与后台服务控制？':'停用完整系统进程监控？',
+      content:action==='enable'?'macOS 将请求管理员授权安装或升级常驻进程服务。服务读取系统进程资源，允许已核验的 FlowHub 采集插件结束所选第三方 root 进程，并暂停或恢复你确认的第三方后台服务。暂停只影响当前登录或开机期间，不改变永久自启配置；系统核心服务、FlowHub 及采集服务自身继续受保护。不执行任意管理员命令，也不读取或保存密码。升级应用或采集插件后可能需要重新授权。服务随系统启动，可随时在此停用并卸载。':'macOS 将请求管理员认证，停止并卸载该系统服务。随后使用当前用户权限采集进程数据。已暂停的第三方服务不会自动恢复，请先在“后台服务”恢复，或重新登录、重启电脑。',
       okText:action==='enable'?'继续并授权安装':'停用并卸载',cancelText:'取消',
       onOk:()=>managePrivileged(action)
     });
@@ -150,6 +163,7 @@ export function App({api,context}:{api:Api;context:Context}) {
   async function refresh(manual=false){
     if(manual){
       setRefreshing(true);setError('');
+      void privilegedCheck.current();
       try{const next=await api.invoke<RankingSnapshot>('refresh_summary',{query:queryRef.current,includeSystem:systemRef.current});if(alive.current){if(accept(next))rankingError(next.error??'');await Promise.all([refresh(),readDetail()]);}}
       catch(e){if(alive.current)setError(displayError(e));}
       finally{if(alive.current)setRefreshing(false);}
@@ -280,14 +294,14 @@ export function App({api,context}:{api:Api;context:Context}) {
     {title:'操作',key:'actions',width:90,render:(_,g)=>g.instanceCount>1?<Button size="sm" className="compact-button" onClick={()=>openDetail(g)}>选择实例</Button>:<Button size="sm" className="compact-button" disabled={api.preview||busy||!!plan||!g.canTerminate} title={!g.canTerminate?'含受保护进程，请从所属应用正常退出':undefined} onClick={()=>void prepare(g)}>结束实例</Button>}
   ];
   const instanceColumns:TableColumnsType<Instance>=[
-    {title:'运行实例',key:'root',render:(_,instance)=>{const process=detail?.processes.find(p=>p.pid===instance.root.pid&&p.started===instance.root.started);const clues=applicationIdentity({name:instance.presentation?.name??process?.name??detail?.name??'',appPath:detail?.appPath,presentation:instance.presentation},applications).sourceText;return <div><strong>PID {instance.root.pid} · {instance.presentation?.name??process?.name??'根进程'}</strong>{clues?<div className="muted text-xs mt-1">来源线索：{clues}</div>:null}<div className="muted text-xs mt-1">{instance.root.started?`${new Date(instance.root.started/1000).toLocaleString()} 启动`:'启动时间不可读取'}</div><div className="path muted text-xs mt-1">{process?.runtimeProject?.entry??instance.root.executable}</div></div>;}},
+    {title:'运行实例',key:'root',render:(_,instance)=>{const process=detail?.processes.find(p=>p.pid===instance.root.pid&&p.started===instance.root.started);const clues=applicationIdentity({name:instance.presentation?.name??process?.name??detail?.name??'',appPath:detail?.appPath,presentation:instance.presentation},applications).sourceText;return <div><strong>PID {instance.root.pid} · {instance.presentation?.name??process?.name??'根进程'}</strong>{serviceFor(instance.root as Process)?<div className="mt-1"><button className="text-link" title={serviceFor(instance.root as Process)!.restartHint} onClick={()=>openServices({ids:[serviceFor(instance.root as Process)!.id]})}>{restartLabel(serviceFor(instance.root as Process)!)} · 后台服务</button></div>:null}{clues?<div className="muted text-xs mt-1">来源线索：{clues}</div>:null}<div className="muted text-xs mt-1">{instance.root.started?`${new Date(instance.root.started/1000).toLocaleString()} 启动`:'启动时间不可读取'}</div><div className="path muted text-xs mt-1">{process?.runtimeProject?.entry??instance.root.executable}</div></div>;}},
     {title:'进程',dataIndex:'count',width:60,align:'right'},
     {title:'内存足迹',key:'footprint',width:100,align:'right',render:(_,instance)=>bytes(instance.footprint)},
     {title:'CPU',key:'cpu',width:65,align:'right',render:(_,instance)=>cpu(instance.cpu)},
     {title:'操作',key:'actions',width:210,render:(_,instance)=>{const reason=detail?instanceStopReason(detail,instance):'';return <div><div className="flex flex-wrap gap-1"><Button size="sm" className="compact-button" onClick={()=>{setSelectedInstance(instance.id);setCheckedInstances([]);setTab('processes');}}>查看进程</Button>{applicationState?.quitInstances?.includes(instance.id)?<Button size="sm" className="compact-button" disabled={api.preview||busy||!!plan||!!quitPlan} onClick={()=>void prepareQuit(instance.id)}>正常退出</Button>:null}<Button size="sm" className="compact-button" disabled={api.preview||busy||!!plan||!!quitPlan||!instance.canTerminate} title={reason||undefined} onClick={()=>detail&&void prepare(detail,instance.id)}>结束实例</Button></div>{reason?<p className="muted text-xs mt-1">{reason}</p>:null}</div>;}}
   ];
   const processColumns:TableColumnsType<Process>=[
-    {title:'进程 / 来源',key:'name',render:(_,p)=><div className={p.exited?'exited':''}><button className="name-link" onClick={()=>setSource(p)}>{processName(p)}</button>{p.displayName?<div className="muted text-xs mt-1">可执行文件名：{p.name}</div>:null}<div className="muted text-xs mt-1">PID {p.pid}{p.ppid>0?` ← ${p.ppid} · ${p.parentName}`:' · 父进程不可读取'}{p.moved?' · 已移到其他分组':p.exited?' · 已退出':''}</div><div className="muted text-xs mt-1">{p.role} · {p.attribution}</div>{permissionLimited(p)?<div className="warning text-xs mt-1">资源指标不可读取</div>:null}{processLabels.has(processKey(p))?<div className="context-label text-xs mt-1">{(processLabels.get(processKey(p))?.length??0)>1?'共享：':'关联：'}{processLabels.get(processKey(p))?.join('、')}</div>:contexts?<div className="muted text-xs mt-1">未关联到页面或对话</div>:null}</div>},
+    {title:'进程 / 来源',key:'name',render:(_,p)=><div className={p.exited?'exited':''}><button className="name-link" onClick={()=>setSource(p)}>{processName(p)}</button>{serviceFor(p)?<div className="mt-1"><button className="text-link" title={serviceFor(p)!.restartHint} onClick={()=>openServices({ids:[serviceFor(p)!.id]})}>{restartLabel(serviceFor(p)!)} · 后台服务</button></div>:null}{p.displayName?<div className="muted text-xs mt-1">可执行文件名：{p.name}</div>:null}<div className="muted text-xs mt-1">PID {p.pid}{p.ppid>0?` ← ${p.ppid} · ${p.parentName}`:' · 父进程不可读取'}{p.moved?' · 已移到其他分组':p.exited?' · 已退出':''}</div><div className="muted text-xs mt-1">{p.role} · {p.attribution}</div>{permissionLimited(p)?<div className="warning text-xs mt-1">资源指标不可读取</div>:null}{processLabels.has(processKey(p))?<div className="context-label text-xs mt-1">{(processLabels.get(processKey(p))?.length??0)>1?'共享：':'关联：'}{processLabels.get(processKey(p))?.join('、')}</div>:contexts?<div className="muted text-xs mt-1">未关联到页面或对话</div>:null}</div>},
     {title:'内存足迹',key:'footprint',width:110,align:'right',render:(_,p)=>bytes(p.footprint)},
     {title:'RSS',key:'memory',width:100,align:'right',render:(_,p)=>bytes(p.memory)},
     {title:'CPU',key:'cpu',width:75,align:'right',render:(_,p)=>p.exited||permissionLimited(p)?'—':cpu(p.cpu)},
@@ -307,14 +321,15 @@ export function App({api,context}:{api:Api;context:Context}) {
   return <main className="monitor p-3 md:p-4">
     <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
       <div className="flex items-center gap-2"><span className={`live-dot ${stale?'stale':''}`}/><span className="muted text-xs">{api.preview?'只读预览 · 模拟数据':data?.at?`本机 · ${new Date(data.at).toLocaleTimeString()} 更新${data.sampling?' · 采样中':''}`:'正在等待首次采样'}</span><HelpPopover label="统计口径与监控范围">活跃进程足迹是当前分组内进程的 phys_footprint 合计，包含脏页、压缩及换出等记账；RSS 是当前常驻内存。系统归属记账读取应用的系统资源组账本，可包含独立任务和已退出任务的余额，各行可能重叠。三者不能相加，也不等于结束后释放的内存。CPU 按单核 100% 计。页面与对话可能共享进程。</HelpPopover></div>
-      <div className="flex flex-wrap items-center gap-2"><Button size="sm" className="compact-button" onClick={()=>setScriptsOpen(true)}>脚本来源{data?.scriptRunningCount?` (${data.scriptRunningCount})`:''}</Button><Button size="sm" className="compact-button" disabled={refreshing} onClick={()=>void refresh(true)}>{refreshing?'刷新中…':'刷新'}</Button>{!api.widget?<Button size="sm" className="compact-button" disabled={api.preview} onClick={()=>void api.invoke('flowhub_status').catch(e=>setError(displayError(e)))}>桌面与菜单栏</Button>:null}</div>
+      <div className="flex flex-wrap items-center gap-2"><Button size="sm" className="compact-button" onClick={()=>openServices()}>后台服务{background.data?.services.some(service=>service.paused)?` (${background.data.services.filter(service=>service.paused).length} 已暂停)`: ''}</Button><Button size="sm" className="compact-button" onClick={()=>setScriptsOpen(true)}>脚本来源{data?.scriptRunningCount?` (${data.scriptRunningCount})`:''}</Button><Button size="sm" className="compact-button" disabled={refreshing} onClick={()=>void refresh(true)}>{refreshing?'刷新中…':'刷新'}</Button>{!api.widget?<Button size="sm" className="compact-button" disabled={api.preview} onClick={()=>void api.invoke('flowhub_status').catch(e=>setError(displayError(e)))}>桌面与菜单栏</Button>:null}</div>
     </div>
     <div className="system-strip grid grid-cols-3 gap-3 mb-3">
       <div><span className="muted">物理内存</span><strong>{bytes(data?.system.totalMemory)}</strong></div>
       <div><span className="muted">内存压力</span><strong className={pressure==='critical'?'danger':pressure==='warning'?'warning':''}>{pressureLabel}</strong></div>
       <div><span className="muted">已用交换空间</span><strong>{bytes(data?.system.swapUsed)}</strong></div>
     </div>
-    {hasOtherUserProcesses?<Alert type={privilegedStatus?.status==='enabled'?'success':'warning'} showIcon className="mb-3" title={privilegedStatus?.message??'正在检查系统进程采集服务…'} action={<div className="flex gap-2">{privilegedStatus&&['notRegistered','needsUpdate','needsRepair'].includes(privilegedStatus.status)?<Button size="sm" className="compact-button" disabled={api.preview||privilegedBusy||!privilegedStatus||helperMissing} onClick={()=>confirmPrivileged('enable')}>{helperMissing?'采集器未打包':privilegedBusy?'处理中…':privilegedStatus?.status==='needsUpdate'?'授权更新':'管理员授权安装'}</Button>:null}{helperInstalled?<Button size="sm" className="compact-button" disabled={api.preview||privilegedBusy} onClick={()=>confirmPrivileged('disable')}>停用并卸载</Button>:null}</div>}/>:null}
+    {hasOtherUserProcesses?<Alert type={privilegedStatus?.status==='enabled'?'success':'warning'} showIcon className="mb-3" title={privilegedStatus?.message??'正在检查系统进程采集服务…'} action={<div className="flex gap-2">{canEnable&&!privilegedFailure?<Button size="sm" className="compact-button" disabled={api.preview||privilegedBusy||!!privilegedStatus?.checking||!!privilegedStatus?.stale} onClick={()=>confirmPrivileged('enable')}>{privilegedBusy?'处理中…':privilegedStatus?.status==='needsUpdate'?'授权更新':privilegedStatus?.status==='unreachable'?'授权修复':'管理员授权安装'}</Button>:null}{helperInstalled?<Button size="sm" className="compact-button" disabled={api.preview||privilegedBusy||!!privilegedFailure} onClick={()=>confirmPrivileged('disable')}>停用并卸载</Button>:null}</div>}/>:null}
+    {privilegedFailure?<Alert type="warning" showIcon className="mb-3" title={privilegedFailure.action==='enable'?'安装或升级结果尚未确认':'卸载结果尚未确认'} description={<><p>{errorText(privilegedFailure.error)}</p><p>正在核实实际状态，确认完成后会自动移除此提示。若 macOS 认证窗口仍打开，请先完成或取消认证。</p>{privilegedFailure.error instanceof RequestError?<RequestDetails error={privilegedFailure.error}/>:null}</>} action={<div className="flex flex-wrap gap-2"><Button size="sm" disabled={privilegedBusy||privilegedChecking} onClick={()=>void privilegedCheck.current()}>{privilegedChecking?'核实中…':'核实状态'}</Button>{canRetryPrivilege?<Button size="sm" disabled={api.preview||privilegedBusy||privilegedChecking} onClick={()=>confirmPrivileged(privilegedFailure.action)}>{privilegedFailure.action==='enable'?'重新授权安装':'重试卸载'}</Button>:null}</div>}/>:null}
     {privilegedWarning?<div className="warning text-xs mb-3"><p role="status">{privilegedWarning instanceof Error?'授权状态暂未更新，稍后会自动重试。':''}{errorText(privilegedWarning)}</p><RequestDetails error={privilegedWarning}/></div>:null}
     {api.preview?<Alert type="info" showIcon title="只读模拟数据，结束与应用跳转已禁用。" className="mb-3"/>:null}
     {error?<Alert type="error" showIcon title={errorText(error)} description={error instanceof RequestError?<RequestDetails error={error}/>:undefined} className="mb-3"/>:null}
@@ -333,6 +348,7 @@ export function App({api,context}:{api:Api;context:Context}) {
       {detail?<>
         <div className="flex flex-wrap items-center gap-3 mb-3"><span className="numeric">{selectedInstance?'实例活跃足迹':'活跃进程足迹'} {bytes(shownStats?.footprint)}{shownStats?.footprintIncomplete?'（部分）':''} · RSS {bytes(shownStats?.memory)} · CPU {detail.processes.length>0&&detail.processes.every(permissionLimited)?'—':cpu(shownStats?.cpu)}</span>
           <div className="flex flex-wrap items-center gap-2 ml-auto">
+            <Button size="sm" className="compact-button" onClick={()=>openServices({appPath:detail.appPath??undefined,ids:(background.data?.services??[]).filter(service=>detail.processes.some(process=>sameServiceProcess(service,process))).map(service=>service.id),name:applicationIdentity(detail,applications).name})}>后台服务</Button>
             {controls.canOpen?<Button size="sm" className="compact-button" disabled={api.preview||linksBusy||!!plan||!!quitPlan} onClick={()=>void openApp(detail)}>打开应用 ↗</Button>:null}
             {controls.canQuit?<Button size="sm" className="compact-button" disabled={api.preview||busy||!!plan||!!quitPlan} onClick={()=>void prepareQuit(selectedInstance)}>{controls.quitLabel}</Button>:null}
             <Button size="sm" variant="danger" className="compact-button" disabled={api.preview||busy||!!plan||!!quitPlan||!controls.canStop} title={controls.stopHint||undefined} onClick={()=>void prepare(detail,undefined,controls.stopIds)}>{controls.stopLabel}</Button>
@@ -422,6 +438,7 @@ export function App({api,context}:{api:Api;context:Context}) {
       <p className="muted text-xs mb-3">{plan?.targets.length??0} 个进程 · 确认剩余 {remaining} 秒 · 执行前重新核对身份</p>
       <div className="confirm-targets">{plan?.targets.map(p=><div key={`${p.pid}:${p.started}`} className="confirm-target"><strong>{processName(p)}</strong><span className="muted text-xs">PID {p.pid} · 足迹 {bytes(p.footprint)} · RSS {bytes(p.memory)}</span><span className="path muted text-xs">{p.executable}</span></div>)}</div>
     </Modal>
+    {servicesOpen?<BackgroundServices api={api} data={background.data} error={background.error} scope={servicesScope} onClose={()=>setServicesOpen(false)} onRefresh={background.refresh} withOperation={background.withOperation} onChanged={()=>void refresh(true)} onAuthorize={()=>{setServicesOpen(false);confirmPrivileged('enable');}}/>:null}
     {scriptsOpen?<ScriptDrawer api={api} onClose={()=>setScriptsOpen(false)}/>:null}
   </main>;
 }

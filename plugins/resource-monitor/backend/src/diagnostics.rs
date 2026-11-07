@@ -339,6 +339,9 @@ pub fn method(name: &str) -> &str {
         | "focus_app"
         | "open_context"
         | "accessibility_settings"
+        | "services_snapshot"
+        | "service_preview"
+        | "service_confirm"
         | "diagnostic_event" => name,
         _ => "unknown",
     }

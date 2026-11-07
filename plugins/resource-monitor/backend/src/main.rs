@@ -272,6 +272,7 @@ impl Monitor {
             "group_detail" => self.snapshot.detail(params),
             "script_activity" => Ok(self.snapshot.scripts()),
             "diagnostic_event" => diagnostics::client(params),
+            "services_snapshot" | "service_preview" | "service_confirm" => native::service_request(method,params),
             "refresh_summary" => {
                 self.refresh()?;
                 Ok(self.snapshot.ranking(params))
@@ -334,6 +335,9 @@ impl Monitor {
                         "group_detail",
                         "script_activity",
                         "diagnostic_event",
+                        "services_snapshot",
+                        "service_preview",
+                        "service_confirm",
                         "refresh_summary",
                         "refresh",
                         "terminate_preview",

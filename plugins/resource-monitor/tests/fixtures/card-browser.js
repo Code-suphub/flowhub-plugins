@@ -13,12 +13,26 @@
   const fixtureProcesses=[101,102,103].map((pid,index)=>({pid,started:1700000000000000+pid,uid:index===2?0:501,name:index===2?'root-helper':'worker',executable:'/Applications/Codex.app/Contents/MacOS/worker',ppid:1,parentName:'launchd',cwd:'',role:'fixture',attribution:'fixture',avd:'',groupId:'app:codex',instanceId:`instance-${pid}`,memory:1048576,footprint:2097152,cpu:0,protected:index===2,protection:index===2?'其他用户或系统账户':''}));
   const fixtureGroup={id:'app:codex',name:'Codex',source:'fixture',memory:3145728,footprint:6291456,cpu:0,appPath:'/Applications/Codex.app',processes:fixtureProcesses,instances:fixtureProcesses.map(p=>({id:p.instanceId,root:p,count:1,memory:p.memory,footprint:p.footprint,cpu:0,canTerminate:!p.protected})),system:false,canTerminate:false,incomplete:false};
   const {processes:unusedProcesses,instances:unusedInstances,...fixtureSummary}=fixtureGroup;
+  const fixtureService={id:'a'.repeat(64),label:'test.fixture-service',name:'Fixture service',domain:'gui/501',plistPath:'/Library/LaunchAgents/test.fixture-service.plist',program:fixtureProcesses[0].executable,appPath:'/Applications/Codex.app',restart:'always',restartHint:'服务会自动重新启动',loaded:true,paused:false,identity:fixtureProcesses[0],canStop:true,canResume:false,blockedReason:''};
+  let servicePlan;
   const hosts=new Map();
   addEventListener('message',event=>{
     const host=hosts.get(event.source);if(!host)return;
     const data=event.data;host.messages.push(data);
     if(data.type==='flowhub:request') {
       if(data.method===host.failMethod){delete host.failMethod;event.source.postMessage({type:'flowhub:response',id:data.id,error:'Error: fixture request failure'},'*');return;}
+      if(['services_snapshot','service_preview','service_confirm'].includes(data.method)){
+        if(data.method==='services_snapshot'){
+          assert(!host.serviceReading,'duplicate background-service reads');host.serviceReading=true;
+          setTimeout(()=>{host.serviceReading=false;event.source.postMessage({type:'flowhub:response',id:data.id,result:{at:Date.now(),supported:true,services:[fixtureService]}},'*');},75);return;
+        }
+        assert(!host.serviceReading,'service operation raced an unfinished list read');
+        let payload;
+        if(data.method==='services_snapshot')payload={at:Date.now(),supported:true,services:[fixtureService]};
+        if(data.method==='service_preview'){assert(data.params.id===fixtureService.id,'service scope changed');servicePlan={token:'12345678-1234-4234-8234-123456789abc',expiresIn:60,action:data.params.action,service:{...fixtureService}};payload=servicePlan;}
+        if(data.method==='service_confirm'){assert(data.params.token===servicePlan?.token&&data.params.confirmed===true,'service confirmation lost exact token');const paused=servicePlan.action==='stop';Object.assign(fixtureService,{loaded:!paused,paused,identity:paused?null:fixtureProcesses[0],canStop:!paused,canResume:paused});payload={ok:true,message:paused?'后台服务已暂停':'后台服务已恢复'};}
+        event.source.postMessage({type:'flowhub:response',id:data.id,result:payload},'*');return;
+      }
       const at=Date.now(),owner={pid:100,started:(at-100000)*1000,uid:501,name:'FlowHub',executable:'/Applications/FlowHub.app/Contents/MacOS/flowhub-tauri',appPath:'/Applications/FlowHub.app'},script={pid:101,started:(at-50000)*1000,uid:501,name:'osascript',executable:'/usr/bin/osascript',appPath:null};
       const result=data.method==='script_activity'?{at,records:[{id:'running',process:script,chain:[owner,script],source:{name:'FlowHub',appPath:owner.appPath,evidence:'已核验当前父进程链'},responsible:owner,firstSeen:at-50000,lastSeen:at,running:true,chainNote:''},{id:'recent',process:{...script,pid:99},chain:[{...script,pid:99}],source:null,responsible:null,firstSeen:at-100000,lastSeen:at-50000,running:false,chainNote:''}]}:data.method==='application_metadata'?{applications:[]}:{at,groups:[{id:'app:codex',name:'Codex',source:'fixture',memory:1048576,footprint:2097152,cpu:1,processes:[],processCount:0,instanceCount:0,system:false,canTerminate:false,incomplete:false}],query:data.params?.query??'',includeSystem:data.params?.includeSystem??true,hasRestrictedProcesses:false,matchedGroupIds:[],system:{},interval:5,memoryMetric:'footprint'};
       const payload=data.method==='group_detail'?{at,groupId:'app:codex',group:fixtureGroup,elsewhere:[],contextProcesses:[]}:data.method==='application_state'?{canQuit:false,message:'fixture'}:data.method==='terminate_preview'?{token:'fixture-review-only',expiresIn:30,targets:fixtureProcesses.filter(p=>data.params.instanceIds.includes(p.instanceId)),scope:{kind:'instances',name:'Codex',instances:fixtureGroup.instances.filter(i=>data.params.instanceIds.includes(i.id))}}:data.method==='ranking_snapshot'?{...result,groups:[{...fixtureSummary,processCount:3,instanceCount:3}]}:result;
@@ -143,6 +157,7 @@
     checks.push('script source drawer; source app; launch chain; recent/running records; close cleanup');
     doc(main).querySelector('button[aria-label="查看 Codex 进程"]').click();
     await wait(()=>doc(main).querySelector('input[aria-label="选择实例 PID 103"]'),'instance checkboxes missing');
+    await wait(()=>doc(main).querySelector('.detail-modal').textContent.includes('会自动重启'),'verified service restart hint missing');
     const rootCheckbox=doc(main).querySelector('input[aria-label="选择实例 PID 103"]');
     assert(rootCheckbox.disabled,'root instance must remain protected');
     assert(doc(main).body.textContent.includes('root 进程：当前授权仅用于采集，不支持结束。'),'root protection reason missing');
@@ -175,6 +190,28 @@
     checks.push('request method/elapsed/trace; matched diagnostic event; copy and clipboard-denied fallback');
     doc(main).querySelector('.detail-modal .ant-modal-close').click();
     checks.push('instance select-all; dynamic bulk label; explicit preview scope; visible root restriction; cancellation');
+    [...doc(main).querySelectorAll('button')].find(button=>button.textContent==='后台服务').click();
+    await wait(()=>doc(main).querySelector('.background-service-record'),'background service drawer missing');
+    const serviceDrawer=()=>doc(main).querySelector('.background-service-drawer');
+    assert(serviceDrawer().textContent.includes('当前会话')&&serviceDrawer().textContent.includes('永久自启'),'service pause scope is not explained');
+    const serviceAction=label=>[...(serviceDrawer()?.querySelectorAll('button')??[])].find(button=>button.textContent===label);
+    serviceAction('刷新').click();await wait(()=>main.serviceReading,'background refresh did not start');
+    serviceAction('停止后台服务').click();await wait(()=>doc(main).body.textContent.includes('停止这个后台服务？'),'service stop review missing');
+    assert(!main.messages.some(message=>message.method==='service_confirm'),'opening service review executed an action');
+    let serviceConfirm=[...doc(main).querySelectorAll('.ant-modal-footer button')].find(button=>button.textContent.replace(/\s/g,'')==='确认停止服务');
+    await wait(()=>serviceConfirm&&!serviceConfirm.disabled,'service confirmation remained disabled');serviceConfirm.click();
+    await wait(()=>serviceAction('恢复启动'),'paused service disappeared with its process');
+    serviceDrawer().querySelector('.ant-drawer-close').click();await wait(()=>!serviceDrawer(),'service drawer did not close');
+    [...doc(main).querySelectorAll('button')].find(button=>button.textContent.startsWith('后台服务')).click();
+    await wait(()=>serviceAction('恢复启动'),'paused service was not recoverable after reopening');serviceAction('恢复启动').click();
+    await wait(()=>doc(main).body.textContent.includes('恢复这个后台服务？'),'service resume review missing');
+    serviceConfirm=[...doc(main).querySelectorAll('.ant-modal-footer button')].find(button=>button.textContent.replace(/\s/g,'')==='确认恢复启动');
+    await wait(()=>serviceConfirm&&!serviceConfirm.disabled,'resume confirmation remained disabled');serviceConfirm.click();
+    await wait(()=>serviceAction('停止后台服务'),'restored service did not return to registered state');
+    assert(main.messages.filter(message=>message.method==='service_confirm').length===2,'service actions were duplicated');
+    assert(!main.messages.some(message=>message.method==='terminate_confirm'),'service control used process termination');
+    serviceDrawer().querySelector('.ant-drawer-close').click();await wait(()=>!serviceDrawer(),'service drawer did not close after resume');
+    checks.push('service restart hints; explicit stop/resume reviews; paused rows survive closing; exact service tokens; no PID termination');
     const detail=await frame('widget-detail.html',true);
     await wait(()=>detail.messages.some(message=>message.type==='flowhub:widget-ready'),'detail ready missing');
     detail.send({type:'flowhub:widget-init',context:{preview:true,config:{selection:{groupId:'app:codex'}}}});

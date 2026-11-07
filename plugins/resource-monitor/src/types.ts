@@ -1,4 +1,7 @@
 export interface Identity {pid:number;started:number;executable:string;uid:number}
+export interface BackgroundService {id:string;label:string;name:string;domain:string;plistPath:string;program:string;appPath:string|null;restart:string;restartHint:string;loaded:boolean;paused:boolean;identity:Identity|null;canStop:boolean;canResume:boolean;blockedReason:string}
+export interface ServiceSnapshot {at:number;supported:boolean;services:BackgroundService[]}
+export interface ServicePlan {token:string;expiresIn:number;action:'stop'|'resume';service:BackgroundService}
 export type ToolIconKey = 'python'|'postgresql'|'mysql'|'tmux'|'redis'|'android';
 export interface SystemAccounting {footprint:number|null;coalitionCount:number;shared:boolean}
 export interface Process extends Identity {

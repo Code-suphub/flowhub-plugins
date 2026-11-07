@@ -25,7 +25,7 @@ export function createApi(host:Window):Api {
   }
   function timedOut(id:string,item:Request){
     pending.delete(id);expired.set(id,{method:item.method,traceId:item.traceId,started:item.started,hidden:item.hidden});if(expired.size>32)expired.delete(expired.keys().next().value!);
-    const action=['terminate_confirm','quit_confirm','privileged_enable','privileged_disable'].includes(item.method);
+    const action=['terminate_confirm','quit_confirm','service_confirm','privileged_enable','privileged_disable'].includes(item.method);
     const message=action?'请求等待超时，操作结果尚未确认。请刷新核实状态，再决定是否重试。':`${requestLabel(item.method)}超时，请稍后刷新。`;
     failed.add(item.method);diagnose('timeout',item);item.reject(requestError(message,item,'timeout'));
   }
@@ -60,6 +60,7 @@ export function createApi(host:Window):Api {
         if(method==='snapshot'||method==='refresh')return Promise.resolve(sampleSnapshot() as T);
         if(method==='ranking_snapshot'||method==='refresh_summary')return Promise.resolve(rankingFrom(sampleSnapshot(),String(params.query??''),params.includeSystem!==false) as T);
         if(method==='group_detail')return Promise.resolve(detailFrom(sampleSnapshot(),String(params.groupId??''),params.trackedPids as number[]|undefined,params.contextPids as number[]|undefined) as T);
+        if(method==='services_snapshot')return Promise.resolve({at:Date.now(),supported:true,services:[]} as T);
         if(method==='script_activity')return Promise.resolve(sampleScriptActivity() as T);
         if(method==='contexts')return Promise.resolve(sampleContexts(params.groupId==='app:arc'?'arc':'codex') as T);
         if(method==='application_state')return Promise.resolve({canQuit:false,quitInstances:[],message:'预览模式不执行退出操作。',contextKind:params.groupId==='app:arc'?'arc':params.groupId==='app:codex'?'codex':null} as T);

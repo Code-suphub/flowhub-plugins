@@ -152,6 +152,35 @@ pub fn uid() -> u32 {
     unsafe { libc::geteuid() }
 }
 
+pub fn service_request(method:&str,params:&Value)->Result<Value,String> {
+    let mut request=json!({"method":method});
+    match method {
+        "services_snapshot"=>{},
+        "service_preview"=>{
+            let id=params["id"].as_str().filter(|s|s.len()==64&&s.bytes().all(|c|c.is_ascii_hexdigit())).ok_or("服务标识无效")?;
+            let action=params["action"].as_str().filter(|s|matches!(*s,"stop"|"resume")).ok_or("服务操作无效")?;
+            request["id"]=json!(id);request["action"]=json!(action);
+        },
+        "service_confirm"=>{
+            let token=params["token"].as_str().filter(|s|uuid::Uuid::parse_str(s).is_ok()).ok_or("服务确认无效")?;
+            if params["confirmed"]!=true{return Err("请明确确认后台服务操作".into());}
+            request["token"]=json!(token);request["confirmed"]=json!(true);
+        },
+        _=>return Err("不支持的后台服务操作".into()),
+    }
+    let mut stream=UnixStream::connect("/var/run/cn.ac.camellia.flowhub.resource-monitor.sock").map_err(|_|"后台服务管理需要连接系统采集服务，请检查授权")?;
+    let(mut peer_uid,mut peer_gid)=(0,0);
+    if unsafe{libc::getpeereid(stream.as_raw_fd(),&mut peer_uid,&mut peer_gid)}!=0||peer_uid!=0{return Err("系统采集服务身份校验失败".into());}
+    stream.set_read_timeout(Some(Duration::from_secs(12))).map_err(|_|"无法配置服务连接")?;
+    stream.set_write_timeout(Some(Duration::from_secs(2))).map_err(|_|"无法配置服务连接")?;
+    stream.write_all((request.to_string()+"\n").as_bytes()).map_err(|_|"服务请求结果尚未确认，请刷新核实状态")?;
+    let mut text=String::new();stream.take(1024*1024+1).read_to_string(&mut text).map_err(|_|"服务请求结果尚未确认，请刷新核实状态；不会自动重试")?;
+    if text.len()>1024*1024{return Err("后台服务回复过大，请稍后重试".into());}
+    let value:Value=serde_json::from_str(&text).map_err(|_|"后台服务回复无法读取")?;
+    if let Some(error)=value["error"].as_str(){return Err(if error=="不支持的请求" {"后台服务管理需要授权升级系统采集服务。".into()} else {error.chars().take(300).collect()});}
+    Ok(value)
+}
+
 type ResponsiblePid = unsafe extern "C" fn(i32) -> i32;
 fn responsibility_lookup() -> Option<ResponsiblePid> {
     static LOOKUP: OnceLock<Option<ResponsiblePid>> = OnceLock::new();
@@ -738,5 +767,16 @@ pub fn signal(target: &Identity, force: bool) -> Result<(), String> {
             "系统拒绝结束进程：{}",
             std::io::Error::last_os_error()
         ))
+    }
+}
+
+#[cfg(test)]
+mod service_control_tests {
+    #[test]
+    fn rejects_unscoped_service_commands_before_connecting() {
+        assert!(super::service_request("shell",&serde_json::json!({"command":"anything"})).is_err());
+        assert!(super::service_request("service_preview",&serde_json::json!({"id":"a".repeat(64),"action":"disable"})).is_err());
+        assert!(super::service_request("service_preview",&serde_json::json!({"id":"../../system","action":"stop"})).is_err());
+        assert!(super::service_request("service_confirm",&serde_json::json!({"token":uuid::Uuid::new_v4().to_string(),"confirmed":false})).is_err());
     }
 }
