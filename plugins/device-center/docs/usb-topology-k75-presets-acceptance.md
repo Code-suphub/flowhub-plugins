@@ -33,6 +33,12 @@
 - 标准版主控串口接收器在 `0x9a34` 把 `0x08` 帧长度设为 22 字节，校验位于 `0x11bd`。`0x1221` 按帧内第三字节低七位分派，长度与两字节帧头、19 字节载荷和一字节校验相符。分片序号乘 14、灯光分支 `0x08` 取长度字段低四位、配置分支 `0x04` 等字段与 AULA F75 的同型 2.4G 报告抓包吻合。K75 的 BLE 模块转换规则和无线配置读回仍待实机确认。现有 K75 Windows 驱动的 HID 导入表使用 `GetFeature` 与 `SetFeature`，可继续用于对照有线协议。[Keylux 的 AULA F75 无线抓包](https://github.com/SibteProf/keylux/blob/main/docs/PROTOCOL.md#wireless-24-ghz--a-different-protocol-on-a-different-device)
 - USB 读取命令 `0x84` 若被原样转发到上述无线帧，会被低七位分派归到 `0x04` 配置分支。无线配置读回需要独立确认。Mac mini 当时未枚举到可辨认的 K75 2.4G 接收器。本轮实机仅执行厂商输入报告读取。键盘 HID、GATT 和已验证 USB 诊断均未提供 CPU 或内存占用。证据位于 `wireless-module/` 的 `hid-descriptor.json`、`probe-result.json`、`uart-dispatch.json`。
 
+### 无线配置读取命令复测
+
+- 标准版主控收到 `0x44` 后在 `0x1730` 设置 10 个回包。`0x2b80` 生成 Report `0x13`／命令 `0x44`，读取 `0xa400 + 14 × 分片序号`。前 9 个分片各 14 字节，最后 2 字节，总计 128 字节。固件内该块以 `5a a5` 结尾。`0x05` 则读取固件内的 10 字节设备信息。两条路径的响应均由内部串口转发。
+- Mac mini 同时枚举到 BLE `3554:fa07` 和 USB `258a:0112` 时，分别向匹配的 BLE 厂商报告发送一次 `0x44` 与 `0x05` 读取请求。IOKit 均返回发送成功，应用未收到对应的厂商报告通知，轮询读到的厂商载荷仍全零。有线配置在两次试验前后的 128 字节均一致。BLE 配置读回未通过，配置写入未进入测试。
+- 同一远程执行环境的输入监控权限检查返回 `Granted`。纯 BLE 拨杆模式下的对照待验。证据见 `wireless-module/readback/` 的 `firmware-read-path.json`、`result.json`、`dual-transport-capabilities.json` 和 `input-access.json`。
+
 ## 固件离线拆解
 
 - 附加块由 12 字节头、60 KiB 密文和末尾 4 字节解码键组成。头部包含 `5a a5 SINO`、大端 VID/PID 和载荷长度。Windows 更新器 `0x403aa0` 处实现 32 轮改版 TEA，增量为 `0x9e3769b9`。两份载荷均以大端 8 字节块解码成功，重新编码逐字节匹配原密文，复位向量、多个中断向量和 USB 描述符均可核对。标准版的 USB 描述符与实机 `258a:0112`、`bcdDevice=0x4023` 和厂商 Report `0x06` 匹配。性能版对应 `258a:0149`、`bcdDevice=0x1207`。[同类 NuPhy Air75 解包参考](https://github.com/thebabush/nuphy-air75-reversing/blob/main/extract_firmware.py)
