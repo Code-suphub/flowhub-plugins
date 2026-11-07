@@ -16,7 +16,7 @@ pub fn generic(device: &Device) -> bool {
         "composite_device" | "composite device" | "usb composite device")
 }
 
-fn hex_prefix(value: &str) -> Option<u64> {
+pub(super) fn hex_prefix(value: &str) -> Option<u64> {
     let token = value.split_whitespace().next()?;
     u64::from_str_radix(token.strip_prefix("0x").or_else(|| token.strip_prefix("0X"))?, 16).ok()
 }

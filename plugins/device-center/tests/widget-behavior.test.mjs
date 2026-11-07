@@ -60,6 +60,17 @@ test('widget excludes disconnected devices and shows an explicit empty state',as
   assert.ok(!html.includes('data-device='));
   assert.ok(html.includes('当前没有检测到已连接设备'));
 });
+test('card settings retain visibility and order, ignoring duplicate and unknown IDs',async()=>{
+  const cards=[{id:{toString:0},visible:true},{id:'unknown',visible:true},{id:'devices',visible:false},{id:'devices',visible:true},
+    {id:'keyboard',visible:true},{id:'power',visible:false}];
+  const mounted=await mountWidget(snapshot,{cards});
+  assert.deepEqual([...mounted.node.innerHTML.matchAll(/data-widget-card="([^"]+)"/g)].map(match=>match[1]),['keyboard']);
+  assert.match(mounted.node.innerHTML,/未检测到有线 K75/);
+  assert.ok(!mounted.sent.some(message=>message.params?.method==='keyboard_mode'));
+  const hidden=await renderWidget(snapshot,{cards:cards.map(card=>({...card,visible:false}))});
+  assert.match(hidden,/可在组件编辑中选择要显示的卡片/);
+  assert.doesNotMatch(hidden,/data-widget-card=/);
+});
 test('display badges are visible and Retina logical size stays in device details',async()=>{
   const internal={id:'display-1',name:'Color LCD',category:'display',kind:'monitor',status:'connected',
     displayConnection:'built-in',pixelResolution:'3024 × 1964',logicalResolution:'1512 × 982',refreshRate:'120.00Hz',detail:'3024 × 1964 · 120.00Hz'};

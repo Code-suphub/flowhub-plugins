@@ -4,19 +4,34 @@ const node=document.getElementById('app');
 const surface=document.body.dataset.surface||'main';
 const isWidget=surface!=='main';
 const hostWindow=window.parent!==window;
-const widgetToken=new URLSearchParams(location.hash.slice(1)).get('flowhubWidgetToken');
+const widgetParams=new URLSearchParams(location.hash.slice(1));
+const widgetToken=widgetParams.get('flowhubWidgetToken');
 const preview=!hostWindow||(isWidget&&!widgetToken)||new URLSearchParams(location.search).has('preview');
 if(new URLSearchParams(location.search).has('embedded'))document.body.classList.add('embedded');
 const p=new URLSearchParams(location.search);
-let loading=false,done=false,widgetContext={},widgetReady=false;
+let loading=false,done=false,widgetContext={},widgetReady=false,widgetActive=widgetParams.get('flowhubWidgetActive')!=='0';
 const pending=new Map();
-let poll=null;
+let poll=null,modePoll=null,modeRetry=null,modePending=false,modeReading=null;
 let widgetCategory='overview';
 const widgetScroll={};
 const orderTools=window.FlowHubDeviceOrder;
 let orderDraft=null,orderSaving=false,orderError='',orderNotice='',drag=null,dragFrame=null;
 const powerIntervals=[5,10,30,60];
 const powerInterval=()=>powerIntervals.includes(Number(widgetContext?.config?.powerIntervalSeconds))?Number(widgetContext.config.powerIntervalSeconds):5;
+const cardDefinitions={
+  power:{label:'供电概览',description:'整机耗电与供电来源',icon:'power',visible:true},
+  devices:{label:'设备列表',description:'连接记录与设备筛选',icon:'overview',visible:true},
+  keyboard:{label:'K75 键位模式',description:'通过有线 USB 读取 Mac 或 Windows 键位',icon:'keyboard',visible:false}
+};
+function cards(config=widgetContext?.config){
+  const saved=Array.isArray(config?.cards)?config.cards:[];
+  const result=new Map();
+  for(const card of saved){
+    if(typeof card?.id==='string'&&Object.hasOwn(cardDefinitions,card.id)&&typeof card.visible==='boolean'&&!result.has(card.id))result.set(card.id,card.visible);
+  }
+  for(const [id,definition] of Object.entries(cardDefinitions))if(!result.has(id))result.set(id,definition.visible);
+  return [...result].map(([id,visible])=>({id,visible}));
+}
 const paths={
   overview:'<rect x="3" y="3" width="18" height="15" rx="3"/><path d="M9 22h6m-3-4v4"/>',
   bluetooth:'<path d="m7 7 10 10-5 4V3l5 4L7 17"/>',
@@ -35,6 +50,7 @@ const paths={
   info:'<circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10h.01"/>',
   close:'<path d="m5 5 14 14M19 5 5 19"/>',
   grip:'<circle cx="9" cy="5" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="19" r="1"/>',
+  keyboard:'<rect x="2" y="5" width="20" height="14" rx="3"/><path d="M6 9h1m4 0h1m4 0h1M6 13h1m4 0h1m4 0h1m-8 3h6"/>',
   headset:'<path d="M4 13v-2a8 8 0 0 1 16 0v2M4 13h4v7H6a2 2 0 0 1-2-2v-5Zm16 0h-4v7h2a2 2 0 0 0 2-2v-5Z"/>',
   device:'<rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/>'
 };
@@ -137,6 +153,34 @@ function powerFlow(power){
   }
   return {source:'未提供',state:power.powerSourceError||'供电状态未提供',detail:''};
 }
+function keyboardCandidates(){
+  return data.devices.filter(d=>d.keyboardModeCandidate&&d.status==='connected');
+}
+function modeText(){
+  const candidates=keyboardCandidates();
+  if(candidates.length>1)return '有多把候选键盘';
+  if(!candidates.length)return data.at?'未检测到有线 K75':'正在检测…';
+  const reading=modeReading?.id===candidates[0].id?modeReading.value:null;
+  if(reading?.status==='unavailable')return '无法读取';
+  if(reading?.status!=='read')return '正在读取…';
+  return reading.mode==='mac'?'Mac 模式':reading.mode==='windows'?'Windows 模式':'模式未知';
+}
+async function refreshKeyboardMode(followUp=false){
+  if(done||preview||!widgetActive||document.hidden||modePending||!cards().some(card=>card.id==='keyboard'&&card.visible))return;
+  const candidates=keyboardCandidates();
+  if(candidates.length!==1){modeReading=null;return;}
+  const {id}=candidates[0];
+  modePending=true;
+  let value;
+  try{value=await rpc('keyboard_mode',{id});}
+  catch{value={status:'unavailable'};}
+  finally{modePending=false;}
+  if(done||!widgetActive)return;
+  modeReading={id,value};
+  const mode=node.querySelector('#widgetKeyboardMode');
+  if(mode){const text=modeText();if(text!==mode.textContent)mode.textContent=text;}
+  if(followUp&&value?.status==='pending')modeRetry=setTimeout(()=>void refreshKeyboardMode(),400);
+}
 function widgetView(){
   const config=widgetContext?.config||{};
   const devices=orderTools.sort(data.devices.filter(d=>d.category==='adb'||d.status==='connected'),orderDraft||data.widgetOrder?.ids||[]);
@@ -153,9 +197,37 @@ function widgetView(){
   const items=s.length?s.map((d,index)=>row(d,index+1,s.length)).join(''):`<p class="empty">${widgetCategory==='overview'?'当前没有检测到已连接设备':'当前分类没有检测到已连接设备'}</p>`;
   const issue=orderError||data.widgetOrder?.error;
   const orderStatus=issue?`<div class="widget-order-error" role="alert">${safe(issue)}${orderDraft&&!orderSaving?'<div><button id="widgetOrderRetry" type="button">重试保存</button><button id="widgetOrderDiscard" type="button">撤销排序</button></div>':''}</div>`:'';
-  return `<main class="widget"><header class="widget-head"><span class="brand-mark">${svg('overview')}</span><strong>${safe(title)}</strong><button class="icon-control more" id="widgetOpen" type="button" aria-label="打开外设中心">${svg('dots')}</button></header>${status}<div class="widget-counts">${filters}</div><button type="button" class="widget-power" id="widgetPower" aria-label="查看供电详情" title="${safe(w.powerUnavailableReason||w.note||'查看输入功率、电池充放电与适配器详情')}"><span class="widget-power-metric"><span>整机耗电</span><strong>${reading.system}</strong></span><span class="widget-power-metric"><span>供电来源</span><span class="widget-source-value" title="${safe(flow.state)}"><strong>${flow.source}</strong>${flow.detail?`<small>${safe(flow.detail)}</small>`:''}</span></span></button>${powerError}<div class="widget-section"><span>${heading}${shown}</span><span class="widget-order-notice" role="status">${safe(orderNotice)}</span></div>${orderStatus}<div class="widget-device-list" data-widget-list-category="${widgetCategory}" role="list" aria-label="设备列表">${items}</div></main>${preview?'<span class="preview-tag">演示数据</span>':''}`;
+  const content={
+    power:`<section data-widget-card="power" aria-label="供电概览"><button type="button" class="widget-power" id="widgetPower" aria-label="查看供电详情" title="${safe(w.powerUnavailableReason||w.note||'查看输入功率、电池充放电与适配器详情')}"><span class="widget-power-metric"><span>整机耗电</span><strong>${reading.system}</strong></span><span class="widget-power-metric"><span>供电来源</span><span class="widget-source-value" title="${safe(flow.state)}"><strong>${flow.source}</strong>${flow.detail?`<small>${safe(flow.detail)}</small>`:''}</span></span></button>${powerError}</section>`,
+    devices:`<section class="widget-devices" data-widget-card="devices" aria-label="设备列表">${status}<div class="widget-counts">${filters}</div><div class="widget-section"><span>${heading}${shown}</span><span class="widget-order-notice" role="status">${safe(orderNotice)}</span></div>${orderStatus}<div class="widget-device-list" data-widget-list-category="${widgetCategory}" role="list" aria-label="设备列表">${items}</div></section>`,
+    keyboard:`<section class="widget-keyboard" data-widget-card="keyboard" aria-label="K75 键位模式">${svg('keyboard')}<span>K75 键位</span><strong id="widgetKeyboardMode" role="status">${modeText()}</strong></section>`
+  };
+  const visible=cards(config).filter(card=>card.visible);
+  return `<main class="widget"><header class="widget-head"><span class="brand-mark">${svg('overview')}</span><strong>${safe(title)}</strong><button class="icon-control more" id="widgetOpen" type="button" aria-label="打开外设中心">${svg('dots')}</button></header><div class="widget-cards">${visible.map(card=>content[card.id]).join('')||'<p class="empty">可在组件编辑中选择要显示的卡片</p>'}</div></main>${preview?'<span class="preview-tag">演示数据</span>':''}`;
 }
-function editorView(){const conf=widgetContext?.config||{};return `<main class="editor"><h1>桌面组件</h1><label>组件名称<input id="widget-title" maxlength="40" value="${safe(conf.title||'外设中心')}"></label><label>功率采样间隔<select id="widget-interval">${powerIntervals.map(n=>`<option value="${n}" ${powerInterval()===n?'selected':''}>${n} 秒</option>`).join('')}</select></label></main>`;}
+function editorView(){
+  const conf=widgetContext?.config||{};
+  const rows=cards(conf).map(({id,visible})=>{
+    const {label,description,icon}=cardDefinitions[id];
+    return `<div class="editor-card" role="listitem" data-order-item="${id}">
+      <label><input type="checkbox" data-card-visible aria-label="显示${label}" ${visible?'checked':''}><span class="brand-mark">${svg(icon)}</span><span><strong>${label}</strong><small>${description}</small></span></label>
+      <button class="device-order-handle" type="button" data-order-handle="${id}" aria-label="调整${label}的顺序" aria-description="拖动排序，也可使用上下方向键移动，Home 和 End 移到首尾" title="拖动排序，或用上下方向键移动">${svg('grip')}</button>
+    </div>`;
+  }).join('');
+  return `<main class="editor"><h1>桌面组件</h1><label class="editor-field">组件名称<input id="widget-title" maxlength="40" value="${safe(conf.title||'外设中心')}"></label><section aria-labelledby="widget-cards-heading"><h2 id="widget-cards-heading">展示内容</h2><p>勾选要显示的卡片，拖动右侧把手调整顺序。</p><div class="editor-cards" role="list" aria-labelledby="widget-cards-heading">${rows}</div></section><label class="editor-field">功率采样间隔<select id="widget-interval">${powerIntervals.map(n=>`<option value="${n}" ${powerInterval()===n?'selected':''}>${n} 秒</option>`).join('')}</select></label></main>`;
+}
+function moveCard(source,target,after,ensureVisible=false){
+  const list=node.querySelector('.editor-cards');
+  const rows=[...list.querySelectorAll('[data-order-item]')];
+  const moved=rows.find(row=>row.dataset.orderItem===source);
+  const destination=rows.find(row=>row.dataset.orderItem===target);
+  if(!moved||!destination||moved===destination)return false;
+  list.insertBefore(moved,after?destination.nextSibling:destination);
+  const handle=moved.querySelector('[data-order-handle]');
+  handle.focus({preventScroll:true});
+  if(ensureVisible)handle.scrollIntoView({block:'nearest'});
+  return true;
+}
 function redraw(focusId,ensureVisible=false){
   if(done||drag)return;
   const previousList=node.querySelector('.widget-device-list');
@@ -175,7 +247,8 @@ function redraw(focusId,ensureVisible=false){
   node.querySelector('#widgetPower')?.addEventListener('click',()=>{if(!preview&&widgetToken)window.parent.postMessage({type:'flowhub:widget-navigate',token:widgetToken,action:'detail',selection:{view:'power'}},'*');});
   node.querySelector('#widgetOrderRetry')?.addEventListener('click',()=>{if(orderDraft)void saveOrder(orderDraft);});
   node.querySelector('#widgetOrderDiscard')?.addEventListener('click',()=>{orderDraft=null;orderError='';orderNotice='';redraw();});
-  bindOrder(widgetList);
+  bindOrder(widgetList,moveDevice,()=>preview||orderSaving||Boolean(orderDraft));
+  bindOrder(node.querySelector('.editor-cards'),moveCard,()=>false);
   if(focus&&document.hasFocus?.()){
     const selector=focus.handle?'[data-order-handle]':focus.device?'[data-device]':'[data-widget-category]';
     const target=[...node.querySelectorAll(selector)].find(el=>(el.dataset.orderHandle||el.dataset.device||el.dataset.widgetCategory)===(focus.handle||focus.device||focus.category));
@@ -228,9 +301,12 @@ function endDrag(){
   const previous=drag;drag=null;
   previous?.ghost?.remove();
   try{if(previous?.handle.hasPointerCapture(previous.pointerId))previous.handle.releasePointerCapture(previous.pointerId);}catch{}
-  node.querySelector('.widget')?.classList.remove('is-order-dragging');
+  previous?.list.classList.remove('is-order-dragging');
+  previous?.sourceRow.classList.remove('is-dragging');
+  previous?.target?.removeAttribute('data-drop');
+  previous?.rows?.forEach(({row})=>row.style.removeProperty('--drag-shift'));
 }
-function liftDevice(active){
+function liftRow(active){
   const {list,sourceRow}=active;
   const bounds=list.getBoundingClientRect();
   const origin=sourceRow.getBoundingClientRect();
@@ -242,13 +318,14 @@ function liftDevice(active){
   active.height=origin.height;
   active.pointerOffset=active.startY-origin.top;
   const ghost=sourceRow.cloneNode(true);
-  ghost.className='device-row widget-drag-ghost';
+  ghost.classList.add('widget-drag-ghost');
   ghost.removeAttribute('data-order-item');
   ghost.setAttribute('aria-hidden','true');
   ghost.inert=true;
-  for(const child of ghost.querySelectorAll('[data-device],[data-order-handle]')){
+  for(const child of ghost.querySelectorAll('[data-device],[data-order-handle],[data-card-visible]')){
     child.removeAttribute('data-device');
     child.removeAttribute('data-order-handle');
+    child.removeAttribute('data-card-visible');
   }
   ghost.style.left=origin.left+'px';
   ghost.style.width=origin.width+'px';
@@ -256,7 +333,7 @@ function liftDevice(active){
   document.body.append(ghost);
   active.ghost=ghost;
   sourceRow.classList.add('is-dragging');
-  node.querySelector('.widget')?.classList.add('is-order-dragging');
+  list.classList.add('is-order-dragging');
 }
 function showDropGap(active,gap){
   if(active.gap===gap)return;
@@ -303,36 +380,36 @@ function movePointer(event){
   event.stopPropagation();
   if(!drag.moved){
     drag.moved=true;
-    liftDevice(drag);
+    liftRow(drag);
   }
   dragPosition(drag.list,event.clientX,event.clientY);scrollDrag(drag.list);
 }
 function finishPointer(event){
   if(!drag||event.pointerId!==drag.pointerId)return;
   event.preventDefault();event.stopPropagation();if(drag.moved)dragPosition(drag.list,event.clientX,event.clientY);
-  const {id,target,after,moved}=drag;endDrag();
-  if(!moved||!target||!moveDevice(id,target.dataset.orderItem,after))redraw(id);
+  const {id,target,after,moved,move,list}=drag;endDrag();
+  if((!moved||!target||!move(id,target.dataset.orderItem,after))&&list.matches('.widget-device-list'))redraw(id);
 }
-function cancelPointer(){if(drag){const id=drag.id;endDrag();redraw(id);}}
+function cancelPointer(){if(drag){const {id,list}=drag;endDrag();if(list.matches('.widget-device-list'))redraw(id);}}
 function leaveWidget(event){if(!event.relatedTarget)cancelPointer();}
-function bindOrder(list){
+function bindOrder(list,move,disabled){
   if(!list)return;
-  for(const handle of node.querySelectorAll('[data-order-handle]')){
+  for(const handle of list.querySelectorAll('[data-order-handle]')){
     handle.addEventListener('keydown',event=>{
-      if(event.key==='Escape'&&drag){event.preventDefault();event.stopPropagation();endDrag();redraw(handle.dataset.orderHandle);return;}
-      if(preview||orderSaving||orderDraft||event.isComposing||event.altKey||event.ctrlKey||event.metaKey||event.shiftKey)return;
+      if(event.key==='Escape'&&drag){event.preventDefault();event.stopPropagation();cancelPointer();return;}
+      if(disabled()||event.isComposing||event.altKey||event.ctrlKey||event.metaKey||event.shiftKey)return;
       if(!['ArrowUp','ArrowDown','Home','End'].includes(event.key))return;
       event.preventDefault();event.stopPropagation();
       if(event.repeat)return;
-      const keys=[...node.querySelectorAll('[data-order-item]')].map(el=>el.dataset.orderItem),id=handle.dataset.orderHandle,index=keys.indexOf(id);
+      const keys=[...list.querySelectorAll('[data-order-item]')].map(el=>el.dataset.orderItem),id=handle.dataset.orderHandle,index=keys.indexOf(id);
       const target=event.key==='Home'?0:event.key==='End'?keys.length-1:event.key==='ArrowUp'?index-1:index+1;
-      if(keys[target])moveDevice(id,keys[target],event.key==='ArrowDown'||event.key==='End',true);
+      if(keys[target])move(id,keys[target],event.key==='ArrowDown'||event.key==='End',true);
     });
     handle.addEventListener('pointerdown',event=>{
-      if(preview||orderSaving||orderDraft||drag||event.button!==0||!event.isPrimary)return;
+      if(disabled()||drag||event.button!==0||!event.isPrimary)return;
       event.preventDefault();event.stopPropagation();handle.focus({preventScroll:true});
       drag={
-        id:handle.dataset.orderHandle,handle,list,sourceRow:handle.closest('[data-order-item]'),
+        id:handle.dataset.orderHandle,handle,list,move,sourceRow:handle.closest('[data-order-item]'),
         pointerId:event.pointerId,startX:event.clientX,startY:event.clientY,
         target:null,after:false,scroll:0,moved:false
       };
@@ -345,21 +422,35 @@ function bindOrder(list){
 async function refresh(force=false){
   if(done||loading)return;
   loading=true;
-  try{const next=await rpc(force?'refresh':'snapshot');if(!done&&Array.isArray(next.devices)){data=next;redraw();}}
+  try{const next=await rpc(force?'refresh':'snapshot');if(!done&&Array.isArray(next.devices)){
+    data=next;
+    if(modeReading&&!keyboardCandidates().some(device=>device.id===modeReading.id))modeReading=null;
+    redraw();
+    if(!modeReading)void refreshKeyboardMode(true);
+  }}
   catch(err){if(!done){data={...data,error:String(err),stale:true};redraw();}}
   finally{loading=false;}
 }
 function startPolling(){
   clearInterval(poll);
-  if(surface==='editor'||preview)return;
+  clearInterval(modePoll);
+  clearTimeout(modeRetry);
+  if(done||surface==='editor'||preview||!widgetActive)return;
   poll=setInterval(()=>{if(!document.hidden&&(!isWidget||widgetReady))void refresh();},powerInterval()*1000);
+  if(surface==='card'&&cards().some(card=>card.id==='keyboard'&&card.visible))modePoll=setInterval(()=>void refreshKeyboardMode(),3000);
 }
 function receive(event){
   if(done||event.source!==window.parent)return;
   const msg=event.data;
   if(!msg||typeof msg!=='object'||isWidget&&widgetToken&&msg.token!==widgetToken)return;
+  if(surface==='card'&&msg.type==='flowhub:widget-lifecycle'){
+    widgetActive=msg.active===true;
+    if(!widgetActive){modeReading=null;startPolling();}
+    return;
+  }
   if(isWidget&&msg.type==='flowhub:widget-init'){
     widgetReady=true;widgetContext=msg.context||{};
+    if(!cards().some(card=>card.id==='keyboard'&&card.visible))modeReading=null;
     redraw();startPolling();
     if(surface!=='editor')void refresh();
     if(surface==='card'&&!preview&&!artworkRequested){
@@ -368,9 +459,11 @@ function receive(event){
     }
     return;
   }
-  if(isWidget&&msg.type==='flowhub:widget-save'){
+  if(surface==='editor'&&msg.type==='flowhub:widget-save'){
     const interval=Number(node.querySelector('#widget-interval')?.value||5);
-    const config={title:String(node.querySelector('#widget-title')?.value||'外设中心').slice(0,40),limit:'all',powerIntervalSeconds:powerIntervals.includes(interval)?interval:5};
+    const rows=[...node.querySelectorAll('[data-order-item]')];
+    const selected=rows.length?rows.map(row=>({id:row.dataset.orderItem,visible:row.querySelector('[data-card-visible]').checked})):cards();
+    const config={title:String(node.querySelector('#widget-title')?.value||'外设中心').slice(0,40),limit:'all',powerIntervalSeconds:powerIntervals.includes(interval)?interval:5,cards:selected};
     window.parent.postMessage({type:'flowhub:widget-config',id:msg.id,token:widgetToken,config},'*');return;
   }
   if(msg.type===(isWidget?'flowhub:widget-result':'flowhub:response')){
@@ -388,5 +481,5 @@ redraw();
 if(isWidget&&hostWindow&&widgetToken)window.parent.postMessage({type:'flowhub:widget-ready',token:widgetToken},'*');
 else if(!preview)void refresh();
 if(!isWidget)startPolling();
-window.addEventListener('pagehide',()=>{done=true;endDrag();clearInterval(poll);window.removeEventListener('message',receive);window.removeEventListener('blur',cancelPointer);document.removeEventListener?.('pointermove',movePointer,true);document.removeEventListener?.('pointerup',finishPointer,true);document.removeEventListener?.('pointerout',leaveWidget);for(const entry of pending.values()){clearTimeout(entry.timer);entry.reject(Error('页面已关闭'));}pending.clear();},{once:true});
+window.addEventListener('pagehide',()=>{done=true;endDrag();startPolling();window.removeEventListener('message',receive);window.removeEventListener('blur',cancelPointer);document.removeEventListener?.('pointermove',movePointer,true);document.removeEventListener?.('pointerup',finishPointer,true);document.removeEventListener?.('pointerout',leaveWidget);for(const entry of pending.values()){clearTimeout(entry.timer);entry.reject(Error('页面已关闭'));}pending.clear();},{once:true});
 })();

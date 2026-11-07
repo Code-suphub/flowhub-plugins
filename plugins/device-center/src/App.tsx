@@ -4,6 +4,7 @@ import type {Api} from './api';
 import {DeviceArt,Icon} from './Icons';
 import {AdbPreferenceEditor} from './AdbPreferenceEditor';
 import {BatteryHistory} from './BatteryHistory';
+import {KeyboardMode} from './KeyboardMode';
 import {adbConnectionLabel,adbConnectionSummary,adbState,adbStale,adbTransport,categories,contextSelection,deviceAlias,deviceBattery,deviceName,displaySpec,displayType,emptyArtwork,eventLabel,finite,initial,isStale,listed,source,time,watts,type AdbPreferences,type Artwork,type Category,type Device,type DeviceCatalog,type Snapshot} from './model';
 
 type Page='devices'|'power'|'events';
@@ -176,6 +177,7 @@ export function App({api}:{api:Api}) {
      <Button variant="ghost" className="dc-button" disabled={api.preview} onClick={()=>void openReference('photo')}>来源</Button>
      <Button variant="ghost" className="dc-button" disabled={api.preview} onClick={()=>void openReference('license')}>{detailProfile.image.license}</Button>
     </div>:null}
+    {open&&detail.keyboardModeCandidate&&!removed?<KeyboardMode key={detail.id} api={api} id={detail.id}/>:null}
     {detail.catalogKey==='kzzi-k75'?<section className="dc-keyboard-guide" aria-label="珂芝 K75 快捷键">
      <div className="dc-device-reference"><h4>珂芝 K75 快捷键</h4><Button variant="ghost" className="dc-button" disabled={api.preview} onClick={()=>void openReference('manual')}><Icon name="external"/>官方说明书</Button></div>
      <p>当前可查看按键操作。背光与模式尚未接入软件调节。</p>

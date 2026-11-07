@@ -51,6 +51,8 @@ export function demo(scenario=''):Snapshot {
   Object.assign(data.devices.find(device=>device.id==='pixel')!,{name:'Pixel 8 Pro',catalogKey:'pixel-8-pro'});
   data.catalog={'kzzi-k75':{name:'珂芝 K75'},'pixel-8-pro':{name:'Google Pixel 8 Pro'}};
  }
+ if(scenario==='k75')data.devices.push({id:'usb-k75',name:'Gaming Keyboard',category:'usb',
+  kind:'keyboard',detail:'BY Tech',status:'connected',vendor:'0x258a',productId:'0x0112',keyboardModeCandidate:true});
  if(scenario==='long')data.devices[0].name='一台名称很长的蓝牙设备 / A deliberately long accessory name that must truncate';
  return data;
 }

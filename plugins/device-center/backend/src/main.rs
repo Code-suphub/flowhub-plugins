@@ -13,6 +13,7 @@ mod local_preferences;
 mod toolkit_adb;
 mod widget_order;
 mod cli;
+mod keyboard_mode;
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
     io::{BufRead, Read, Write},
@@ -104,6 +105,8 @@ struct CatalogDevice<'a> {
     device: &'a Device,
     #[serde(skip_serializing_if = "Option::is_none")]
     catalog_key: Option<&'static str>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    keyboard_mode_candidate: bool,
 }
 struct State {
     battery_history: battery_history::Store,
@@ -501,7 +504,7 @@ impl State {
                 catalog.entry(entry.key).or_insert_with(|| self.catalog.profile(entry));
                 entry.key
             });
-            CatalogDevice { device, catalog_key }
+            CatalogDevice { device, catalog_key, keyboard_mode_candidate: keyboard_mode::location(device).is_some() }
         }).collect();
         json!({"at":self.at, "stale":self.stale(), "devices":devices,"catalog":catalog,"adb":self.adb.value(),"widgetOrder":self.widget_order.value(),"adbPreferences":self.adb_preferences.value(),
             "power":power, "events":self.events, "error":self.error,
@@ -548,10 +551,13 @@ fn refresh_devices(state: &Arc<Mutex<State>>) -> Result<(), String> {
 }
 
 fn k75_status() -> Result<Value, String> {
+    keyboard_mode::probe(&[])
+}
+fn run_k75_probe(args: &[&str]) -> Result<Value, String> {
     let executable = std::env::current_exe().map_err(|_| "无法定位外设中心后端")?;
     let helper = executable.with_file_name("flowhub-k75-probe");
     let path = helper.to_str().ok_or("K75 诊断工具路径无效")?;
-    let output = read_system_query(path, &[], Duration::from_secs(4), 4096)
+    let output = read_system_query(path, args, Duration::from_secs(4), 4096)
         .map_err(|_| "K75 USB 诊断工具运行失败或超时")?;
     let report: Value = serde_json::from_slice(&output).map_err(|_| "K75 诊断返回无效 JSON")?;
     match report["error"].as_str() {
@@ -586,6 +592,13 @@ fn dispatch(state: &Arc<Mutex<State>>, method: &str, params: &Value) -> Result<V
     match method {
         "health" => Ok(json!({"protocol":2,"name":"device-center","version":env!("CARGO_PKG_VERSION")})),
         "device_icons" => Ok(device_icons::snapshot()),
+        "keyboard_mode" => {
+            let id = params["id"].as_str().ok_or("缺少设备标识")?;
+            let location = state.lock().map_err(|_| "状态缓存不可用")?.scan.devices.iter()
+                .find(|device| device.id == id).and_then(keyboard_mode::location)
+                .ok_or("该设备已断开或不支持读取键位模式")?;
+            Ok(keyboard_mode::request(location))
+        },
         "battery_history" | "battery_history_set_retention" => {
             let id = params["id"].as_str().filter(|s| s.len() <= 64).ok_or("设备标识无效")?;
             let mut s = state.lock().map_err(|_| "状态缓存不可用")?;
@@ -651,6 +664,7 @@ fn dispatch(state: &Arc<Mutex<State>>, method: &str, params: &Value) -> Result<V
                 Some("snapshot") => dispatch(state, "snapshot", &params["params"]),
                 Some("refresh") => dispatch(state, "refresh", &params["params"]),
                 Some("device_icons") => dispatch(state, "device_icons", &params["params"]),
+                Some("keyboard_mode") => dispatch(state, "keyboard_mode", &params["params"]),
                 Some(method @ ("battery_history" | "battery_history_set_retention")) => dispatch(state, method, &params["params"]),
                 Some("open_device_reference") => dispatch(state, "open_device_reference", &params["params"]),
                 Some("open_display_settings") => dispatch(state, "open_display_settings", &params["params"]),

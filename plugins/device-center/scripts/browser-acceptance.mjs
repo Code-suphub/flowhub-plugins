@@ -23,10 +23,11 @@ const server=createServer(async(req,res)=>{
  try{
   const url=new URL(req.url,'http://localhost');
   if(url.pathname==='/qa'){
-   const card=url.searchParams.get('surface')==='card',widget=url.searchParams.get('widget')==='1'||card;
+   const card=url.searchParams.get('surface')==='card',editor=url.searchParams.get('surface')==='editor',widget=url.searchParams.get('widget')==='1'||card||editor;
    const context={config:{powerIntervalSeconds:5,limit:3},selection:{deviceId:url.searchParams.get('device')||undefined,view:url.searchParams.get('view')||undefined}};
    context.scenario=url.searchParams.get('scenario')||'';
-   const source=widget?(card?'widget-card.html#flowhubWidgetToken=qa-token':'widget-detail.html#flowhubWidgetToken=qa-token'):'index.html';
+   if(url.searchParams.has('cards'))context.config.cards=JSON.parse(url.searchParams.get('cards'));
+   const source=widget?(card?'widget-card.html':editor?'widget-editor.html':'widget-detail.html')+'#flowhubWidgetToken=qa-token':'index.html';
    if(url.searchParams.get('pending')==='1')context.pending=true;
    if(url.searchParams.get('legacy')==='1'){context.config.selection=context.selection;delete context.selection;}
    res.writeHead(200,{'content-type':mime['.html']});
@@ -42,10 +43,12 @@ const server=createServer(async(req,res)=>{
      window.__qa.snapshot.catalog['pixel-8-pro'].image={dataUrl:canvas.toDataURL('image/jpeg'),author:'Test Author',license:'CC BY 4.0'};
    }
    let pending=${Boolean(context.pending)};
+   window.addEventListener('message',event=>{if(event.source===document.querySelector('iframe').contentWindow&&event.data?.type==='flowhub:widget-config')window.__qa.savedConfig=event.data.config;});
    window.addEventListener('message',event=>{if(event.source===document.querySelector('iframe').contentWindow&&event.data?.type==='flowhub:widget-navigate')window.__qa.navigation=event.data;});
    window.addEventListener('message',event=>{const frame=document.querySelector('iframe');if(event.source!==frame.contentWindow)return;const m=event.data;if(m.type==='flowhub:theme-ready'){frame.contentWindow.postMessage({type:'flowhub:theme',theme:'light'},'*');return;}if(m.type==='flowhub:widget-ready'){frame.contentWindow.postMessage({type:'flowhub:widget-init',token:'qa-token',context:${JSON.stringify(context)}},'*');return;}if(!['flowhub:request','flowhub:widget-rpc'].includes(m.type))return;const widget=m.type==='flowhub:widget-rpc',method=widget?m.params.method:m.method;window.__qa.requests.push(method);const reply={type:widget?'flowhub:widget-result':'flowhub:response',token:widget?'qa-token':undefined,id:m.id};
    if(method==='open_display_settings'){if(window.__qa.settingsError)reply.error=window.__qa.settingsError;else reply.result={opened:true};if(window.__qa.holdSettings){window.__qa.finishSettings=()=>frame.contentWindow.postMessage(reply,'*');return;}frame.contentWindow.postMessage(reply,'*');return;}
    if(method==='open_device_reference'){window.__qa.reference=widget?m.params.params:m.params;reply.result={opened:true};frame.contentWindow.postMessage(reply,'*');return;}
+   if(method==='keyboard_mode'){const args=widget?m.params.params:m.params;if(args.id==='usb-k75')reply.result=window.__qa.keyboardMode||{status:'read',mode:'mac',usbRelease:'0x4023'};else reply.error='设备不支持';frame.contentWindow.postMessage(reply,'*');return;}
    if(method==='battery_history'||method==='battery_history_set_retention'){
     const args=widget?m.params.params:m.params;
     if(method==='battery_history_set_retention')window.__qa.batteryHours=args.hours;
@@ -103,7 +106,24 @@ try{
  const size=(width,height=560)=>send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:2,mobile:false});
  const keyboard=async(key,code=key,vk=0,modifiers=0)=>{await send('Input.dispatchKeyEvent',{type:'keyDown',key,code,windowsVirtualKeyCode:vk,modifiers,...(key==='Enter'?{text:'\r'}:key.length===1?{text:key}:{})});await send('Input.dispatchKeyEvent',{type:'keyUp',key,code,windowsVirtualKeyCode:vk,modifiers});await sleep(80);};
  const capture=async name=>{await writeFile(join(out,name+'.png'),Buffer.from((await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false})).data,'base64'));report.screenshots.push(name+'.png');};
- const navigate=async(path='/qa')=>{frame=undefined;const params=new URL(origin+path).searchParams,card=params.get('surface')==='card'||path.startsWith('/ui/widget-card.html');await send('Page.navigate',{url:origin+path});for(let n=0;n<120;n++){for(const ctx of contexts.values()){if(!ctx.auxData?.isDefault)continue;try{if(await evaluate('!!document.querySelector("'+(card?'.widget':'.dc-app')+'")',ctx.id)){frame=ctx.id;break;}}catch{}}if(frame)break;await sleep(50);}if(!frame)throw Error('No plugin iframe');const view=params.get('view'),count=fixture(params.get('scenario')||'').devices.filter(d=>!['bluetooth','usb','display','adb'].includes(view)||d.category===view).length,expected=count;await wait('document.querySelectorAll("[data-device]").length==='+expected);await evaluate('document.fonts.ready');await sleep(100);};
+ const navigate=async(path='/qa')=>{
+  frame=undefined;
+  const params=new URL(origin+path).searchParams,card=params.get('surface')==='card'||path.startsWith('/ui/widget-card.html'),editor=params.get('surface')==='editor';
+  const selector=card?'.widget':editor?'.editor':'.dc-app';
+  await send('Page.navigate',{url:origin+path});
+  for(let n=0;n<120;n++){
+   for(const ctx of contexts.values()){
+    if(!ctx.auxData?.isDefault)continue;
+    try{if(await evaluate('!!document.querySelector("'+selector+'")',ctx.id)){frame=ctx.id;break;}}catch{}
+   }
+   if(frame)break;await sleep(50);
+  }
+  if(!frame)throw Error('No plugin iframe');
+  const view=params.get('view'),count=fixture(params.get('scenario')||'').devices.filter(d=>!['bluetooth','usb','display','adb'].includes(view)||d.category===view).length;
+  const config=JSON.parse(params.get('cards')||'[]');
+  await wait('document.querySelectorAll("[data-device]").length==='+ (editor||card&&config.some(c=>c.id==='devices'&&!c.visible)?0:count));
+  await evaluate('document.fonts.ready');await sleep(100);
+ };
  const tab=async name=>click('[role=tab][data-tabs-value="'+name+'"]');
  const refresh=async()=>{await parent('window.__qa.snapshot.at=Date.now()');await click('[aria-label="刷新设备"]');await wait('!document.querySelector("[aria-label=刷新设备]").disabled');};
  await send('Page.enable');await send('Runtime.enable');await send('Network.enable');await send('Emulation.setFocusEmulationEnabled',{enabled:true});await size(800);await navigate();
@@ -370,6 +390,55 @@ try{
  await click('[data-widget-category=usb]');
  for(const theme of ['light','dark'])for(const width of [280,360]){await size(width,320);await parent(`document.querySelector('iframe').contentWindow.postMessage({type:'flowhub:theme',theme:'${theme}'},'*')`);await sleep(100);await check('document.documentElement.scrollWidth<=innerWidth && document.querySelectorAll("[data-order-handle]").length===4','full-list order handles fit '+theme+' '+width);if(width===360)await capture('widget-order-'+theme);}
  await navigate('/ui/widget-card.html');await check('[...document.querySelectorAll("[data-order-handle]")].every(e=>e.disabled)','standalone widget preview never persists preferences');
+
+ await size(800);await navigate('/qa?widget=1&scenario=k75&device=usb-k75');
+ await wait('document.querySelector(".dc-keyboard-mode [role=status]")?.textContent==="Mac 模式"');
+ await check('document.querySelector(".dc-keyboard-mode").textContent.includes("0x4023")','USB K75 details display the detected Mac mode and USB release');
+ await parent('window.__qa.keyboardMode={status:"read",mode:"windows",usbRelease:"0x4023"}');
+ await wait('document.querySelector(".dc-keyboard-mode [role=status]").textContent==="Windows 模式"');
+ await parent('window.__qa.keyboardMode={status:"read",mode:"unknown",usbRelease:"0x4024"}');
+ await wait('document.querySelector(".dc-keyboard-mode [role=status]").textContent==="模式未知"');
+ report.checks.push('mode refresh follows Windows and unknown readings without reopening details');
+ await size(280,420);await navigate('/qa?surface=editor');
+ await check('!document.querySelector("[data-order-item=keyboard] input").checked && document.querySelector("[data-order-item=devices] input").checked && document.querySelector("[data-order-item=power] input").checked','existing widget config keeps power and devices with keyboard mode opt-in');
+ await click('[data-order-item=keyboard] input');
+ const cardPoints=await evaluate(`(()=>{const a=document.querySelector('[data-order-handle=keyboard]').getBoundingClientRect(),b=document.querySelector('[data-order-item=power]').getBoundingClientRect();return {start:{x:a.left+a.width/2,y:a.top+a.height/2},end:{x:a.left+a.width/2,y:b.top+8}};})()`);
+ await send('Input.dispatchMouseEvent',{type:'mouseMoved',...cardPoints.start});
+ await send('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',buttons:1,clickCount:1,...cardPoints.start});
+ await send('Input.dispatchMouseEvent',{type:'mouseMoved',buttons:1,...cardPoints.end});
+ const editorDrag='document.querySelectorAll(".widget-drag-ghost").length===1 && document.querySelectorAll(".editor-cards [data-drop]").length===1';
+ if(!await evaluate(editorDrag)){
+  report.editorDragDebug={cardPoints,hit:await evaluate(`document.elementFromPoint(${cardPoints.start.x},${cardPoints.start.y})?.outerHTML`),height:await evaluate('innerHeight')};
+  await capture('editor-drag-debug');
+ }
+ await check(editorDrag,'editor drag uses one floating card and one insertion target');
+ await send('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',buttons:0,clickCount:1,...cardPoints.end});
+ await check('document.querySelector(".editor-cards").firstElementChild.dataset.orderItem==="keyboard" && document.querySelector("[data-order-item=keyboard] input").checked && !document.querySelector(".widget-drag-ghost")','dropping reorders cards and preserves each checkbox');
+ await evaluate('document.querySelector("[data-order-handle=power]").focus()');
+ await keyboard('End','End',35);
+ await check('document.querySelector(".editor-cards").lastElementChild.dataset.orderItem==="power" && document.activeElement.dataset.orderHandle==="power"','keyboard sorting preserves the moved handle focus');
+ await click('[data-order-item=devices] input');
+ await parent(`document.querySelector('iframe').contentWindow.postMessage({type:'flowhub:widget-save',token:'qa-token',id:'save-cards'},'*')`);
+ await wait('document.documentElement.scrollWidth<=innerWidth');
+ await sleep(100);
+ const savedCards=await parent('window.__qa.savedConfig?.cards');
+ if(JSON.stringify(savedCards)!==JSON.stringify([{id:'keyboard',visible:true},{id:'devices',visible:false},{id:'power',visible:true}]))throw Error('Saved widget card order or visibility differs from the editor');
+ for(const theme of ['light','dark']){
+  await parent(`document.querySelector('iframe').contentWindow.postMessage({type:'flowhub:theme',theme:'${theme}'},'*')`);
+  await wait('document.documentElement.dataset.theme==='+JSON.stringify(theme));
+  await check('document.documentElement.scrollWidth<=innerWidth','editor fits 280px in '+theme);
+  await capture('widget-card-editor-'+theme);
+ }
+ const configParam=encodeURIComponent(JSON.stringify(savedCards));
+ await size(280,320);await navigate('/qa?surface=card&scenario=k75&cards='+configParam);
+ await wait('document.querySelector("#widgetKeyboardMode")?.textContent==="Mac 模式"');
+ await check('[...document.querySelectorAll("[data-widget-card]")].map(card=>card.dataset.widgetCard).join(",")==="keyboard,power" && !document.querySelector(".widget-counts")','reopened widget uses the editor configuration and skips hidden cards');
+ await parent('window.__qa.keyboardMode={status:"unavailable"}');
+ await wait('document.querySelector("#widgetKeyboardMode").textContent==="无法读取"');
+ await parent('window.__qa.snapshot.devices=window.__qa.snapshot.devices.filter(device=>device.id!=="usb-k75")');
+ await wait('document.querySelector("#widgetKeyboardMode").textContent==="未检测到有线 K75"');
+ await navigate('/qa?surface=editor&cards='+configParam);
+ await check('document.querySelector(".editor-cards").firstElementChild.dataset.orderItem==="keyboard" && !document.querySelector("[data-order-item=devices] input").checked','reopened editor restores saved order and disabled cards');
  if(report.errors.length)throw Error(report.errors.join('\n'));
  await writeFile(join(out,'report.json'),JSON.stringify(report,null,2));console.log(JSON.stringify({checks:report.checks.length,responsive:report.responsive.length,errors:report.errors,output:out}));
 }catch(error){report.failure=String(error);await writeFile(join(out,'report.json'),JSON.stringify(report,null,2));throw error;}

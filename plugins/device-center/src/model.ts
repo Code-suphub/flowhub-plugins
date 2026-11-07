@@ -24,7 +24,7 @@ export interface AdbPreferences {
   revision: number;
   error?: string | null;
 }
-export interface Device {id:string;name:string;category:Category;kind:string;detail:string;status:string;battery?:string|null;vendor?:string|null;productId?:string|null;displayConnection?:string;pixelResolution?:string;logicalResolution?:string;refreshRate?:string;adb?:AdbInfo;catalogKey?:string}
+export interface Device {id:string;name:string;category:Category;kind:string;detail:string;status:string;battery?:string|null;vendor?:string|null;productId?:string|null;displayConnection?:string;pixelResolution?:string;logicalResolution?:string;refreshRate?:string;adb?:AdbInfo;catalogKey?:string;keyboardModeCandidate?:boolean}
 export interface DeviceEvent {at:number;name:string;category:string;action:string;deviceId:string;route?:string;state?:string}
 export interface Power {adapterWatts?:string|number|null;inputWatts?:number|null;systemWatts?:number|null;batterySideWatts?:number|null;externalConnected?:boolean|null;batteryPresent?:boolean;source?:string|null;charging?:boolean|null;cableLimitWatts?:number|null;sampledAt?:number|null;note?:string;powerSourceError?:string;powerUnavailableReason?:string;telemetryError?:string;smcError?:string}
 export interface DeviceProfile {name:string;image?:{dataUrl:string;author:string;license:string}}

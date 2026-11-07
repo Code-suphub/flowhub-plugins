@@ -16,25 +16,41 @@ button,input,select{font:inherit;color:inherit}button{cursor:pointer}button:focu
 body[data-surface=card]{overflow:hidden}.widget{height:100dvh}.widget-section{display:flex;align-items:center;justify-content:space-between;gap:6px;min-height:16px}.widget-order-notice{font-size:9px;white-space:nowrap}.widget-order-error{flex:none;font-size:10px;line-height:1.5;color:var(--fh-danger,#aa3649);background:var(--fh-danger-soft,#fcecef);border-radius:5px;padding:5px 7px;margin:0 0 4px;overflow-wrap:anywhere}.widget-order-error>div{display:flex;gap:6px;margin-top:3px}.widget-order-error button{min-height:26px;padding:3px 6px;border:1px solid var(--fh-border,#dfe5ef);border-radius:4px;background:var(--fh-surface,#fff)}
 /* macOS overlay scrollbars can cover the rightmost grip after wheel input. */
 .widget-device-list{padding-inline-end:14px}
-.widget.is-order-dragging,.widget.is-order-dragging *{cursor:grabbing}
-.widget.is-order-dragging .device-row:hover,
-.widget.is-order-dragging .device-order-handle:hover,
-.widget.is-order-dragging .device-order-handle:focus-visible{background:transparent}
-.widget.is-order-dragging .device-order-handle:focus-visible{outline:none}
-.widget.is-order-dragging .widget-order-notice{visibility:hidden}
-.widget.is-order-dragging .device-row{
+.widget-cards{min-height:0;flex:1;display:flex;flex-direction:column;gap:6px;overflow:auto}
+.widget-cards>section{flex:none}
+.widget-cards>.widget-devices{flex:1;min-height:90px;display:flex;flex-direction:column}
+.widget-devices .widget-counts{margin-bottom:0}
+.widget-keyboard{display:flex;align-items:center;flex-wrap:wrap;gap:4px 6px;padding:7px 8px;border:1px solid var(--fh-border);border-radius:7px;background:var(--fh-surface-soft)}
+.widget-keyboard .icon{color:var(--fh-accent)}
+.widget-keyboard strong{margin-inline-start:auto;text-align:end}
+.editor h2{margin:0 0 2px;font-size:13px}
+.editor p{margin:0 0 7px;color:var(--fh-muted)}
+.editor-card{min-height:52px;display:flex;align-items:center;gap:6px;padding:4px 6px;border:1px solid var(--fh-border);border-bottom:0;background:var(--fh-surface)}
+.editor-card:first-child{border-radius:7px 7px 0 0}
+.editor-card:last-child{border-bottom:1px solid var(--fh-border);border-radius:0 0 7px 7px}
+.editor-card label{display:flex;flex:1;min-width:0;align-items:center;gap:7px;margin:0;cursor:pointer}
+.editor-card input[type=checkbox]{display:block;width:14px;height:14px;flex:none;margin:0;padding:0;accent-color:var(--fh-accent)}
+.editor-card strong,.editor-card small{display:block}
+.editor-card small{color:var(--fh-muted)}
+.is-order-dragging,.is-order-dragging *{cursor:grabbing}
+.is-order-dragging .device-row:hover,
+.is-order-dragging .device-order-handle:hover,
+.is-order-dragging .device-order-handle:focus-visible{background:transparent}
+.is-order-dragging .device-order-handle:focus-visible{outline:none}
+.widget-devices:has(.is-order-dragging) .widget-order-notice{visibility:hidden}
+.is-order-dragging [data-order-item]{
   transform:translateY(var(--drag-shift,0px));
   transition:transform 170ms cubic-bezier(.2,.75,.3,1);
   box-shadow:none;
 }
-.widget.is-order-dragging .device-row.is-dragging{
+.is-order-dragging [data-order-item].is-dragging{
   opacity:1;
   border:1px dashed var(--fh-border);
   border-radius:7px;
   background:var(--fh-surface-soft);
 }
-.device-row.is-dragging>button{opacity:0}
-.device-row.widget-drag-ghost{
+[data-order-item].is-dragging>*{opacity:0}
+.widget-drag-ghost{
   position:fixed;
   top:0;
   z-index:10;
@@ -45,7 +61,7 @@ body[data-surface=card]{overflow:hidden}.widget{height:100dvh}.widget-section{di
   box-shadow:0 5px 14px color-mix(in srgb,var(--fh-text) 22%,transparent);
 }
 @media(prefers-reduced-motion:reduce){
-  .widget.is-order-dragging .device-row{transition:none}
+  .is-order-dragging [data-order-item]{transition:none}
 }
 .device-title{display:flex;align-items:baseline;gap:5px;min-width:0}
 .device-name{min-width:0}

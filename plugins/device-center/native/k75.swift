@@ -16,7 +16,7 @@ struct ProbeError: LocalizedError {
     init(_ message: String) { errorDescription = message }
 }
 
-func findKeyboard() throws -> (IOHIDDevice, Int) {
+func findKeyboard(location: Int?) throws -> (IOHIDDevice, Int) {
     var iterator: io_iterator_t = 0
     guard IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOHIDDevice"), &iterator)
             == KERN_SUCCESS else { throw ProbeError("无法枚举 USB HID 设备") }
@@ -32,6 +32,7 @@ func findKeyboard() throws -> (IOHIDDevice, Int) {
         guard property("Transport") as? String == "USB",
               property("VendorID") as? Int == 0x258a,
               property("ProductID") as? Int == 0x0112,
+              location == nil || property("LocationID") as? Int == location,
               property("MaxFeatureReportSize") as? Int == reportSize,
               let descriptor = property("ReportDescriptor") as? Data,
               descriptor.range(of: Data(collection)) != nil,
@@ -72,8 +73,8 @@ enum Query: UInt8 {
     }
 }
 
-func status() throws -> [String: Any] {
-    let (device, release) = try findKeyboard()
+func status(location: Int?) throws -> [String: Any] {
+    let (device, release) = try findKeyboard(location: location)
     let open = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeNone))
     guard open == kIOReturnSuccess else { throw ProbeError("无法打开 K75 USB 厂商接口") }
     defer { IOHIDDeviceClose(device, IOOptionBits(kIOHIDOptionsTypeNone)) }
@@ -81,7 +82,6 @@ func status() throws -> [String: Any] {
     guard config.suffix(2).elementsEqual([0x5a, 0xa5]) else {
         throw ProbeError("K75 配置块标记不匹配")
     }
-    let power = try Query.power.read(device)
     // K75 0x4023 switched 1 -> 0 -> 1 using the documented Fn+S / Fn+A shortcuts.
     let osMode: String
     switch (release, config[0]) {
@@ -89,18 +89,31 @@ func status() throws -> [String: Any] {
     case (0x4023, 1): osMode = "mac"
     default: osMode = "unknown"
     }
+    if location != nil {
+        return ["usbRelease": String(format: "0x%04x", release), "osMode": osMode]
+    }
     return [
         "model": "KZZI K75 RGB", "usbId": "258a:0112",
         "usbRelease": String(format: "0x%04x", release),
         "configurationBytes": config.count,
         "configurationModeBytes": [config[9], config[10], config[59]],
         "osMode": osMode, "osModeByte": config[0],
-        "powerBytes": power,
+        "powerBytes": try Query.power.read(device),
     ]
 }
 
 do {
-    FileHandle.standardOutput.write(try JSONSerialization.data(withJSONObject: status()))
+    let arguments = CommandLine.arguments.dropFirst()
+    let location: Int?
+    if arguments.isEmpty {
+        location = nil
+    } else if arguments.count == 2, arguments.first == "--mode-at",
+              let port = UInt32(arguments.last ?? ""), port != 0 {
+        location = Int(port)
+    } else {
+        throw ProbeError("K75 USB 位置参数无效")
+    }
+    FileHandle.standardOutput.write(try JSONSerialization.data(withJSONObject: status(location: location)))
 } catch {
     FileHandle.standardOutput.write(try JSONSerialization.data(withJSONObject: ["error": error.localizedDescription]))
 }

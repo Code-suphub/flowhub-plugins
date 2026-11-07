@@ -57,6 +57,12 @@ html:root[data-theme=dark]{--fh-canvas:#151922;--fh-surface:#1d2330;--fh-surface
 .dc-device-reference{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;color:var(--fh-muted);font-size:10px}
 .dc-device-reference .dc-button{min-height:24px}
 .dc-keyboard-guide{margin:10px 0 13px;padding:8px 0;border-block:1px solid var(--fh-border)}
+.dc-keyboard-mode{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 8px;align-items:center;margin:10px 0;padding:9px 10px;background:var(--fh-surface-soft);border-radius:8px}
+.dc-keyboard-mode>div{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:3px 8px}
+.dc-keyboard-mode h4,.dc-keyboard-mode strong{margin:0;font-size:12px}
+.dc-keyboard-mode small{grid-column:1/-1;color:var(--fh-muted)}
+.dc-keyboard-mode small span{margin-inline:4px}
+.dc-keyboard-mode> :last-child{grid-column:2;grid-row:1}
 .dc-keyboard-guide h4{margin:0 auto 0 0;color:var(--fh-text);font-size:11px}
 .dc-keyboard-guide p{margin:3px 0 6px;color:var(--fh-muted);font-size:10px;line-height:1.5}
 .dc-keyboard-guide dl{margin:0;font-size:11px}

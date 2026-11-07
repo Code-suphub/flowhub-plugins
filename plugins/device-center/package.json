@@ -1,6 +1,6 @@
 {
   "name": "flowhub-device-center-plugin",
-  "version": "0.3.15",
+  "version": "0.3.16",
   "private": true,
   "scripts": {
     "build": "node scripts/build.mjs",
