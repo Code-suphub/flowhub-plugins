@@ -12,6 +12,7 @@ mod adb_preferences;
 mod local_preferences;
 mod toolkit_adb;
 mod widget_order;
+mod cli;
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
     io::{BufRead, Read, Write},
@@ -23,6 +24,7 @@ use std::{
 
 const MAX_BYTES: u64 = 2 * 1024 * 1024;
 const SCAN_INTERVAL: Duration = Duration::from_secs(45);
+static SCAN_LOCK: Mutex<()> = Mutex::new(());
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -536,6 +538,27 @@ fn schedule_catalog(state: &Arc<Mutex<State>>) {
         });
     }
 }
+fn refresh_devices(state: &Arc<Mutex<State>>) -> Result<(), String> {
+    let _scan = SCAN_LOCK.lock().map_err(|_| "设备扫描不可用")?;
+    let result = profile();
+    let error = result.as_ref().err().cloned();
+    state.lock().map_err(|_| "状态缓存不可用")?.apply(result);
+    schedule_catalog(state);
+    error.map_or(Ok(()), Err)
+}
+
+fn k75_status() -> Result<Value, String> {
+    let executable = std::env::current_exe().map_err(|_| "无法定位外设中心后端")?;
+    let helper = executable.with_file_name("flowhub-k75-probe");
+    let path = helper.to_str().ok_or("K75 诊断工具路径无效")?;
+    let output = read_system_query(path, &[], Duration::from_secs(4), 4096)
+        .map_err(|_| "K75 USB 诊断工具运行失败或超时")?;
+    let report: Value = serde_json::from_slice(&output).map_err(|_| "K75 诊断返回无效 JSON")?;
+    match report["error"].as_str() {
+        Some(error) => Err(error.into()),
+        None => Ok(report),
+    }
+}
 fn refresh_adb(state:&Arc<Mutex<State>>) {
     let Ok((query,checked))=state.lock().map(|s|(s.adb_query.clone(),s.adb.checked_at)) else{return;};
     let Ok(_guard)=query.lock() else{return;};
@@ -613,10 +636,9 @@ fn dispatch(state: &Arc<Mutex<State>>, method: &str, params: &Value) -> Result<V
             })
         },
         "refresh" => {
-            let scan = profile();
-            state.lock().map_err(|_| "状态缓存不可用")?.apply(scan);
-            schedule_catalog(state);
+            let result = refresh_devices(state);
             update_power_sample(state, true, power_interval_seconds(params));
+            result?;
             let s = state.lock().map_err(|_| "状态缓存不可用")?;
             if let Some(e) = &s.error { Err(e.clone()) } else {
                 let mut snapshot = s.full();
@@ -651,13 +673,25 @@ fn persist_battery_history(state: &Mutex<State>, writer: &Mutex<()>) {
     }
 }
 fn main() {
+    let mut args = std::env::args().skip(1);
+    if args.next().as_deref() == Some("--cli") {
+        let response = cli::run(&args.collect::<Vec<_>>()).unwrap_or_else(|error| json!({"error":error}));
+        println!("{response}");
+        if response.get("error").is_some() { std::process::exit(1); }
+        return;
+    }
     let mut initial = State::new();
     let root = std::env::var_os("FLOWHUB_PLUGIN_DATA").map(std::path::PathBuf::from);
     initial.widget_order = widget_order::Store::open(root.clone());
     initial.adb_preferences = adb_preferences::Store::open(root.clone());
     initial.battery_history = battery_history::Store::open(root.clone(), now());
-    initial.catalog.root = root;
+    initial.catalog.root = root.clone();
     let state = Arc::new(Mutex::new(initial));
+    if let Some(root) = root.as_deref() {
+        if let Err(error) = cli::serve(root, Arc::clone(&state)) {
+            eprintln!("外设中心 CLI 未启动: {error}");
+        }
+    }
     let writer = Arc::new(Mutex::new(()));
     let history_worker = Arc::clone(&state);
     let history_writer = Arc::clone(&writer);
@@ -670,9 +704,7 @@ fn main() {
     let worker = Arc::clone(&state);
     thread::spawn(move || {
         loop {
-            let scan = profile();
-            if let Ok(mut s) = worker.lock() { s.apply(scan); }
-            schedule_catalog(&worker);
+            let _ = refresh_devices(&worker);
             thread::sleep(SCAN_INTERVAL);
         }
     });

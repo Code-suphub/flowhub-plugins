@@ -9,9 +9,15 @@ const target='bin/.flowhub-device-center-'+process.pid;
 copyFileSync('backend/target/release/flowhub-device-center',target);
 chmodSync(target,0o700);
 renameSync(target,'bin/flowhub-device-center');
-execFileSync('xcrun',['swiftc','-O','-target',`${process.arch==='arm64'?'arm64':'x86_64'}-apple-macosx13.0`,'-module-cache-path','backend/target/swift-cache','native/system-icons.swift','-o','bin/flowhub-device-icons'],{stdio:'inherit'});
+const swiftOptions=['swiftc','-O','-target',`${process.arch==='arm64'?'arm64':'x86_64'}-apple-macosx13.0`,'-module-cache-path','backend/target/swift-cache'];
+const helpers=[['system-icons','flowhub-device-icons'],['k75','flowhub-k75-probe']];
+for (const [source, binary] of helpers) {
+  execFileSync('xcrun',[...swiftOptions,`native/${source}.swift`,'-o',`bin/${binary}`],{stdio:'inherit'});
+}
 execFileSync(process.execPath,[fileURLToPath(new URL('../../../scripts/package-plugin.mjs',import.meta.url)),'device-center'],{stdio:'inherit'});
-copyFileSync('bin/flowhub-device-icons','build/bin/flowhub-device-icons');
-chmodSync('build/bin/flowhub-device-icons',0o700);
+for (const [, binary] of helpers) {
+  copyFileSync(`bin/${binary}`,`build/bin/${binary}`);
+  chmodSync(`build/bin/${binary}`,0o700);
+}
 execFileSync('pnpm',['run','build:ui'],{stdio:'inherit'});
 execFileSync(process.execPath,['../../scripts/check-built-ui.mjs','build'],{stdio:'inherit'});

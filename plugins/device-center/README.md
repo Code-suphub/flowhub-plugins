@@ -24,6 +24,22 @@ node scripts/browser-acceptance.mjs /absolute/path/to/evidence
 
 实机验收与分项提交记录见 [改造验收清单](docs/redesign-acceptance.md) 和 [正式安装版验收](docs/installed-acceptance-2026-11-07.md)。浏览器验证不代替 WKWebView、真实输入法、热插拔与安装版验收。
 
+## 运行中插件 CLI
+
+在 FlowHub 打开外设中心后，从实际安装目录运行以下命令。
+
+```sh
+./bin/flowhub-device-center --cli status
+./bin/flowhub-device-center --cli refresh
+./bin/flowhub-device-center --cli k75 status
+```
+
+`status` 读取运行中插件的缓存，`refresh` 立即重新扫描系统外设并更新同一份缓存。两者返回相同的服务 PID，界面下次读取时会拿到更新结果。CLI 使用插件数据目录下的私有 Unix socket，只接受固定命令。成功输出单行 JSON，失败返回 JSON 错误及非零退出码。隔离验收可通过 `FLOWHUB_PLUGIN_DATA` 指定现有的专用数据目录。
+
+在另一台机器通过 SSH 运行目标机的同一条命令即可。Toolkit 可作为 SSH 客户端；需要将目标机上实际的插件二进制绝对路径作为一个参数传入。
+
+`k75 status` 仅匹配 USB ID 为 `258a:0112` 的有线 K75 RGB，读取 USB 设备版本、厂商配置诊断字节和电源原始字节。设备版本 `0x4023` 可报告 Win／Mac 模式，其他版本显示未知。验证范围与剩余项见 [CLI 和 K75 验收清单](docs/cli-k75-acceptance.md)。
+
 ## 图标来源与更新
 
 - 图中的手机屏幕只是设备家族的视觉示意，不读取设备壁纸，也不代表机身颜色。
