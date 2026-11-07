@@ -199,13 +199,37 @@ function endDrag(){
 }
 function dragPosition(list,x,y){
   if(!drag)return;
-  drag.x=x;drag.y=y;
+  drag.x=x;
+  drag.y=y;
   const bounds=list.getBoundingClientRect();
-  let row=document.elementFromPoint(x,y)?.closest('[data-order-item]');
-  if(!row&&x>=bounds.left&&x<=bounds.right&&y>=bounds.top&&y<=bounds.bottom){const rows=list.querySelectorAll('[data-order-item]'),first=rows[0],last=rows[rows.length-1];if(first&&y<first.getBoundingClientRect().top)row=first;else if(last&&y>last.getBoundingClientRect().bottom)row=last;}
-  for(const old of list.querySelectorAll('[data-drop]'))old.removeAttribute('data-drop');
-  if(row&&list.contains(row)&&row.dataset.orderItem!==drag.id){const rect=row.getBoundingClientRect();drag.target=row.dataset.orderItem;drag.after=y>rect.top+rect.height/2;row.dataset.drop=drag.after?'after':'before';}else drag.target=null;
-  drag.scroll=x<bounds.left||x>bounds.right||y<bounds.top||y>bounds.bottom?0:y<bounds.top+24?-6:y>bounds.bottom-24?6:0;
+  const inside=x>=bounds.left&&x<=bounds.right&&y>=bounds.top&&y<=bounds.bottom;
+  let row=inside?document.elementFromPoint(x,y)?.closest('[data-order-item]'):null;
+  if(inside&&!row){
+    const first=list.firstElementChild,last=list.lastElementChild;
+    if(first&&y<first.getBoundingClientRect().top)row=first;
+    else if(last&&y>last.getBoundingClientRect().bottom)row=last;
+  }
+  let after=false;
+  if(row?.dataset.orderItem){
+    const rect=row.getBoundingClientRect();
+    after=y>=rect.top+rect.height/2;
+    // Both sides of a shared gap anchor to the top of the same row.
+    if(after&&row.nextElementSibling){
+      row=row.nextElementSibling;
+      after=false;
+    }
+    // Gaps immediately before and after the source both leave it in place.
+    if(row===drag.sourceRow||(!after&&row.previousElementSibling===drag.sourceRow))row=null;
+  }else{
+    row=null;
+  }
+  if(row!==drag.target||after!==drag.after){
+    drag.target?.removeAttribute('data-drop');
+    if(row)row.dataset.drop=after?'after':'before';
+    drag.target=row;
+    drag.after=after;
+  }
+  drag.scroll=!inside?0:y<bounds.top+24?-6:y>bounds.bottom-24?6:0;
 }
 function scrollDrag(list){
   if(dragFrame!==null||!drag?.scroll)return;
@@ -215,15 +239,20 @@ function scrollDrag(list){
 function movePointer(event){
   if(!drag||event.pointerId!==drag.pointerId)return;
   if(!drag.moved&&Math.hypot(event.clientX-drag.startX,event.clientY-drag.startY)<5)return;
-  event.preventDefault();event.stopPropagation();drag.moved=true;
-  drag.handle.closest('[data-order-item]')?.classList.add('is-dragging');node.querySelector('.widget')?.classList.add('is-order-dragging');
+  event.preventDefault();
+  event.stopPropagation();
+  if(!drag.moved){
+    drag.moved=true;
+    drag.sourceRow.classList.add('is-dragging');
+    node.querySelector('.widget')?.classList.add('is-order-dragging');
+  }
   dragPosition(drag.list,event.clientX,event.clientY);scrollDrag(drag.list);
 }
 function finishPointer(event){
   if(!drag||event.pointerId!==drag.pointerId)return;
   event.preventDefault();event.stopPropagation();if(drag.moved)dragPosition(drag.list,event.clientX,event.clientY);
   const {id,target,after,moved}=drag;endDrag();
-  if(!moved||!target||!moveDevice(id,target,after))redraw(id);
+  if(!moved||!target||!moveDevice(id,target.dataset.orderItem,after))redraw(id);
 }
 function cancelPointer(){if(drag){const id=drag.id;endDrag();redraw(id);}}
 function leaveWidget(event){if(!event.relatedTarget)cancelPointer();}
@@ -243,7 +272,11 @@ function bindOrder(list){
     handle.addEventListener('pointerdown',event=>{
       if(preview||orderSaving||orderDraft||drag||event.button!==0||!event.isPrimary)return;
       event.preventDefault();event.stopPropagation();handle.focus({preventScroll:true});
-      drag={id:handle.dataset.orderHandle,handle,list,pointerId:event.pointerId,startX:event.clientX,startY:event.clientY,target:null,after:false,scroll:0,moved:false};
+      drag={
+        id:handle.dataset.orderHandle,handle,list,sourceRow:handle.closest('[data-order-item]'),
+        pointerId:event.pointerId,startX:event.clientX,startY:event.clientY,
+        target:null,after:false,scroll:0,moved:false
+      };
       handle.setPointerCapture(event.pointerId);
     });
     for(const type of ['pointercancel','lostpointercapture'])handle.addEventListener(type,cancelPointer);

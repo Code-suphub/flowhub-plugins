@@ -17,4 +17,9 @@ body[data-surface=card]{overflow:hidden}.widget{height:100dvh}.widget-section{di
 /* macOS overlay scrollbars can cover the rightmost grip after wheel input. */
 .widget-device-list{padding-inline-end:14px}
 .widget.is-order-dragging,.widget.is-order-dragging *{cursor:grabbing}
+.widget.is-order-dragging .device-row:hover,
+.widget.is-order-dragging .device-order-handle:hover,
+.widget.is-order-dragging .device-order-handle:focus-visible{background:transparent}
+.widget.is-order-dragging .device-order-handle:focus-visible{outline:none}
+.widget.is-order-dragging .widget-order-notice{visibility:hidden}
 }

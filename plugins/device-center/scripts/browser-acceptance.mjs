@@ -208,10 +208,32 @@ try{
  report.checks.push('cancelled edge drag does not write device preferences');
  await click('[data-widget-category=usb]');
  const deviceIds=()=>evaluate('[...document.querySelectorAll("[data-device]")].map(e=>e.dataset.device)');
- const points=await evaluate('(()=>{const a=document.querySelector("[data-order-handle=iphone]").getBoundingClientRect(),b=document.querySelector("[data-order-item=pixel]").getBoundingClientRect();return {source:{x:a.left+a.width/2,y:a.top+a.height/2},target:{x:b.left+b.width/2,y:b.top+5}}})()');
+ const points=await evaluate(`(()=>{
+   const rect=id=>document.querySelector('[data-order-item="'+id+'"]').getBoundingClientRect();
+   const handle=document.querySelector('[data-order-handle=iphone]').getBoundingClientRect();
+   const pixel=rect('pixel'),ssd=rect('ssd'),reader=rect('reader');
+   const x=pixel.left+pixel.width/2;
+   return {
+     source:{x:handle.left+handle.width/2,y:handle.top+handle.height/2},
+     originalGap:{x,y:pixel.bottom-5},
+     belowSsd:{x,y:ssd.bottom-4},
+     aboveReader:{x,y:reader.top+4},
+     target:{x,y:pixel.top+5}
+   };
+ })()`);
+ await send('Input.dispatchMouseEvent',{type:'mouseMoved',...points.source});
+ await send('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',buttons:1,clickCount:1,...points.source});
+ await send('Input.dispatchMouseEvent',{type:'mouseMoved',buttons:1,...points.originalGap});
+ await check('document.querySelector(".is-order-dragging") && !document.querySelector("[data-drop]")','dragging into the original slot does not suggest a move');
+ await send('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',buttons:0,clickCount:1,...points.originalGap});
+ if(await parent('window.__qa.requests.includes("widget_order_set")'))throw Error('Dropping into the original slot writes a preference');
  await evaluate('window.__qaPointer=[];for(const type of ["pointerdown","pointermove","pointerup","pointercancel","gotpointercapture","lostpointercapture"])document.addEventListener(type,e=>window.__qaPointer.push({type:e.type,target:e.target.closest?.("[data-order-handle]")?.dataset.orderHandle,id:e.pointerId,primary:e.isPrimary,x:e.clientX,y:e.clientY,buttons:e.buttons}),true)');
  await send('Input.dispatchMouseEvent',{type:'mouseMoved',...points.source});await send('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',buttons:1,clickCount:1,...points.source});
- await send('Input.dispatchMouseEvent',{type:'mouseMoved',buttons:1,x:points.source.x-8,y:points.source.y-8});await send('Input.dispatchMouseEvent',{type:'mouseMoved',buttons:1,...points.target});
+ await send('Input.dispatchMouseEvent',{type:'mouseMoved',buttons:1,...points.belowSsd});
+ await evaluate('window.__qaGapMarker=document.querySelector("[data-drop]");window.__qaGapEdge=window.__qaGapMarker?.dataset.drop');
+ await send('Input.dispatchMouseEvent',{type:'mouseMoved',buttons:1,...points.aboveReader});
+ await check('window.__qaGapMarker && document.querySelector("[data-drop]")===window.__qaGapMarker && window.__qaGapMarker.dataset.drop===window.__qaGapEdge','both halves of neighboring rows use the same insertion marker for their shared gap');
+ await send('Input.dispatchMouseEvent',{type:'mouseMoved',buttons:1,...points.target});
  if(!await evaluate('document.querySelectorAll(".is-dragging").length===1 && document.querySelectorAll("[data-drop]").length===1')){report.dragDebug=await evaluate('({events:window.__qaPointer,scrollY,innerHeight,dragging:document.querySelectorAll(".is-dragging").length,drops:document.querySelectorAll("[data-drop]").length})');report.dragPoints=points;report.parentGeometry=await parent('({scrollY,height:innerHeight,frame:document.querySelector("iframe").getBoundingClientRect().toJSON()})');await capture('pointer-debug');throw Error('Pointer drag did not establish a drop target');}
  report.checks.push('pointer capture starts dragging only from the device handle');
  await send('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',buttons:0,clickCount:1,...points.target});
