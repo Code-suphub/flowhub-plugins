@@ -259,6 +259,9 @@ export function CommandWorkspace({ api, run, active = true, selectedHostIds, onS
   }, [prefillRequest, active, contextKey, state, running]);
 
   const { key: sessionKey, bastion, bastionBusy, sessionAction } = useBastionSession(api, bastionHost, active && workspaceView === 'execute', setError);
+  // Captured tmux panes include empty rows below the prompt. Following that
+  // padding hides the actual output; keep raw session/history data unchanged.
+  const terminalOutput = bastion.output.trimEnd();
   const sessionStatus = bastionBusy ? '通信中…' : bastion.phase ? ({ disconnected: bastion.paused ? '自动连接已暂停' : '未连接', authenticating: '等待认证', connecting: '连接目标中', gateway: '已返回网关', ready: '已连接', busy: '会话运行中', failed: '连接已退出' }[bastion.phase]) : bastion.connected ? '会话在线' : '未连接';
   const sessionInput = sessionDraft.key === sessionKey ? sessionDraft.text : '';
   const secret = sessionDraft.key === sessionKey && sessionDraft.secret;
@@ -274,7 +277,7 @@ export function CommandWorkspace({ api, run, active = true, selectedHostIds, onS
   useEffect(() => {
     const output = bastionOutputRef.current;
     if (output && followOutput.current) output.scrollTop = output.scrollHeight;
-  }, [bastion.output, sessionKey]);
+  }, [terminalOutput, sessionKey]);
 
   function updateSelection(next: ReadonlySet<string>) {
     onSelectionChange([...next]);
@@ -357,6 +360,21 @@ export function CommandWorkspace({ api, run, active = true, selectedHostIds, onS
   if (!api || !run) return <section className="command-react"><EmptyState title="远程命令仅在 FlowHub 中可用" description="当前浏览器环境没有插件调用桥。" /></section>;
   if (!state) return <section className="command-react"><EmptyState title={error || '正在读取命令工作台…'} /></section>;
 
+  const feedback = notice || error ? <div className="command-react__feedback">
+    <div className="command-react__feedback-text">
+      {notice ? <p className="command-react__notice" role="status">{notice}</p> : null}
+      {error ? <p className="command-react__error" role="alert">{error}</p> : null}
+    </div>
+    {bastionHost && terminalOutput ? <Button size="sm" aria-label="查看最新终端输出" onClick={() => {
+      const output = bastionOutputRef.current;
+      if (!output) return;
+      followOutput.current = true;
+      output.scrollTop = output.scrollHeight;
+      output.scrollIntoView({ block: 'end' });
+      output.focus({ preventScroll: true });
+    }}>查看输出</Button> : null}
+  </div> : null;
+
   return <section className="command-react" aria-label="远程命令">
     <header className="command-react__context">
       <div><h3>{selectedHosts.length === 1 ? selectedHosts[0].name : selectedHosts.length ? `批量目标 · ${selectedHosts.length} 台` : '选择目标机器'}</h3><p>{selectedHosts.map(host => host.alias).join('、') || '从左侧机器列表选择目标'}</p></div>
@@ -385,7 +403,8 @@ export function CommandWorkspace({ api, run, active = true, selectedHostIds, onS
         {hasBastion ? <section className="command-react__bastion">
           {!bastionHost ? <EmptyState size="compact" title="请选择一台机器" description="清除其他目标后即可连接共享会话。" /> : <>
             <div className="command-react__query"><Combobox className="command-react__session-command" aria-label={bastionHost.readOnly ? '选择查询命令' : '选择模板或输入命令'} value={query} options={bastionCommandOptions(templates, !!bastionHost.readOnly)} allowCustomValue={!bastionHost.readOnly} multiline={!bastionHost.readOnly} placeholder="选择模板或输入命令" emptyMessage={bastionHost.readOnly ? '没有可用的查询命令' : '没有匹配的模板，可直接执行输入的命令'} disabled={running || bastionBusy} onChange={setQuery} /><Button disabled={running || bastionBusy || !bastion.connected || !query.trim() || (!!bastion.phase && bastion.phase !== 'ready')} onClick={() => void execute([bastionHost], query)}>{bastionHost.readOnly ? '执行查询' : running ? '执行中…' : '执行命令'}</Button><HelpPopover label="会话命令说明">选择模板会填入完整命令，也可直接输入或修改。点击执行后在当前机器会话中运行，输出保存到执行记录；单次命令最长 60 秒。交互式程序请使用下方终端输入或系统终端。仅允许查询的机器只能使用内置查询。</HelpPopover><Checkbox label="遮盖输入框" checked={secret} disabled={!!bastionHost.readOnly} onChange={setSecret} /></div>
-            <section className="command-react__terminal"><header><div><span className="command-react__lamp" aria-hidden="true" />共享终端</div><span>{sessionStatus}</span></header><pre ref={bastionOutputRef} className="command-react__bastion-output" tabIndex={0} onScroll={event => { const output = event.currentTarget; followOutput.current = output.scrollHeight - output.scrollTop - output.clientHeight < 24; }}>{bastion.output}</pre><div className="command-react__session-input"><Input type={secret ? 'password' : 'text'} aria-label="终端输入" value={sessionInput} disabled={!bastion.connected || bastionBusy || !!bastionHost.readOnly} placeholder="输入内容后按 Enter 发送" onChange={(event) => setSessionInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); const value = sessionInput; setSessionInput(''); void sessionAction('bastionSend', { text: value }); } }} /><Button disabled={!bastion.connected || bastionBusy || !!bastionHost.readOnly} onClick={() => { const value = sessionInput; setSessionInput(''); void sessionAction('bastionSend', { text: value }); }}>发送并回车</Button><Button variant="ghost" disabled={!bastion.connected || bastionBusy || !!bastionHost.readOnly} onClick={() => void sessionAction('bastionSend', { key: 'Enter' })}>仅回车</Button></div></section>
+            {feedback}
+            <section className="command-react__terminal"><header><div><span className="command-react__lamp" aria-hidden="true" />共享终端</div><span>{sessionStatus}</span></header><pre ref={bastionOutputRef} className="command-react__bastion-output" tabIndex={0} onScroll={event => { const output = event.currentTarget; followOutput.current = output.scrollHeight - output.scrollTop - output.clientHeight < 24; }}>{terminalOutput}</pre><div className="command-react__session-input"><Input type={secret ? 'password' : 'text'} aria-label="终端输入" value={sessionInput} disabled={!bastion.connected || bastionBusy || !!bastionHost.readOnly} placeholder="输入内容后按 Enter 发送" onChange={(event) => setSessionInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); const value = sessionInput; setSessionInput(''); void sessionAction('bastionSend', { text: value }); } }} /><Button disabled={!bastion.connected || bastionBusy || !!bastionHost.readOnly} onClick={() => { const value = sessionInput; setSessionInput(''); void sessionAction('bastionSend', { text: value }); }}>发送并回车</Button><Button variant="ghost" disabled={!bastion.connected || bastionBusy || !!bastionHost.readOnly} onClick={() => void sessionAction('bastionSend', { key: 'Enter' })}>仅回车</Button></div></section>
           </>}
         </section> : <>
           <div className="command-react__controls" aria-label="命令设置">
@@ -396,8 +415,7 @@ export function CommandWorkspace({ api, run, active = true, selectedHostIds, onS
           <footer className="command-react__footer"><span>Enter 执行 · Shift+Enter 换行 · ↑↓ 历史</span></footer>
           <JobConsole jobs={selected.size ? jobs.filter(job => selected.has(job.hostId)) : jobs} selectedHosts={selectedHosts} contextKey={contextKey} onCancel={(job) => void api('cancel', { id: job.id }).catch((reason) => setError(errorText(reason)))} onClear={() => setJobs((current) => current.filter((job) => !job.finishedAt || (selected.size > 0 && !selected.has(job.hostId))))} />
         </>}
-        {notice ? <p className="command-react__notice" role="status">{notice}</p> : null}
-        {error ? <p className="command-react__error" role="alert">{error}</p> : null}
+        {!bastionHost ? feedback : null}
       </div>
         </div>
       <DialogShell open={active && workspaceView === 'sessions'} onOpenChange={open => { if (!open) setWorkspaceView('execute'); }} title="连接与会话" className="command-react__manager" contentClassName="command-react__manager-shell">
