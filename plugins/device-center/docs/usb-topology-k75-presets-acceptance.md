@@ -37,8 +37,14 @@
 
 - 标准版主控收到 `0x44` 后在 `0x1730` 设置 10 个回包。`0x2b80` 生成 Report `0x13`／命令 `0x44`，读取 `0xa400 + 14 × 分片序号`。前 9 个分片各 14 字节，最后 2 字节，总计 128 字节。固件内该块以 `5a a5` 结尾。`0x05` 则读取固件内的 10 字节设备信息。两条路径的响应均由内部串口转发。
 - Mac mini 同时枚举到 BLE `3554:fa07` 和 USB `258a:0112` 时，分别向匹配的 BLE 厂商报告发送一次 `0x44` 与 `0x05` 读取请求。IOKit 均返回发送成功，应用未收到对应的厂商报告通知，轮询读到的厂商载荷仍全零。有线配置在两次试验前后的 128 字节均一致。BLE 配置读回未通过，配置写入未进入测试。
-- 拔掉数据线后，Mac mini 确认 K75 的 USB HID 条目为零，蓝牙仍连接，系统显示电量 100%。向 BLE Report `0x13` 发送 `0x44` 和 `0x05` 读取请求，以及直接读取该输入报告，均返回 `0xe00002e2`（IOKit `kIOReturnNotPermitted`）。同一远程执行环境的输入监控权限检查仍返回 `Granted`。错误层级尚未定位，纯蓝牙下也未取得配置回包。本次未发送修改配置的命令。
+- 拔掉数据线后，Mac mini 确认 K75 的 USB HID 条目为零，蓝牙仍连接，系统显示电量 100%。向 BLE Report `0x13` 发送 `0x44` 和 `0x05` 读取请求，以及直接读取该输入报告，均返回 `0xe00002e2`（IOKit `kIOReturnNotPermitted`）。本次未发送修改配置的命令。
 - 证据见 `wireless-module/readback/` 的 `firmware-read-path.json`、`result.json`、`dual-transport-capabilities.json`、`ble-only-enumeration.json`、`ble-only-config.json`、`ble-only-capabilities-and-input.json` 和 `ble-only-input-access.json`。
+
+### macOS 锁屏与权限归因
+
+- 查回拔线测试当时的内核日志，`IOHIDLibUserClient` 对 `getReport` 和 `setReport` 均记录 `Client not permitted`，并报 `0xe00002e2`。在 macOS 15.5 锁屏纯蓝牙条件下再次复现。Apple 的实现会在该分支直接返回，尚未调用底层设备驱动。这次拒绝发生在 Mac 上，无法从该错误判断键盘是否接受无线配置请求。[Apple IOHIDFamily 源码](https://github.com/apple-oss-distributions/IOHIDFamily/blob/main/IOHIDFamily/IOHIDLibUserClient.cpp)
+- 同一诊断程序在 SSH 执行时报告输入监控 `Granted`，但内核记录该进程未通过键盘访问检查。图形会话启动的诊断副本报告输入监控 `Unknown`。两种执行方式均报告屏幕已锁定。IORegistry 显示该会话的安全输入 PID 属于 `loginwindow`，与 XNU 的安全控制台进程检查吻合。解锁后的蓝牙配置读回仍待验证。[Apple XNU 源码](https://github.com/apple-oss-distributions/xnu/blob/main/iokit/Kernel/IOUserClient.cpp#L1517-L1528)
+- 珂芝的 K75 系列官方软件教程要求用数据线连接，固件里的读回分支仅证明键盘主控具备该处理路径。Mac mini 的归因证据见 `wireless-module/readback/permission-trace/` 中的 `original-ble-only-kernel-logs.json`、`ssh-layer-logs.json`、`session-comparison.json`、`access-comparison.json` 和 `locked-console-io-registry.json`。[珂芝配置软件教程](https://www.kzzistore.com/blogs/guides/how-to-use-kzzi-software)
 
 ## 固件离线拆解
 
