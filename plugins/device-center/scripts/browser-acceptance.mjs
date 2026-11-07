@@ -23,9 +23,10 @@ const server=createServer(async(req,res)=>{
  try{
   const url=new URL(req.url,'http://localhost');
   if(url.pathname==='/qa'){
-   const widget=url.searchParams.get('widget')==='1';
+   const card=url.searchParams.get('surface')==='card',widget=url.searchParams.get('widget')==='1'||card;
    const context={config:{powerIntervalSeconds:5},selection:{deviceId:url.searchParams.get('device')||undefined,view:url.searchParams.get('view')||undefined}};
-   const source=widget?'widget-detail.html#flowhubWidgetToken=qa-token':'index.html';
+   context.scenario=url.searchParams.get('scenario')||'';
+   const source=widget?(card?'widget-card.html#flowhubWidgetToken=qa-token':'widget-detail.html#flowhubWidgetToken=qa-token'):'index.html';
    if(url.searchParams.get('pending')==='1')context.pending=true;
    if(url.searchParams.get('legacy')==='1'){context.config.selection=context.selection;delete context.selection;}
    res.writeHead(200,{'content-type':mime['.html']});
@@ -34,8 +35,9 @@ const server=createServer(async(req,res)=>{
   if(url.pathname==='/qa-host.js'){
    const context=JSON.parse(url.searchParams.get('context'));
    res.writeHead(200,{'content-type':mime['.js']});
-   res.end(`window.__qa={snapshot:${JSON.stringify(fixture())},artwork:${JSON.stringify(artwork)},error:null,requests:[]};
+   res.end(`window.__qa={snapshot:${JSON.stringify(fixture(context.scenario))},artwork:${JSON.stringify(artwork)},error:null,requests:[]};
    let pending=${Boolean(context.pending)};
+   window.addEventListener('message',event=>{if(event.source===document.querySelector('iframe').contentWindow&&event.data?.type==='flowhub:widget-navigate')window.__qa.navigation=event.data;});
    window.addEventListener('message',event=>{const frame=document.querySelector('iframe');if(event.source!==frame.contentWindow)return;const m=event.data;if(m.type==='flowhub:theme-ready'){frame.contentWindow.postMessage({type:'flowhub:theme',theme:'light'},'*');return;}if(m.type==='flowhub:widget-ready'){frame.contentWindow.postMessage({type:'flowhub:widget-init',token:'qa-token',context:${JSON.stringify(context)}},'*');return;}if(!['flowhub:request','flowhub:widget-rpc'].includes(m.type))return;const widget=m.type==='flowhub:widget-rpc',method=widget?m.params.method:m.method;window.__qa.requests.push(method);const reply={type:widget?'flowhub:widget-result':'flowhub:response',token:widget?'qa-token':undefined,id:m.id};
    if(method==='open_display_settings'){if(window.__qa.settingsError)reply.error=window.__qa.settingsError;else reply.result={opened:true};if(window.__qa.holdSettings){window.__qa.finishSettings=()=>frame.contentWindow.postMessage(reply,'*');return;}frame.contentWindow.postMessage(reply,'*');return;}
    if(window.__qa.error&&method!=='device_icons')reply.error=window.__qa.error;else reply.result=method==='device_icons'?window.__qa.artwork:pending?{at:0,stale:true,devices:[],power:{},events:[]}:window.__qa.snapshot;if(method!=='device_icons')pending=false;frame.contentWindow.postMessage(reply,'*');});`);return;
@@ -60,7 +62,7 @@ try{
  socket=new WebSocket(targets.find(t=>t.type==='page').webSocketDebuggerUrl);
  await new Promise((resolve,reject)=>{socket.addEventListener('open',resolve,{once:true});socket.addEventListener('error',reject,{once:true});});
  const pending=new Map(),contexts=new Map();let serial=0,frame;
- socket.addEventListener('message',({data})=>{const r=JSON.parse(data);if(r.method==='Runtime.executionContextCreated')contexts.set(r.params.context.id,r.params.context);if(r.method==='Runtime.executionContextDestroyed')contexts.delete(r.params.executionContextId);if(r.method==='Runtime.executionContextsCleared')contexts.clear();if(r.method==='Runtime.exceptionThrown')report.errors.push(r.params.exceptionDetails.exception?.description||r.params.exceptionDetails.text);if(r.method==='Network.requestWillBeSent'){const url=r.params.request.url;if(!url.startsWith(origin)&&!url.startsWith('data:')&&url!=='about:blank')report.errors.push('External request: '+url);}if(pending.has(r.id)){const p=pending.get(r.id);pending.delete(r.id);r.error?p.reject(Error(JSON.stringify(r.error))):p.resolve(r.result);}});
+ socket.addEventListener('message',({data})=>{const r=JSON.parse(data);if(r.method==='Runtime.executionContextCreated')contexts.set(r.params.context.id,r.params.context);if(r.method==='Runtime.executionContextDestroyed')contexts.delete(r.params.executionContextId);if(r.method==='Runtime.executionContextsCleared')contexts.clear();if(r.method==='Runtime.exceptionThrown')report.errors.push(r.params.exceptionDetails.exception?.description||r.params.exceptionDetails.text);if(r.method==='Runtime.consoleAPICalled'&&r.params.type==='error')report.errors.push(r.params.args.map(arg=>arg.value??arg.description??arg.type).join(' '));if(r.method==='Network.requestWillBeSent'){const url=r.params.request.url;if(!url.startsWith(origin)&&!url.startsWith('data:')&&url!=='about:blank')report.errors.push('External request: '+url);}if(pending.has(r.id)){const p=pending.get(r.id);pending.delete(r.id);r.error?p.reject(Error(JSON.stringify(r.error))):p.resolve(r.result);}});
  const send=(method,params={})=>new Promise((resolve,reject)=>{pending.set(++serial,{resolve,reject});socket.send(JSON.stringify({id:serial,method,params}));});
  const evaluate=async(expression,contextId=frame)=>{const r=await send('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true,...(contextId?{contextId}:{})});if(r.exceptionDetails)throw Error(r.exceptionDetails.exception?.description||r.exceptionDetails.text);return r.result?.value;};
  // Explicitly omit contextId for the parent, even after frame is selected.
@@ -74,7 +76,7 @@ try{
  const size=(width,height=560)=>send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:2,mobile:false});
  const keyboard=async(key,code=key,vk=0,modifiers=0)=>{await send('Input.dispatchKeyEvent',{type:'keyDown',key,code,windowsVirtualKeyCode:vk,modifiers,...(key==='Enter'?{text:'\r'}:key.length===1?{text:key}:{})});await send('Input.dispatchKeyEvent',{type:'keyUp',key,code,windowsVirtualKeyCode:vk,modifiers});await sleep(80);};
  const capture=async name=>{await writeFile(join(out,name+'.png'),Buffer.from((await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false})).data,'base64'));report.screenshots.push(name+'.png');};
- const navigate=async(path='/qa')=>{frame=undefined;await send('Page.navigate',{url:origin+path});for(let n=0;n<120;n++){for(const ctx of contexts.values()){if(!ctx.auxData?.isDefault)continue;try{if(await evaluate('!!document.querySelector(".dc-app")',ctx.id)){frame=ctx.id;break;}}catch{}}if(frame)break;await sleep(50);}if(!frame)throw Error('No React iframe');await wait('document.querySelectorAll("[data-device]").length===9');await evaluate('document.fonts.ready');await sleep(100);};
+ const navigate=async(path='/qa')=>{frame=undefined;const params=new URL(origin+path).searchParams,card=params.get('surface')==='card';await send('Page.navigate',{url:origin+path});for(let n=0;n<120;n++){for(const ctx of contexts.values()){if(!ctx.auxData?.isDefault)continue;try{if(await evaluate('!!document.querySelector("'+(card?'.widget':'.dc-app')+'")',ctx.id)){frame=ctx.id;break;}}catch{}}if(frame)break;await sleep(50);}if(!frame)throw Error('No plugin iframe');const view=params.get('view'),count=fixture(params.get('scenario')||'').devices.filter(d=>!['bluetooth','usb','display','adb'].includes(view)||d.category===view).length,expected=card?Math.min(3,count):count;await wait('document.querySelectorAll("[data-device]").length==='+expected);await evaluate('document.fonts.ready');await sleep(100);};
  const tab=async name=>click('[role=tab][data-tabs-value="'+name+'"]');
  const refresh=async()=>{await parent('window.__qa.snapshot.at=Date.now()');await click('[aria-label="刷新设备"]');await wait('!document.querySelector("[aria-label=刷新设备]").disabled');};
  await send('Page.enable');await send('Runtime.enable');await send('Network.enable');await send('Emulation.setFocusEmulationEnabled',{enabled:true});await size(800);await navigate();
@@ -158,7 +160,35 @@ try{
  await navigate('/qa?widget=1&device=dell');await wait('document.querySelector("dialog").open');await click('dialog .dc-display-settings');
  if(await parent('window.__qa.requests.filter(m=>m==="open_display_settings").length')!==1)throw Error('Missing widget display settings request');
  report.checks.push('widget display detail requests the same settings action');
+ await navigate('/qa?scenario=adb');await click('[data-category=adb]');
+ await check('document.querySelectorAll("[data-device]").length===3 && document.querySelector(".dc-adb").textContent.includes("未授权") && document.querySelector(".dc-adb").textContent.includes("离线")','ADB category keeps unauthorized and offline devices visible');
+ await check('!document.querySelector("[aria-label=刷新设备]") && [...document.querySelectorAll("button")].filter(b=>b.getAttribute("aria-label")==="刷新 ADB 设备").length===1','ADB view has a single refresh control');
+ await fill('PUBLIC-USB');await check('document.querySelectorAll("[data-device]").length===1','ADB search matches serial numbers');
+ const adbRequests=await parent('window.__qa.requests.filter(m=>m==="adb_refresh").length');await click('[aria-label="刷新 ADB 设备"]');
+ await check('document.querySelector("input").value==="PUBLIC-USB" && document.querySelector("[data-category=adb]").getAttribute("aria-pressed")==="true"','ADB refresh preserves search and category');
+ if(await parent('window.__qa.requests.filter(m=>m==="adb_refresh").length')!==adbRequests+1)throw Error('ADB refresh did not use its dedicated route');report.checks.push('ADB refresh avoids system profiler route');
+ await click('[data-device=adb-usb]');await wait('document.querySelector("dialog").open');
+ await check('document.querySelector("dialog").textContent.includes("PUBLIC-USB") && document.querySelector("dialog").textContent.includes("Pixel 8 Pro") && !document.querySelector("dialog .dc-display-settings")','ADB detail exposes serial, model and transport without display settings');
+ await evaluate('Object.defineProperty(navigator,"clipboard",{configurable:true,value:{writeText:async text=>{window.__qaCopied=text}}})');
+ await click('dialog footer .dc-button');await check('window.__qaCopied==="PUBLIC-USB"','ADB copy action copies the full serial only');
+ const adbFocusPoint=await evaluate('(()=>{const r=document.querySelector(".dc-detail-hero h3").getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2}})()');
+ await send('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',clickCount:1,...adbFocusPoint});await send('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',clickCount:1,...adbFocusPoint});
+ await evaluate('document.querySelector("dialog footer .dc-button").focus()');await keyboard('Escape','Escape',27);await wait('!document.querySelector("dialog").open');await fill('');await capture('adb-light');
+ for(const theme of ['light','dark'])for(const width of [800,640,520,390]){await size(width);await evaluate(`document.documentElement.dataset.theme='${theme}'`);await sleep(80);await check('document.documentElement.scrollWidth<=innerWidth+1 && [...document.querySelectorAll(".dc-toolbar button,.dc-adb button")].every(e=>{const r=e.getBoundingClientRect();return !r.width || (r.left>=0 && r.right<=innerWidth+1)})','ADB '+theme+' '+width+' layout fits');if(width===800)await capture('adb-'+theme);}
+ await parent('window.__qa.snapshot='+JSON.stringify(fixture('adb-error')));await click('[aria-label="刷新 ADB 设备"]');
+ await check('document.querySelector(".dc-adb [role=alert]").textContent.includes("上次采集结果") && document.querySelectorAll(".dc-adb .is-stale").length===3','ADB query failure keeps and labels cached rows');
+ await parent('window.__qa.error="QA ADB RPC timeout"');await click('[aria-label="刷新 ADB 设备"]');
+ await check('document.querySelector(".dc-adb [role=alert]").textContent.includes("RPC timeout") && document.querySelectorAll(".dc-adb .is-stale").length===3','ADB transport rejection is visible instead of leaving a loading or healthy view');
+ await click('[data-category=display]');await check('!document.querySelector(".dc-app > .dc-warning") && document.querySelectorAll(".dc-card").length===2 && !document.querySelector(".dc-card.is-stale")','failed ADB-only refresh does not invalidate system devices');
+ await navigate('/qa?scenario=adb-empty');await click('[data-category=adb]');await check('document.querySelector(".dc-adb-empty").textContent.includes("没有检测到 ADB 设备")','empty ADB success is explicit');
+ await navigate('/qa?scenario=adb-missing');await click('[data-category=adb]');await check('document.querySelector(".dc-adb [role=alert]").textContent.includes("Platform-Tools")','missing ADB has an installation hint rather than a false empty result');
+ await navigate('/qa?surface=card&scenario=adb');await click('[data-widget-category=adb]');
+ await check('document.querySelectorAll(".device-row").length===3 && document.querySelector(".widget-device-list").textContent.includes("未授权") && document.querySelector(".widget-device-list").textContent.includes("离线")','desktop widget lists ADB states in its own category');
+ for(const theme of ['light','dark'])for(const width of [360,280]){await size(width);await evaluate(`document.documentElement.dataset.theme='${theme}'`);await sleep(80);await check('document.documentElement.scrollWidth<=innerWidth+1 && [...document.querySelectorAll(".widget-metric")].every(e=>{const r=e.getBoundingClientRect();return r.left>=0 && r.right<=innerWidth+1})','ADB widget '+theme+' '+width+' fits');if(width===360)await capture('adb-widget-'+theme);}
+ await click('[data-device=adb-auth]');if(await parent('window.__qa.navigation?.selection?.deviceId')!=='adb-auth')throw Error('Missing ADB widget detail selection');report.checks.push('desktop ADB card selects its matching detail');
+ await size(800);await navigate('/qa?widget=1&scenario=adb&device=adb-auth');await wait('document.querySelector("dialog").open');await check('document.querySelector("dialog").textContent.includes("未授权") && document.querySelector("dialog").textContent.includes("PUBLIC-AUTH")','widget detail preserves ADB authorization state');
  await navigate('/ui/index.html');await check('document.querySelector(".dc-group-heading .dc-display-settings").disabled','standalone preview disables system settings');
+ await click('[data-category=adb]');await check('document.querySelector(".dc-adb-empty").textContent.includes("没有检测到 ADB 设备") && !document.querySelector(".dc-adb-empty").textContent.includes("正在读取")','standalone ADB preview finishes its empty state without native access');await click('[data-category=all]');
  await click('[data-device=dell]');await wait('document.querySelector("dialog").open');await check('document.querySelector("dialog .dc-display-settings").disabled','standalone display detail also remains read-only');
  if(report.errors.length)throw Error(report.errors.join('\n'));
  await writeFile(join(out,'report.json'),JSON.stringify(report,null,2));console.log(JSON.stringify({checks:report.checks.length,responsive:report.responsive.length,errors:report.errors,output:out}));

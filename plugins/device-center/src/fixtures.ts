@@ -1,7 +1,7 @@
 import type {Snapshot} from './model';
 export function demo(scenario=''):Snapshot {
  const at=Date.now();
- const data:Snapshot={at,stale:false,error:null,devices:[
+ const data:Snapshot={at,stale:false,error:null,adb:{available:false,at,checkedAt:at,stale:false,intervalSeconds:10},devices:[
  {id:'airpods',name:'AirPods Pro 2',category:'bluetooth',kind:'headphones',detail:'音频设备',status:'connected',battery:'82%'},
  {id:'mouse',name:'Magic Mouse',category:'bluetooth',kind:'mouse',detail:'鼠标',status:'connected',battery:'67%'},
  {id:'keyboard',name:'Keychron K3',category:'bluetooth',kind:'keyboard',detail:'键盘',status:'connected',battery:'100%'},
@@ -13,6 +13,17 @@ export function demo(scenario=''):Snapshot {
  {id:'lg',name:'LG UltraFine',category:'display',kind:'monitor',detail:'显示器',status:'connected',pixelResolution:'2560 × 1440',refreshRate:'60 Hz',displayConnection:'external'}
  ],power:{externalConnected:true,charging:true,batteryPresent:true,source:'外接电源',inputWatts:56.8,systemWatts:25.4,batterySideWatts:31.4,adapterWatts:'96',sampledAt:at},
  events:[{at:at-360000,name:'Pixel 9 Pro 已连接',category:'usb',action:'connected'},{at:at-720000,name:'DELL U2723QE 已连接',category:'display',action:'connected'},{at:at-1020000,name:'AirPods Pro 2 已连接',category:'bluetooth',action:'connected'}]};
+ if(scenario.startsWith('adb')) {
+  data.adb={available:true,at,checkedAt:at,stale:false,intervalSeconds:10};
+  data.devices.push(...[
+   {id:'adb-usb',name:'Pixel 8 Pro',category:'adb' as const,kind:'phone',detail:'PUBLIC-USB',status:'connected',adb:{serial:'PUBLIC-USB',state:'device',transport:'usb',model:'Pixel 8 Pro',product:'husky',transportId:'1'}},
+   {id:'adb-auth',name:'PUBLIC-AUTH',category:'adb' as const,kind:'phone',detail:'PUBLIC-AUTH',status:'unauthorized',adb:{serial:'PUBLIC-AUTH',state:'unauthorized',transport:'usb'}},
+   {id:'adb-offline',name:'192.0.2.1:5555',category:'adb' as const,kind:'phone',detail:'192.0.2.1:5555',status:'offline',adb:{serial:'192.0.2.1:5555',state:'offline',transport:'tcp'}}
+  ]);
+  if(scenario==='adb-empty'||scenario==='adb-missing')data.devices=data.devices.filter(d=>d.category!=='adb');
+  if(scenario==='adb-missing'){data.adb.available=false;data.adb.at=0;data.adb.stale=true;data.adb.error='未找到 ADB，请安装 Android SDK Platform-Tools 后重试。';}
+  if(scenario==='adb-error'){data.adb.stale=true;data.adb.error='ADB 读取超时，请检查本机 ADB 服务后重试。';}
+ }
  if(scenario==='empty')data.devices=[];
  if(scenario==='missing'){data.devices[0].battery=null;data.devices[1].battery='0%';data.power={externalConnected:true,batteryPresent:false,source:'外接电源',sampledAt:at};}
  if(scenario==='stale'||scenario==='error'){data.at=at-180000;data.stale=true;if(scenario==='error')data.error='设备扫描超时，请重试';}

@@ -30,6 +30,15 @@ const devices=Array.from({length:8},(_,i)=>({id:`d${i}`,name:`Headset ${i}`,cate
   kind:'headphones',detail:'Headset',status:'connected',battery:i===0?'0%':i===1?'70%':null}));
 const snapshot={at:Date.now(),stale:false,error:null,devices,power:{adapterWatts:'68'},events:[]};
 
+test('ADB widget category keeps unauthorized and offline connections and labels failures as cached',async()=>{
+ const adbDevices=['device','unauthorized','offline'].map((state,i)=>({id:'adb-'+i,name:'Public Android '+i,category:'adb',kind:'phone',status:state==='device'?'connected':state,adb:{serial:'PUBLIC-'+i,state,transport:'usb'}}));
+ const ui=await mountWidget({...snapshot,devices:[...devices,...adbDevices],adb:{at:Date.now(),available:true,stale:false}});
+ ui.selectCategory('adb');assert.equal((ui.node.innerHTML.match(/data-device=/g)||[]).length,3);
+ for(const text of ['未授权','离线','PUBLIC-0'])assert.ok(ui.node.innerHTML.includes(text));
+ const failed=await mountWidget({...snapshot,devices:adbDevices,adb:{at:1000,available:true,stale:true,error:'ADB timeout'}});
+ failed.selectCategory('adb');assert.match(failed.node.innerHTML,/ADB timeout/);assert.match(failed.node.innerHTML,/上次设备记录/);
+});
+
 test('widget honors configured limits and identifies connected rather than frequent devices',async()=>{
   for(const limit of [3,5,8]){
     const html=await renderWidget(snapshot,{limit,title:'我的设备'});

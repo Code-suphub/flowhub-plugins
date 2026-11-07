@@ -1,7 +1,7 @@
 import {useState} from 'react';
 import {mdiBluetooth,mdiUsb,mdiMonitor,mdiLaptop,mdiCellphone,mdiHeadphones,mdiKeyboard,mdiMouse,mdiHarddisk,mdiUsbFlashDrive,mdiDevices,mdiMagnify,mdiRefresh,mdiPowerPlug,mdiBatteryCharging,mdiClockOutline,mdiInformationOutline,mdiContentCopy,mdiOpenInNew} from '@mdi/js';
 import {family,type Artwork,type Device} from './model';
-const paths:Record<string,string>={bluetooth:mdiBluetooth,usb:mdiUsb,display:mdiMonitor,monitor:mdiMonitor,laptop:mdiLaptop,phone:mdiCellphone,headphones:mdiHeadphones,keyboard:mdiKeyboard,mouse:mdiMouse,drive:mdiHarddisk,hub:mdiUsbFlashDrive,device:mdiDevices,search:mdiMagnify,refresh:mdiRefresh,power:mdiPowerPlug,battery:mdiBatteryCharging,events:mdiClockOutline,info:mdiInformationOutline,copy:mdiContentCopy,external:mdiOpenInNew};
+const paths:Record<string,string>={adb:mdiCellphone,bluetooth:mdiBluetooth,usb:mdiUsb,display:mdiMonitor,monitor:mdiMonitor,laptop:mdiLaptop,phone:mdiCellphone,headphones:mdiHeadphones,keyboard:mdiKeyboard,mouse:mdiMouse,drive:mdiHarddisk,hub:mdiUsbFlashDrive,device:mdiDevices,search:mdiMagnify,refresh:mdiRefresh,power:mdiPowerPlug,battery:mdiBatteryCharging,events:mdiClockOutline,info:mdiInformationOutline,copy:mdiContentCopy,external:mdiOpenInNew};
 export function Icon({name,className=''}:{name:string;className?:string}){return <svg className={'dc-icon '+className} viewBox="0 0 24 24" aria-hidden="true"><path d={paths[name]||paths.device}/></svg>;}
 export function DeviceArt({device,artwork}:{device:Device;artwork:Artwork}) {
  const [failed,setFailed]=useState('');

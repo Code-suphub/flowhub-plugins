@@ -38,7 +38,9 @@ const paths={
 };
 const svg=(name,cls='')=>`<svg class="icon ${cls}" viewBox="0 0 24 24" aria-hidden="true">${paths[name]||paths.device}</svg>`;
 const safe=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const label={overview:'概览',bluetooth:'蓝牙设备',usb:'USB 与移动设备',display:'显示器',power:'供电',events:'历史事件',settings:'设置'};
+const label={overview:'概览',bluetooth:'蓝牙设备',usb:'USB 与移动设备',display:'显示器',adb:'ADB',power:'供电',events:'历史事件',settings:'设置'};
+const adbState=state=>({device:'已连接',unauthorized:'未授权',offline:'离线','no permissions':'权限不足',recovery:'Recovery',sideload:'Sideload',bootloader:'Bootloader',connecting:'连接中',authorizing:'授权中'})[state]||state||'状态未提供';
+const adbTransport=transport=>({usb:'USB',tcp:'TCP/IP',wireless:'无线调试',emulator:'模拟器'})[transport]||'连接方式未提供';
 const demo={
   at:Date.now(),stale:false,
   devices:[
@@ -81,7 +83,11 @@ function battery(pct){
   if(!Number.isFinite(level)||level<0||level>100)return '';
   return `<span class="battery-val">${level}%</span><span class="battery-indicator${level<=20?' low':''}" style="--battery-level:${level/100}" aria-label="电量 ${level}%"></span>`;
 }
-function row(d){return '<button class="device-row" type="button" data-device="'+safe(d.id)+'">'+photo(d)+'<span class="device-name-wrap"><span class="device-name">'+safe(d.name)+displayBadge(d)+'</span><span class="device-sub">'+safe(displaySpec(d)||'已连接')+'</span></span>'+(d.battery?battery(d.battery):'')+'</button>';}
+function row(d){
+ const cached=d.adb&&(!data.adb?.at||data.adb.stale||data.adb.error);
+ const description=d.adb?[(cached?'上次 · ':'')+adbState(d.adb.state),adbTransport(d.adb.transport),d.adb.serial].join(' · '):displaySpec(d)||'已连接';
+ return '<button class="device-row" type="button" data-device="'+safe(d.id)+'">'+photo(d)+'<span class="device-name-wrap"><span class="device-name">'+safe(d.name)+displayBadge(d)+'</span><span class="device-sub">'+safe(description)+'</span></span>'+(d.battery?battery(d.battery):'')+'</button>';
+}
 function powerValues(power){
   const number=value=>{const n=value===null||value===undefined||value===''?null:Number(value);return n!==null&&Number.isFinite(n)?n:null;};
   const watt=value=>{const n=number(value);return n!==null&&Number.isFinite(n)?`${Math.abs(n).toFixed(1)}W`:'未提供';};
@@ -104,16 +110,16 @@ function powerFlow(power){
 }
 function widgetView(){
   const config=widgetContext?.config||{},limit=widgetLimit(config.limit);
-  const devices=data.devices.filter(d=>d.status==='connected');
+  const devices=data.devices.filter(d=>d.category==='adb'||d.status==='connected');
   const filtered=widgetCategory==='overview'?devices:devices.filter(d=>d.category===widgetCategory);
   const s=limit==='all'?filtered:filtered.slice(0,limit),w=data.power||{};
-  const title=String(config.title||'外设中心').slice(0,40),stale=data.stale||Boolean(data.error);
-  const status=!preview&&stale?`<p class="warning-message" role="status">${data.error?'设备读取失败：'+safe(data.error):'设备状态已过期'}，以下为上次采集结果。</p>`:'';
-  const heading=(stale?'上次连接设备':'当前连接设备')+(widgetCategory==='overview'?'':` · ${label[widgetCategory]}`);
+  const title=String(config.title||'外设中心').slice(0,40),stale=widgetCategory==='adb'?(!data.adb?.at||data.adb.stale||Boolean(data.adb.error)):data.stale||Boolean(data.error),error=widgetCategory==='adb'?data.adb?.error:data.error;
+  const status=!preview&&stale?`<p class="warning-message" role="status">${error?'设备读取失败：'+safe(error):'设备状态已过期'}，以下为上次采集结果。</p>`:'';
+  const heading=(stale?'上次':'当前')+(filtered.some(d=>d.category==='adb')?'设备记录':'连接设备')+(widgetCategory==='overview'?'':` · ${label[widgetCategory]}`);
   const shown=s.length<filtered.length?` · 显示 ${s.length}/${filtered.length}`:` · ${filtered.length} 个`;
   const reading=powerValues(w),flow=powerFlow(w);
   const powerError=w.telemetryError?`<p class="warning-message" role="status">当前功率读取失败：${safe(w.telemetryError)}</p>`:'';
-  const counts=[['全部',devices.length,'overview'],['蓝牙',devices.filter(d=>d.category==='bluetooth').length,'bluetooth'],['USB',devices.filter(d=>d.category==='usb').length,'usb'],['显示器',devices.filter(d=>d.category==='display').length,'display']];
+  const counts=[['全部',devices.length,'overview'],['蓝牙',devices.filter(d=>d.category==='bluetooth').length,'bluetooth'],['USB',devices.filter(d=>d.category==='usb').length,'usb'],['显示器',devices.filter(d=>d.category==='display').length,'display'],['ADB',devices.filter(d=>d.category==='adb').length,'adb']];
   const filters=counts.map(([title,value,key])=>`<button type="button" class="widget-metric" data-widget-category="${key}" aria-pressed="${widgetCategory===key}" aria-label="查看${title}设备">${svg(key)}<span>${safe(title)}</span><strong>${value}</strong></button>`).join('');
   const items=s.length?s.map(d=>row(d,{widget:true})).join(''):`<p class="empty">${widgetCategory==='overview'?'当前没有检测到已连接设备':'当前分类没有检测到已连接设备'}</p>`;
   return `<main class="widget"><header class="widget-head"><span class="brand-mark">${svg('overview')}</span><strong>${safe(title)}</strong><button class="icon-control more" id="widgetOpen" type="button" aria-label="打开外设中心">${svg('dots')}</button></header>${status}<div class="widget-counts">${filters}</div><button type="button" class="widget-power" id="widgetPower" aria-label="查看供电详情" title="${safe(w.powerUnavailableReason||w.note||'查看输入功率、电池充放电与适配器详情')}"><span class="widget-power-metric"><span>整机耗电</span><strong>${reading.system}</strong></span><span class="widget-power-metric"><span>供电来源</span><span class="widget-source-value" title="${safe(flow.state)}"><strong>${flow.source}</strong>${flow.detail?`<small>${safe(flow.detail)}</small>`:''}</span></span></button>${powerError}<p class="widget-section">${heading}${shown}</p><div class="widget-device-list">${items}</div></main>${preview?'<span class="preview-tag">演示数据</span>':''}`;

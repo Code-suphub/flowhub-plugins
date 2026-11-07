@@ -4,6 +4,7 @@ mod power_telemetry;
 mod power_source;
 mod smc_power;
 mod device_icons;
+mod adb;
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
     io::{BufRead, Read, Write},
@@ -38,6 +39,8 @@ struct Device {
     refresh_rate: Option<String>,
     #[serde(skip)]
     native_display_id: Option<u32>,
+    #[serde(default, skip_serializing_if="Option::is_none")]
+    adb: Option<adb::Info>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -53,6 +56,8 @@ struct Scan {
     power: Value,
 }
 struct State {
+    adb: adb::Report,
+    adb_query: Arc<Mutex<()>>,
     scan: Scan,
     at: u64,
     error: Option<String>,
@@ -108,7 +113,7 @@ fn device(category: &str, name: String, detail: String, discriminant: String,
     Device { id: stable_id(category, &name, &discriminant), name: short(&name, 92),
         category: category.into(), kind, detail: short(&detail, 150), status: "connected".into(),
         battery, vendor, product_id, display_connection:None, pixel_resolution:None,
-        logical_resolution:None, refresh_rate:None, native_display_id:None }
+        logical_resolution:None, refresh_rate:None, native_display_id:None, adb:None }
 }
 // USB entries may be beneath _items, a host_controller object, or other nested
 // containers depending on macOS version. Walk object containers but only emit nodes
@@ -366,7 +371,7 @@ fn profile() -> Result<Scan, String> {
 }
 impl State {
     fn new() -> Self {
-        Self { scan: Scan { devices: vec![], power: power(&Value::Null) },
+        Self { adb:adb::Report::default(), adb_query:Arc::new(Mutex::new(())), scan: Scan { devices: vec![], power: power(&Value::Null) },
             at: 0, error: None, events: VecDeque::new(), power_sample: None, power_checked_at: 0 }
     }
     fn apply(&mut self, result: Result<Scan, String>) {
@@ -397,25 +402,34 @@ impl State {
         if let Some(sample) = self.power_sample.as_ref().and_then(Value::as_object) {
             for (key, value) in sample { power[key] = value.clone(); }
         }
-        json!({"at":self.at, "stale":self.stale(), "devices":self.scan.devices,
+        let devices:Vec<_> = self.scan.devices.iter().chain(self.adb.devices.iter()).collect();
+        json!({"at":self.at, "stale":self.stale(), "devices":devices,"adb":self.adb.value(),
             "power":power, "events":self.events, "error":self.error,
             "intervalSeconds":45,"powerIntervalSeconds":5})
     }
     fn status(&self) -> Value {
-        let rows: Vec<_> = self.scan.devices.iter().take(40).map(|d| {
+        let rows: Vec<_> = self.scan.devices.iter().chain(self.adb.devices.iter()).take(40).map(|d| {
+            let stale=if d.category=="adb"{self.adb.stale()}else{self.stale()};
             json!({"id":d.id,"name":d.name,"category":d.category,"kind":d.kind,"battery":d.battery,
-                "status":if self.stale() {"stale"} else {"healthy"},
+                "status":if stale {"stale"} else if d.status=="connected" {"healthy"} else {"error"},
                 "summary":format!("{} · {}", category_label(&d.category), if d.detail.is_empty() {"已连接"} else {&d.detail})})
         }).collect();
         json!({"title":"外设中心","monitoring":true,"at":self.at,"rows":rows,
             "counts":{"bluetooth":self.scan.devices.iter().filter(|d| d.category=="bluetooth").count(),
                       "usb":self.scan.devices.iter().filter(|d| d.category=="usb").count(),
-                      "display":self.scan.devices.iter().filter(|d| d.category=="display").count()},
-            "error":self.error,"stale":self.stale(),"count":self.scan.devices.len()})
+                      "display":self.scan.devices.iter().filter(|d| d.category=="display").count(),"adb":self.adb.devices.len()},
+            "error":self.error,"stale":self.stale(),"count":self.scan.devices.len()+self.adb.devices.len()})
     }
 }
 fn category_label(category: &str) -> &str {
-    match category { "usb" => "USB", "bluetooth" => "蓝牙", "display" => "显示器", _ => "设备" }
+    match category { "usb" => "USB", "bluetooth" => "蓝牙", "display" => "显示器", "adb" => "ADB", _ => "设备" }
+}
+fn refresh_adb(state:&Arc<Mutex<State>>) {
+    let Ok((query,checked))=state.lock().map(|s|(s.adb_query.clone(),s.adb.checked_at)) else{return;};
+    let Ok(_guard)=query.lock() else{return;};
+    if state.lock().is_ok_and(|s|s.adb.checked_at>checked){return;}
+    let result=adb::read();
+    if let Ok(mut s)=state.lock(){s.adb.apply(result);}
 }
 fn power_interval_seconds(params: &Value) -> u64 {
     params["powerIntervalSeconds"].as_u64().filter(|v| [5,10,30,60].contains(v)).unwrap_or(5)
@@ -436,6 +450,7 @@ fn dispatch(state: &Arc<Mutex<State>>, method: &str, params: &Value) -> Result<V
     match method {
         "health" => Ok(json!({"protocol":2,"name":"device-center"})),
         "device_icons" => Ok(device_icons::snapshot()),
+        "adb_refresh" => { refresh_adb(state); state.lock().map_err(|_| "状态缓存不可用".to_string()).map(|s|s.full()) },
         "open_display_settings" => {
             if !cfg!(target_os = "macos") { return Err("显示器设置仅支持 macOS".into()); }
             // A fixed destination: no URL, command or display mode comes from the page.
@@ -469,6 +484,7 @@ fn dispatch(state: &Arc<Mutex<State>>, method: &str, params: &Value) -> Result<V
                 Some("refresh") => dispatch(state, "refresh", &params["params"]),
                 Some("device_icons") => dispatch(state, "device_icons", &params["params"]),
                 Some("open_display_settings") => dispatch(state, "open_display_settings", &params["params"]),
+                Some("adb_refresh") => dispatch(state, "adb_refresh", &params["params"]),
                 _ => Err("不支持的组件操作".into()),
             },
             _ => Err("不支持的组件操作".into())
@@ -478,6 +494,8 @@ fn dispatch(state: &Arc<Mutex<State>>, method: &str, params: &Value) -> Result<V
 }
 fn main() {
     let state = Arc::new(Mutex::new(State::new()));
+    let adb_worker=Arc::clone(&state);
+    thread::spawn(move || loop { refresh_adb(&adb_worker); thread::sleep(Duration::from_secs(10)); });
     let worker = Arc::clone(&state);
     thread::spawn(move || {
         loop {
@@ -704,5 +722,18 @@ mod tests {
         let p = &full["power"];
         assert!(p["batterySideWatts"].is_null());
         assert!(p["cableLimitWatts"].is_null());
+    }
+    #[test]
+    fn adb_cache_and_failures_are_independent_from_system_devices() {
+        let mut state=State::new();state.at=now();
+        state.scan.devices.push(device("usb","Public USB".into(),"USB".into(),String::new(),None,None,None));
+        let mut android=device("adb","Public Android".into(),"PUBLIC".into(),String::new(),None,None,None);
+        android.status="unauthorized".into();
+        state.adb.apply(Ok(vec![android]));
+        assert_eq!(state.full()["devices"].as_array().unwrap().len(),2);
+        assert_eq!(state.status()["counts"]["adb"],1);assert_eq!(state.status()["rows"][1]["status"],"error");
+        state.adb.apply(Err(adb::Error::Query("ADB timeout".into())));
+        assert_eq!(state.status()["rows"][0]["status"],"healthy");assert_eq!(state.status()["rows"][1]["status"],"stale");
+        assert!(state.full()["error"].is_null());assert_eq!(state.full()["adb"]["error"],"ADB timeout");
     }
 }

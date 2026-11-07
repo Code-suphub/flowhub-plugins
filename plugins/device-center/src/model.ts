@@ -1,13 +1,19 @@
-export type Category='bluetooth'|'usb'|'display';
-export interface Device {id:string;name:string;category:Category;kind:string;detail:string;status:string;battery?:string|null;vendor?:string|null;productId?:string|null;displayConnection?:string;pixelResolution?:string;logicalResolution?:string;refreshRate?:string}
+export type Category='bluetooth'|'usb'|'display'|'adb';
+export interface AdbInfo {serial:string;state:string;transport:string;model?:string|null;product?:string|null;transportId?:string|null}
+export interface AdbReport {available:boolean;at:number;checkedAt:number;stale:boolean;error?:string|null;intervalSeconds:number}
+export interface Device {id:string;name:string;category:Category;kind:string;detail:string;status:string;battery?:string|null;vendor?:string|null;productId?:string|null;displayConnection?:string;pixelResolution?:string;logicalResolution?:string;refreshRate?:string;adb?:AdbInfo}
 export interface DeviceEvent {at:number;name:string;category:string;action:string}
 export interface Power {adapterWatts?:string|number|null;inputWatts?:number|null;systemWatts?:number|null;batterySideWatts?:number|null;externalConnected?:boolean|null;batteryPresent?:boolean;source?:string|null;charging?:boolean|null;cableLimitWatts?:number|null;sampledAt?:number|null;note?:string;powerSourceError?:string;powerUnavailableReason?:string;telemetryError?:string;smcError?:string}
-export interface Snapshot {at:number;stale:boolean;devices:Device[];power:Power;events:DeviceEvent[];error?:string|null;intervalSeconds?:number;powerIntervalSeconds?:number}
+export interface Snapshot {at:number;stale:boolean;devices:Device[];power:Power;events:DeviceEvent[];error?:string|null;intervalSeconds?:number;powerIntervalSeconds?:number;adb?:AdbReport}
 export interface Artwork {available:boolean;icons:Record<string,{dataUrl:string;typeIdentifier:string;source:string}>}
 interface Selection {deviceId?:string;view?:string}
 export interface Context {config?:{powerIntervalSeconds?:number;selection?:Selection};selection?:Selection}
 export function contextSelection(context:Context):Selection {return {deviceId:context.selection?.deviceId||context.config?.selection?.deviceId,view:context.selection?.view||context.config?.selection?.view};}
-export const categories:{id:Category;label:string;short:string}[]=[{id:'bluetooth',label:'蓝牙设备',short:'蓝牙'},{id:'usb',label:'USB 与移动设备',short:'USB'},{id:'display',label:'显示器',short:'显示器'}];
+export const categories:{id:Category;label:string;short:string}[]=[{id:'bluetooth',label:'蓝牙设备',short:'蓝牙'},{id:'usb',label:'USB 与移动设备',short:'USB'},{id:'display',label:'显示器',short:'显示器'},{id:'adb',label:'ADB 设备',short:'ADB'}];
+export function listed(device:Device):boolean {return device.category==='adb'||device.status==='connected';}
+export function adbState(state?:string):string {return ({device:'已连接',unauthorized:'未授权',offline:'离线','no permissions':'权限不足',recovery:'Recovery',sideload:'Sideload',bootloader:'Bootloader',connecting:'连接中',authorizing:'授权中'} as Record<string,string>)[state||'']||state||'状态未提供';}
+export function adbTransport(transport?:string):string {return ({usb:'USB',tcp:'TCP/IP',wireless:'无线调试',emulator:'模拟器'} as Record<string,string>)[transport||'']||'连接方式未提供';}
+export function adbStale(report?:AdbReport,now=Date.now()):boolean {return !report?.at||report.stale||Boolean(report.error)||now-report.at>30_000;}
 export const initial:Snapshot={at:0,stale:true,devices:[],power:{},events:[]};
 export const emptyArtwork:Artwork={available:false,icons:{}};
 export function batteryLevel(value:unknown):number|null {if(typeof value!=='string')return null;const match=/^(\d+(?:\.\d+)?)%$/.exec(value.trim());const n=match?Number(match[1]):NaN;return Number.isFinite(n)&&n>=0&&n<=100?n:null;}
