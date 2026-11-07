@@ -5,6 +5,7 @@ mod power_source;
 mod smc_power;
 mod device_icons;
 mod device_catalog;
+mod battery_history;
 mod adb;
 mod adb_preferences;
 mod local_preferences;
@@ -32,6 +33,8 @@ struct Device {
     detail: String,
     status: String,
     battery: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    battery_source: Option<battery_history::Source>,
     vendor: Option<String>,
     product_id: Option<String>,
     #[serde(skip_serializing_if="Option::is_none")]
@@ -98,6 +101,7 @@ struct CatalogDevice<'a> {
     catalog_key: Option<&'static str>,
 }
 struct State {
+    battery_history: battery_history::Store,
     catalog: device_catalog::Store,
     widget_order: widget_order::Store,
     adb_preferences: adb_preferences::Store,
@@ -157,7 +161,7 @@ fn device(category: &str, name: String, detail: String, discriminant: String,
     let kind = if category == "display" { "monitor".into() } else { kind_for(&format!("{name} {detail}")) };
     Device { id: stable_id(category, &name, &discriminant), name: short(&name, 92),
         category: category.into(), kind, detail: short(&detail, 150), status: "connected".into(),
-        battery, vendor, product_id, display_connection:None, pixel_resolution:None,
+        battery, battery_source:None, vendor, product_id, display_connection:None, pixel_resolution:None,
         logical_resolution:None, refresh_rate:None, native_display_id:None, adb:None }
 }
 // USB entries may be beneath _items, a host_controller object, or other nested
@@ -236,6 +240,7 @@ fn supplement_accessory_batteries(devices: &mut [Device], report: &str) {
         if names.get(&key) != Some(&1) { continue; }
         if let Some(values) = levels.get(&key).filter(|v| v.len() == 1) {
             d.battery = Some(format!("{}%", values[0]));
+            d.battery_source = Some(battery_history::Source::Pmset);
         }
     }
 }
@@ -261,8 +266,12 @@ fn bluetooth(node: &Value, parent: &str, in_connected_list: bool,
                     if !name.is_empty() {
                         let model = field(node, &["device_minorType", "device_type"])
                             .unwrap_or_default();
-                        out.push(device("bluetooth", name, model,
-                            String::new(), battery_percent(node), None, None));
+                        let battery = battery_percent(node);
+                        let source = battery.as_ref().map(|_| battery_history::Source::SystemProfiler);
+                        let mut peripheral = device("bluetooth", name, model,
+                            String::new(), battery, None, None);
+                        peripheral.battery_source = source;
+                        out.push(peripheral);
                     }
                 }
             }
@@ -416,7 +425,7 @@ fn profile() -> Result<Scan, String> {
 }
 impl State {
     fn new() -> Self {
-        Self { catalog:device_catalog::Store::default(), widget_order:widget_order::Store::default(), adb_preferences:adb_preferences::Store::default(), adb:adb::Report::default(), adb_query:Arc::new(Mutex::new(())), scan: Scan { devices: vec![], power: power(&Value::Null) },
+        Self { battery_history:battery_history::Store::default(), catalog:device_catalog::Store::default(), widget_order:widget_order::Store::default(), adb_preferences:adb_preferences::Store::default(), adb:adb::Report::default(), adb_query:Arc::new(Mutex::new(())), scan: Scan { devices: vec![], power: power(&Value::Null) },
             at: 0, error: None, events: VecDeque::new(), power_sample: None, power_checked_at: 0 }
     }
     fn apply(&mut self, result: Result<Scan, String>) {
@@ -435,6 +444,7 @@ impl State {
                     }
                     self.events.truncate(60);
                 }
+                self.battery_history.observe(&new.devices, false, time);
                 self.scan = new;
                 self.at = time;
                 self.error = None;
@@ -445,6 +455,7 @@ impl State {
         // Use the last successful observation. Changes to grouping, aliases and
         // network labels do not change the state of an ADB route.
         if let Ok(next) = &result {
+            self.battery_history.observe(next, true, now());
             if self.adb.at != 0 {
                 let time = now();
                 let before = adb_routes(&self.adb.devices);
@@ -546,6 +557,16 @@ fn dispatch(state: &Arc<Mutex<State>>, method: &str, params: &Value) -> Result<V
     match method {
         "health" => Ok(json!({"protocol":2,"name":"device-center","version":env!("CARGO_PKG_VERSION")})),
         "device_icons" => Ok(device_icons::snapshot()),
+        "battery_history" | "battery_history_set_retention" => {
+            let id = params["id"].as_str().filter(|s| s.len() <= 64).ok_or("设备标识无效")?;
+            let mut s = state.lock().map_err(|_| "状态缓存不可用")?;
+            let at = now();
+            if method == "battery_history_set_retention" {
+                let hours = params["hours"].as_u64().ok_or("日志保留时间无效")?;
+                s.battery_history.set_hours(hours, at)?;
+            }
+            Ok(s.battery_history.value(id, at))
+        },
         "open_device_reference" => {
             let key = params["key"].as_str().ok_or("缺少设备型号")?;
             let kind = params["kind"].as_str().ok_or("缺少资料类型")?;
@@ -602,6 +623,7 @@ fn dispatch(state: &Arc<Mutex<State>>, method: &str, params: &Value) -> Result<V
                 Some("snapshot") => dispatch(state, "snapshot", &params["params"]),
                 Some("refresh") => dispatch(state, "refresh", &params["params"]),
                 Some("device_icons") => dispatch(state, "device_icons", &params["params"]),
+                Some(method @ ("battery_history" | "battery_history_set_retention")) => dispatch(state, method, &params["params"]),
                 Some("open_device_reference") => dispatch(state, "open_device_reference", &params["params"]),
                 Some("open_display_settings") => dispatch(state, "open_display_settings", &params["params"]),
                 Some("adb_refresh") => dispatch(state, "adb_refresh", &params["params"]),
@@ -614,13 +636,29 @@ fn dispatch(state: &Arc<Mutex<State>>, method: &str, params: &Value) -> Result<V
         _ => Err("未知插件方法".into())
     }
 }
+fn persist_battery_history(state: &Mutex<State>, writer: &Mutex<()>) {
+    let Ok(_writer) = writer.lock() else { return; };
+    let pending = state.lock().ok().and_then(|mut s| s.battery_history.pending(now()));
+    if let Some(write) = pending {
+        let success = write.save();
+        if let Ok(mut s) = state.lock() { s.battery_history.finish(write.revision, success); }
+    }
+}
 fn main() {
     let mut initial = State::new();
     let root = std::env::var_os("FLOWHUB_PLUGIN_DATA").map(std::path::PathBuf::from);
     initial.widget_order = widget_order::Store::open(root.clone());
     initial.adb_preferences = adb_preferences::Store::open(root.clone());
+    initial.battery_history = battery_history::Store::open(root.clone(), now());
     initial.catalog.root = root;
     let state = Arc::new(Mutex::new(initial));
+    let writer = Arc::new(Mutex::new(()));
+    let history_worker = Arc::clone(&state);
+    let history_writer = Arc::clone(&writer);
+    thread::spawn(move || loop {
+        thread::sleep(Duration::from_secs(10));
+        persist_battery_history(&history_worker, &history_writer);
+    });
     let adb_worker=Arc::clone(&state);
     thread::spawn(move || loop { refresh_adb(&adb_worker); thread::sleep(Duration::from_secs(10)); });
     let worker = Arc::clone(&state);
@@ -650,6 +688,7 @@ fn main() {
         };
         if writeln!(output, "{message}").and_then(|_| output.flush()).is_err() { break; }
     }
+    persist_battery_history(&state, &writer);
 }
 
 #[cfg(test)]

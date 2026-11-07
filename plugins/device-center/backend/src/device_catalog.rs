@@ -165,7 +165,7 @@ pub fn load(root: &Path, entry: &Entry) -> Option<String> {
     read_or_fetch(root, &filename, || read_system_query("/usr/bin/curl", &[
         "-q", "--silent", "--fail", "--proto", "=https", "--connect-timeout", "3",
         "--max-time", "6", "--max-filesize", "65536", "--user-agent",
-        "FlowHub Device Center/0.3.12 (https://github.com/Code-suphub/flowhub-plugins)",
+        concat!("FlowHub Device Center/", env!("CARGO_PKG_VERSION"), " (https://github.com/Code-suphub/flowhub-plugins)"),
         "--", photo.thumbnail,
     ], Duration::from_secs(7), MAX_IMAGE).ok())
 }

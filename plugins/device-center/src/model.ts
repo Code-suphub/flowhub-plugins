@@ -29,6 +29,19 @@ export interface DeviceEvent {at:number;name:string;category:string;action:strin
 export interface Power {adapterWatts?:string|number|null;inputWatts?:number|null;systemWatts?:number|null;batterySideWatts?:number|null;externalConnected?:boolean|null;batteryPresent?:boolean;source?:string|null;charging?:boolean|null;cableLimitWatts?:number|null;sampledAt?:number|null;note?:string;powerSourceError?:string;powerUnavailableReason?:string;telemetryError?:string;smcError?:string}
 export interface DeviceProfile {name:string;image?:{dataUrl:string;author:string;license:string}}
 export type DeviceCatalog=Record<string,DeviceProfile>;
+export interface BatteryPoint {at:number;percent?:number;source?:'system_profiler'|'pmset'|'adb'}
+export interface BatteryReport {hours:number;from:number;to:number;points:BatteryPoint[];error?:string|null}
+export function demoBatteryHistory(id:string,now=Date.now()):BatteryReport {
+ const from=now-48*3_600_000;
+ const sample=id==='keyboard';
+ return {hours:48,from,to:now,points:sample?[
+  {at:now-72*60_000,percent:30,source:'system_profiler'},
+  {at:now-57*60_000,percent:30,source:'system_profiler'},
+  {at:now-45*60_000},
+  {at:now-27*60_000,percent:100,source:'pmset'},
+  {at:now-12*60_000,percent:100,source:'pmset'},
+ ]:[]};
+}
 export interface Snapshot {at:number;stale:boolean;devices:Device[];power:Power;events:DeviceEvent[];error?:string|null;intervalSeconds?:number;powerIntervalSeconds?:number;adb?:AdbReport;adbPreferences?:AdbPreferences;catalog?:DeviceCatalog}
 export interface Artwork {available:boolean;icons:Record<string,{dataUrl:string;typeIdentifier:string;source:string}>}
 interface Selection {deviceId?:string;view?:string}

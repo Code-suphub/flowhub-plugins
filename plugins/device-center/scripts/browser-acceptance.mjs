@@ -46,6 +46,13 @@ const server=createServer(async(req,res)=>{
    window.addEventListener('message',event=>{const frame=document.querySelector('iframe');if(event.source!==frame.contentWindow)return;const m=event.data;if(m.type==='flowhub:theme-ready'){frame.contentWindow.postMessage({type:'flowhub:theme',theme:'light'},'*');return;}if(m.type==='flowhub:widget-ready'){frame.contentWindow.postMessage({type:'flowhub:widget-init',token:'qa-token',context:${JSON.stringify(context)}},'*');return;}if(!['flowhub:request','flowhub:widget-rpc'].includes(m.type))return;const widget=m.type==='flowhub:widget-rpc',method=widget?m.params.method:m.method;window.__qa.requests.push(method);const reply={type:widget?'flowhub:widget-result':'flowhub:response',token:widget?'qa-token':undefined,id:m.id};
    if(method==='open_display_settings'){if(window.__qa.settingsError)reply.error=window.__qa.settingsError;else reply.result={opened:true};if(window.__qa.holdSettings){window.__qa.finishSettings=()=>frame.contentWindow.postMessage(reply,'*');return;}frame.contentWindow.postMessage(reply,'*');return;}
    if(method==='open_device_reference'){window.__qa.reference=widget?m.params.params:m.params;reply.result={opened:true};frame.contentWindow.postMessage(reply,'*');return;}
+   if(method==='battery_history'||method==='battery_history_set_retention'){
+    const args=widget?m.params.params:m.params;
+    if(method==='battery_history_set_retention')window.__qa.batteryHours=args.hours;
+    const to=Date.now(),hours=window.__qa.batteryHours||48;
+    reply.result={hours,from:to-hours*3600000,to,points:args.id==='keyboard'?[{at:to-2000000,percent:30,source:'system_profiler'},{at:to-1500000},{at:to-1000000,percent:100,source:'pmset'}]:[]};
+    frame.contentWindow.postMessage(reply,'*');return;
+   }
    if(method==='adb_set_alias'||method==='adb_set_low_battery_threshold'){
     const params=widget?m.params.params:m.params;
     const previous=window.__qa.snapshot.adbPreferences||{aliases:{},lowBatteryThreshold:30,revision:0};
@@ -259,6 +266,17 @@ try{
  if(JSON.stringify(await parent('window.__qa.reference'))!==JSON.stringify({key:'kzzi-k75',kind:'manual'}))throw Error('K75 manual request must send a catalog reference, not a URL');
  report.checks.push('K75 manual dispatch uses the fixed catalog reference');
  await capture('k75-keyboard-detail');
+ if(await parent('window.__qa.requests.includes("battery_history")'))throw Error('Collapsed history should not query');
+ await click('.dc-battery-history summary');
+ await wait('Boolean(document.querySelector(".dc-history-readings li"))');
+ await check('document.querySelector(".dc-history-readings").textContent.includes("30%") && document.querySelector(".dc-history-readings").textContent.includes("100%") && document.querySelector(".dc-history-readings").textContent.includes("macOS 配件电源") && document.querySelector(".dc-history-chart path").getAttribute("d").split("M").length===3','battery history shows source, jumps and a break between readings');
+ await click('[aria-label="电量日志保留时间"]');
+ await click('.dc-history-select [role=option]:last-child');
+ await wait('document.querySelector("[aria-label=电量日志保留时间]").textContent.includes("7 天")');
+ if(await parent('window.__qa.batteryHours')!==168)throw Error('Seven-day retention did not persist through the history RPC');
+ report.checks.push('battery history uses the shared retention control and refreshes the report after save');
+ await evaluate('document.querySelector(".dc-battery-history").scrollIntoView({block:"end"})');
+ await capture('battery-history');
  await size(360,320);await navigate('/qa?surface=card&scenario=catalog');
  await click('[data-widget-category=usb]');
  await wait('document.querySelector("[data-device=pixel] img[alt=设备型号参考图片]")?.naturalWidth>0');
