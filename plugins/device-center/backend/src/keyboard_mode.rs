@@ -1,4 +1,5 @@
 use super::{run_k75_probe, usb_hid::hex_prefix, Device};
+use super::keyboard_presets::{Lighting, Mode, Preset};
 use serde_json::{json, Value};
 use std::{
     collections::BTreeMap,
@@ -49,7 +50,11 @@ pub(super) fn request(location: u32) -> Value {
     if !cache.probing {
         cache.probing = true;
         thread::spawn(move || {
-            let value = mode_result(probe(&["--mode-at", &location.to_string()]));
+            let Ok(_hid) = HID.lock() else {
+                if let Ok(mut cache) = CACHE.lock() { cache.probing = false; }
+                return;
+            };
+            let value = mode_result(run_k75_probe(&["--mode-at", &location.to_string()]));
             if let Ok(mut cache) = CACHE.lock() {
                 cache.samples.insert(location, Sample { at: Instant::now(), value });
                 cache.probing = false;
@@ -60,6 +65,30 @@ pub(super) fn request(location: u32) -> Value {
         .unwrap_or_else(|| json!({"status":"pending"}))
 }
 
+pub(super) fn inspect(location: u32) -> Result<Value, String> {
+    let port = location.to_string();
+    probe(&["--mode-at", &port]).map(|report| mode_result(Ok(report)))
+}
+
+pub(super) fn diagnostics(location: u32) -> Result<Value, String> {
+    probe(&["--diagnostics-at", &location.to_string()])
+}
+
+pub(super) fn apply(location: u32, preset: &Preset, mode: Mode, lighting: Option<Lighting>) -> Result<Value, String> {
+    let port = location.to_string();
+    let expected_light = preset.lighting.map(|_| lighting.ok_or("请先读取当前灯效")).transpose()?;
+    let _hid = HID.lock().map_err(|_| "K75 USB 接口不可用")?;
+    let result = run_k75_probe(&["--apply-at", &port, mode.code(), preset.mode.code(),
+        expected_light.map_or("-", Lighting::code), preset.lighting.map_or("-", Lighting::code)]);
+    if let Ok(mut cache) = CACHE.lock() {
+        cache.samples.remove(&location);
+        if let Ok(report) = &result {
+            cache.samples.insert(location, Sample { at: Instant::now(), value: mode_result(Ok(report.clone())) });
+        }
+    }
+    result.map(|report| mode_result(Ok(report)))
+}
+
 fn mode_result(result: Result<Value, String>) -> Value {
     match result {
         Ok(report) => {
@@ -67,7 +96,13 @@ fn mode_result(result: Result<Value, String>) -> Value {
                 (Some("0x4023"), Some(mode @ ("mac" | "windows"))) => mode,
                 _ => "unknown",
             };
-            json!({"status":"read","mode":mode,"usbRelease":report["usbRelease"]})
+            let supported = report["configurationSupported"].as_bool() == Some(true)
+                && report["usbRelease"].as_str() == Some("0x4023") && mode != "unknown";
+            let lighting = match (supported, report["lighting"].as_str()) {
+                (true, Some(light @ ("breathing" | "off"))) => Some(light),
+                _ => None,
+            };
+            json!({"status":"read","mode":mode,"usbRelease":report["usbRelease"],"configurationSupported":supported,"lighting":lighting})
         },
         Err(_) => json!({"status":"unavailable"}),
     }
@@ -96,7 +131,7 @@ mod tests {
         for (release, mode, expected) in [("0x4023", "mac", "mac"), ("0x4023", "windows", "windows"),
             ("0x4023", "unknown", "unknown"), ("0x4024", "mac", "unknown")] {
             let value = mode_result(Ok(json!({"usbRelease":release,"osMode":mode,"powerBytes":[4,4]})));
-            assert_eq!(value, json!({"status":"read","mode":expected,"usbRelease":release}));
+            assert_eq!(value, json!({"status":"read","mode":expected,"usbRelease":release,"configurationSupported":false,"lighting":null}));
         }
         assert_eq!(mode_result(Err("USB read failed".into())), json!({"status":"unavailable"}));
     }

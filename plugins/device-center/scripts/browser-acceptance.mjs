@@ -48,7 +48,21 @@ const server=createServer(async(req,res)=>{
    window.addEventListener('message',event=>{const frame=document.querySelector('iframe');if(event.source!==frame.contentWindow)return;const m=event.data;if(m.type==='flowhub:theme-ready'){frame.contentWindow.postMessage({type:'flowhub:theme',theme:'light'},'*');return;}if(m.type==='flowhub:widget-ready'){frame.contentWindow.postMessage({type:'flowhub:widget-init',token:'qa-token',context:${JSON.stringify(context)}},'*');return;}if(!['flowhub:request','flowhub:widget-rpc'].includes(m.type))return;const widget=m.type==='flowhub:widget-rpc',method=widget?m.params.method:m.method;window.__qa.requests.push(method);const reply={type:widget?'flowhub:widget-result':'flowhub:response',token:widget?'qa-token':undefined,id:m.id};
    if(method==='open_display_settings'){if(window.__qa.settingsError)reply.error=window.__qa.settingsError;else reply.result={opened:true};if(window.__qa.holdSettings){window.__qa.finishSettings=()=>frame.contentWindow.postMessage(reply,'*');return;}frame.contentWindow.postMessage(reply,'*');return;}
    if(method==='open_device_reference'){window.__qa.reference=widget?m.params.params:m.params;reply.result={opened:true};frame.contentWindow.postMessage(reply,'*');return;}
-   if(method==='keyboard_mode'){const args=widget?m.params.params:m.params;if(args.id==='usb-k75')reply.result=window.__qa.keyboardMode||{status:'read',mode:'mac',usbRelease:'0x4023'};else reply.error='设备不支持';frame.contentWindow.postMessage(reply,'*');return;}
+   if(method==='keyboard_mode'){const args=widget?m.params.params:m.params;if(args.id==='usb-k75')reply.result=window.__qa.keyboardMode||{status:'read',mode:'mac',usbRelease:'0x4023',configurationSupported:true,lighting:'off'};else reply.error='设备不支持';frame.contentWindow.postMessage(reply,'*');return;}
+   if(['keyboard_presets','keyboard_record_preset','keyboard_apply_preset','keyboard_delete_preset','keyboard_diagnostics'].includes(method)){
+    const args=widget?m.params.params:m.params;
+    const reading=window.__qa.keyboardMode||{status:'read',mode:'mac',usbRelease:'0x4023',configurationSupported:true,lighting:'off'};
+    const presets=window.__qa.presets??=[];
+    if(method==='keyboard_record_preset')presets.push({name:args.name,mode:reading.mode,lighting:reading.lighting});
+    if(method==='keyboard_delete_preset')presets.splice(presets.findIndex(p=>p.name===args.name),1);
+    if(method==='keyboard_apply_preset'){
+     const selected=presets.find(p=>p.name===args.name);
+     if(args.expectedMode!==reading.mode)reply.error='键盘状态已变化';
+     else reply.result=window.__qa.keyboardMode={...reading,mode:args.mode||selected.mode,lighting:selected?.lighting||reading.lighting};
+    }else if(method==='keyboard_diagnostics')reply.result={configurationBytes:128,powerBytes:[4,4],configurationDigest:'abcdef',modeByte:1,lightingByte:4};
+    else reply.result=presets;
+    frame.contentWindow.postMessage(reply,'*');return;
+   }
    if(method==='battery_history'||method==='battery_history_set_retention'){
     const args=widget?m.params.params:m.params;
     if(method==='battery_history_set_retention')window.__qa.batteryHours=args.hours;
@@ -312,6 +326,7 @@ try{
  await send('Input.dispatchMouseEvent',{type:'mouseWheel',...listPoint,deltaY:650,deltaX:0});await sleep(200);
  await check('document.querySelector(".widget-device-list").scrollTop>0 && document.querySelector("[data-device=adb-offline]").getBoundingClientRect().bottom<=innerHeight+1','wheel scroll reaches devices after the first eight without moving the page');
  await send('Input.dispatchMouseEvent',{type:'mouseWheel',...listPoint,deltaY:-1000,deltaX:0});await wait('document.querySelector(".widget-device-list").scrollTop===0');
+ await sleep(150); // Let Chromium finish the wheel gesture before the pointer test.
  const edgePoints=await evaluate('(()=>{const a=document.querySelector("[data-order-handle=airpods]").getBoundingClientRect(),b=document.querySelector(".widget-device-list").getBoundingClientRect();return {source:{x:a.left+a.width/2,y:a.top+a.height/2},edge:{x:b.right-35,y:b.bottom-8}}})()');
  await send('Input.dispatchMouseEvent',{type:'mouseMoved',...edgePoints.source});await send('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',buttons:1,clickCount:1,...edgePoints.source});
  await send('Input.dispatchMouseEvent',{type:'mouseMoved',buttons:1,...edgePoints.edge});
@@ -439,6 +454,31 @@ try{
  await wait('document.querySelector("#widgetKeyboardMode").textContent==="未检测到有线 K75"');
  await navigate('/qa?surface=editor&cards='+configParam);
  await check('document.querySelector(".editor-cards").firstElementChild.dataset.orderItem==="keyboard" && !document.querySelector("[data-order-item=devices] input").checked','reopened editor restores saved order and disabled cards');
+
+ await size(380,680);await navigate('/qa?widget=1&scenario=usb-tree&view=usb');
+ await check('Boolean(document.querySelector("[data-device=usb-k75]").closest("ul").parentElement.querySelector(":scope > [data-device=terminus]") && document.querySelector("[data-device=terminus]").closest("ul").parentElement.querySelector(":scope > [data-device=genesys]"))','USB tree preserves both upstream hubs in a narrow view');
+ await click('[data-device=genesys]');
+ await check('document.querySelector("[aria-label=直连下游设备]").textContent.includes("Terminus") && document.querySelector("[aria-label=直连下游设备]").textContent.includes("Digital AV Adapter")','hub details list its direct children');
+ await evaluate('[...document.querySelectorAll("[aria-label=直连下游设备] button")].find(button=>button.textContent.includes("Digital AV Adapter")).click()');
+ await check('document.querySelector(".dc-usb-path h4")?.textContent==="USB-C 模式报告"','adapter detail distinguishes USB Billboard from display output');
+ await keyboard('Escape','Escape',27);
+ await click('[data-device=usb-k75]');
+ await check('[...document.querySelectorAll(".dc-usb-path")].some(section=>section.textContent.includes("Kzzi-K75 5.0"))','USB K75 details link the Bluetooth route as a same-model entry');
+ await wait('document.querySelector(".dc-keyboard-presets summary")?.textContent==="有线配置与预设"');
+ await click('.dc-keyboard-presets summary');
+ await wait('!document.querySelector(".dc-keyboard-actions input")?.disabled');
+ await fill('办公室','input[aria-label=预设名称]');
+ await evaluate('[...document.querySelectorAll(".dc-keyboard-actions button")].find(button=>button.textContent==="记录当前").click()');
+ await wait('document.querySelector("[aria-label=已保存预设]")?.textContent.includes("办公室")');
+ await evaluate('[...document.querySelectorAll(".dc-keyboard-actions button")].find(button=>button.textContent==="切换到 Windows").click()');
+ await wait('document.querySelector(".dc-keyboard-mode [role=status]").textContent==="Windows 模式"');
+ await evaluate('[...document.querySelectorAll("[aria-label=已保存预设] button")].find(button=>button.textContent==="应用").click()');
+ await wait('document.querySelector(".dc-keyboard-mode [role=status]").textContent==="Mac 模式"');
+ report.checks.push('K75 preset records current state and applies through the guarded switch with readback');
+ await click('.dc-keyboard-presets:last-of-type summary');
+ await evaluate('[...document.querySelectorAll(".dc-keyboard-presets button")].find(button=>button.textContent==="读取 USB 诊断").click()');
+ await wait('document.querySelector(".dc-keyboard-diagnostic")?.textContent.includes("4 / 4")');
+ await check('!document.querySelector(".dc-keyboard-diagnostic").textContent.includes("%")','USB diagnostic labels raw power bytes without guessing a battery percentage');
  if(report.errors.length)throw Error(report.errors.join('\n'));
  await writeFile(join(out,'report.json'),JSON.stringify(report,null,2));console.log(JSON.stringify({checks:report.checks.length,responsive:report.responsive.length,errors:report.errors,output:out}));
 }catch(error){report.failure=String(error);await writeFile(join(out,'report.json'),JSON.stringify(report,null,2));throw error;}

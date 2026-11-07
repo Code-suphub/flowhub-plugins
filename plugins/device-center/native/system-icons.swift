@@ -31,6 +31,33 @@ if CommandLine.arguments.dropFirst().elementsEqual(["--usb-hid-names"]) {
     exit(EXIT_SUCCESS)
 }
 
+func usbDeviceClasses() -> [[String: Int]] {
+    var iterator: io_iterator_t = 0
+    guard IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOUSBHostDevice"), &iterator)
+            == KERN_SUCCESS else { return [] }
+    defer { IOObjectRelease(iterator) }
+    var rows: [[String: Int]] = []
+    while rows.count < 128 {
+        let service = IOIteratorNext(iterator)
+        guard service != 0 else { break }
+        defer { IOObjectRelease(service) }
+        func property(_ key: String) -> Int? {
+            (IORegistryEntryCreateCFProperty(service, key as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue() as? NSNumber)?.intValue
+        }
+        guard let vendor = property("idVendor"), let product = property("idProduct"),
+              let location = property("locationID"), location != 0,
+              let deviceClass = property("bDeviceClass"), [0x09, 0x11].contains(deviceClass) else { continue }
+        rows.append(["vendor": vendor, "product": product, "location": location, "deviceClass": deviceClass])
+    }
+    return rows
+}
+
+if CommandLine.arguments.dropFirst().elementsEqual(["--usb-topology"]) {
+    let report: [String: Any] = ["hidNames": usbHidNames(), "deviceClasses": usbDeviceClasses()]
+    FileHandle.standardOutput.write(try JSONSerialization.data(withJSONObject: report))
+    exit(EXIT_SUCCESS)
+}
+
 // Resolve installed system artwork, not a product-photo CDN or a wallpaper.
 // Fixed family identifiers only; this helper never accepts device names or paths.
 let families: [String: [String]] = [

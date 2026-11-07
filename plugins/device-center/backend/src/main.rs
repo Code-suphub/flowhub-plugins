@@ -14,6 +14,8 @@ mod toolkit_adb;
 mod widget_order;
 mod cli;
 mod keyboard_mode;
+mod usb_topology;
+mod keyboard_presets;
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
     io::{BufRead, Read, Write},
@@ -53,6 +55,8 @@ struct Device {
     native_display_id: Option<u32>,
     #[serde(skip)]
     usb_location: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    usb: Option<usb_topology::Connection>,
     #[serde(default, skip_serializing_if="Option::is_none")]
     adb: Option<adb::Info>,
 }
@@ -109,6 +113,7 @@ struct CatalogDevice<'a> {
     keyboard_mode_candidate: bool,
 }
 struct State {
+    keyboard_presets: keyboard_presets::Store,
     battery_history: battery_history::Store,
     catalog: device_catalog::Store,
     widget_order: widget_order::Store,
@@ -170,16 +175,17 @@ fn device(category: &str, name: String, detail: String, discriminant: String,
     Device { id: stable_id(category, &name, &discriminant), name: short(&name, 92),
         category: category.into(), kind, detail: short(&detail, 150), status: "connected".into(),
         battery, battery_source:None, vendor, product_id, display_connection:None, pixel_resolution:None,
-        logical_resolution:None, refresh_rate:None, native_display_id:None, usb_location:None, adb:None }
+        logical_resolution:None, refresh_rate:None, native_display_id:None, usb_location:None, usb:None, adb:None }
 }
 // USB entries may be beneath _items, a host_controller object, or other nested
 // containers depending on macOS version. Walk object containers but only emit nodes
 // that carry a USB hardware ID. Do not return serial numbers or volume metadata.
-fn usb(node: &Value, parent: &str, out: &mut Vec<Device>, depth: usize) {
+fn usb(node: &Value, parent: &str, parent_id: Option<&str>, out: &mut Vec<Device>, depth: usize) {
     if depth > 16 || out.len() >= 128 { return; }
     match node {
-        Value::Array(arr) => for value in arr { usb(value, parent, out, depth + 1); },
+        Value::Array(arr) => for value in arr { usb(value, parent, parent_id, out, depth + 1); },
         Value::Object(obj) => {
+            let mut child_parent = None;
             let vendor_id = field(node, &["vendor_id", "vendorID"]);
             let product_id = field(node, &["product_id", "productID"]);
             let has_hardware_id = vendor_id.is_some() || product_id.is_some();
@@ -190,15 +196,16 @@ fn usb(node: &Value, parent: &str, out: &mut Vec<Device>, depth: usize) {
                 // USB buses and controller wrappers are not attached peripherals.
                 let controller = lower.ends_with("bus") || lower.ends_with("controller");
                 if has_hardware_id && !controller {
-                    let speed = field(node, &["device_speed", "speed"]).unwrap_or_default();
-                    let brand = field(node, &["manufacturer"]).unwrap_or_default();
-                    let detail = [brand.as_str(), speed.as_str()].iter()
-                        .filter(|s| !s.is_empty()).copied().collect::<Vec<_>>().join(" · ");
+                    let usb = usb_topology::Connection::parse(node, vendor_id.as_deref(), parent_id);
+                    let detail = [usb.manufacturer.as_deref(), usb.speed.as_deref()]
+                        .into_iter().flatten().collect::<Vec<_>>().join(" · ");
                     let port = field(node, &["location_id", "locationID"]).unwrap_or_default();
                     let key = format!("{}:{}:{}", vendor_id.as_deref().unwrap_or(""),
                         product_id.as_deref().unwrap_or(""), port);
                     let mut peripheral = device("usb", name, detail, key, None, vendor_id, product_id);
                     peripheral.usb_location = Some(port);
+                    peripheral.usb = Some(usb);
+                    child_parent = Some(peripheral.id.clone());
                     out.push(peripheral);
                 }
             }
@@ -209,7 +216,7 @@ fn usb(node: &Value, parent: &str, out: &mut Vec<Device>, depth: usize) {
                 let next_parent = if matches!(key.as_str(),
                     "_items" | "items" | "host_controller" | "device" | "devices" |
                     "usb_devices" | "children" | "ports") { "" } else { key.as_str() };
-                usb(value, next_parent, out, depth + 1);
+                usb(value, next_parent, child_parent.as_deref().or(parent_id), out, depth + 1);
             }
         },
         _ => {}
@@ -382,7 +389,7 @@ fn power(node: &Value) -> Value {
 }
 fn parse(raw: &Value) -> Scan {
     let mut devices = vec![];
-    usb(&raw["SPUSBDataType"], "", &mut devices, 0);
+    usb(&raw["SPUSBDataType"], "", None, &mut devices, 0);
     bluetooth(&raw["SPBluetoothDataType"], "", false, &mut devices, 0);
     displays(&raw["SPDisplaysDataType"], &mut devices, 0);
     let mut seen = BTreeSet::new();
@@ -436,7 +443,7 @@ fn profile() -> Result<Scan, String> {
 }
 impl State {
     fn new() -> Self {
-        Self { battery_history:battery_history::Store::default(), catalog:device_catalog::Store::default(), widget_order:widget_order::Store::default(), adb_preferences:adb_preferences::Store::default(), adb:adb::Report::default(), adb_query:Arc::new(Mutex::new(())), scan: Scan { devices: vec![], power: power(&Value::Null) },
+        Self { keyboard_presets: keyboard_presets::Store::default(), battery_history:battery_history::Store::default(), catalog:device_catalog::Store::default(), widget_order:widget_order::Store::default(), adb_preferences:adb_preferences::Store::default(), adb:adb::Report::default(), adb_query:Arc::new(Mutex::new(())), scan: Scan { devices: vec![], power: power(&Value::Null) },
             at: 0, error: None, events: VecDeque::new(), power_sample: None, power_checked_at: 0 }
     }
     fn apply(&mut self, result: Result<Scan, String>) {
@@ -588,17 +595,50 @@ fn update_power_sample(state: &Arc<Mutex<State>>, force: bool, interval_seconds:
     smc_power::fill_missing(&mut sample);
     if let Ok(mut s) = state.lock() { s.power_sample = Some(sample); s.power_checked_at = now(); }
 }
+fn keyboard_operation(state: &Mutex<State>, method: &str, params: &Value) -> Result<Value, String> {
+    use keyboard_presets::{Mode, Lighting, Preset};
+    let id = params["id"].as_str().ok_or("缺少设备标识")?;
+    let location = state.lock().map_err(|_| "状态缓存不可用")?.scan.devices.iter()
+        .find(|device| device.id == id).and_then(keyboard_mode::location)
+        .ok_or("该设备已断开或不支持读取键位模式")?;
+    let lock = || state.lock().map_err(|_| "状态缓存不可用".to_string());
+    let name = || keyboard_presets::validate_name(params["name"].as_str().unwrap_or_default());
+    match method {
+        "keyboard_mode" => Ok(keyboard_mode::request(location)),
+        "keyboard_diagnostics" => keyboard_mode::diagnostics(location),
+        "keyboard_presets" => Ok(json!(lock()?.keyboard_presets.list()?)),
+        "keyboard_record_preset" => {
+            let name = name()?;
+            let reading = keyboard_mode::inspect(location)?;
+            if reading["configurationSupported"] != true { return Err("当前配置布局未验证，无法记录预设".into()); }
+            let mode = serde_json::from_value::<Mode>(reading["mode"].clone()).map_err(|_| "当前模式未知")?;
+            let lighting = serde_json::from_value::<Option<Lighting>>(reading["lighting"].clone())
+                .map_err(|_| "当前灯效未知")?;
+            Ok(json!(lock()?.keyboard_presets.record(name, mode, lighting)?))
+        },
+        "keyboard_delete_preset" => Ok(json!(lock()?.keyboard_presets.delete(&name()?)?)),
+        "keyboard_apply_preset" => {
+            let mode = serde_json::from_value::<Mode>(params["expectedMode"].clone()).map_err(|_| "请先读取当前键位模式")?;
+            let lighting = serde_json::from_value::<Option<Lighting>>(params["expectedLighting"].clone()).map_err(|_| "当前灯效格式无效")?;
+            let preset = if let Some(target) = params.get("mode") {
+                Preset { name: String::new(), mode: serde_json::from_value(target.clone()).map_err(|_| "未知键位模式")?, lighting: None }
+            } else {
+                let name = name()?;
+                lock()?.keyboard_presets.list()?.into_iter().find(|preset| preset.name == name)
+                    .ok_or("预设已不存在，请刷新列表")?
+            };
+            keyboard_mode::apply(location, &preset, mode, lighting)
+        },
+        _ => Err("未知键盘操作".into()),
+    }
+}
+
 fn dispatch(state: &Arc<Mutex<State>>, method: &str, params: &Value) -> Result<Value, String> {
     match method {
         "health" => Ok(json!({"protocol":2,"name":"device-center","version":env!("CARGO_PKG_VERSION")})),
         "device_icons" => Ok(device_icons::snapshot()),
-        "keyboard_mode" => {
-            let id = params["id"].as_str().ok_or("缺少设备标识")?;
-            let location = state.lock().map_err(|_| "状态缓存不可用")?.scan.devices.iter()
-                .find(|device| device.id == id).and_then(keyboard_mode::location)
-                .ok_or("该设备已断开或不支持读取键位模式")?;
-            Ok(keyboard_mode::request(location))
-        },
+        "keyboard_mode" | "keyboard_diagnostics" | "keyboard_presets" | "keyboard_record_preset" |
+        "keyboard_apply_preset" | "keyboard_delete_preset" => keyboard_operation(state, method, params),
         "battery_history" | "battery_history_set_retention" => {
             let id = params["id"].as_str().filter(|s| s.len() <= 64).ok_or("设备标识无效")?;
             let mut s = state.lock().map_err(|_| "状态缓存不可用")?;
@@ -664,7 +704,8 @@ fn dispatch(state: &Arc<Mutex<State>>, method: &str, params: &Value) -> Result<V
                 Some("snapshot") => dispatch(state, "snapshot", &params["params"]),
                 Some("refresh") => dispatch(state, "refresh", &params["params"]),
                 Some("device_icons") => dispatch(state, "device_icons", &params["params"]),
-                Some("keyboard_mode") => dispatch(state, "keyboard_mode", &params["params"]),
+                Some(method @ ("keyboard_mode" | "keyboard_diagnostics" | "keyboard_presets" | "keyboard_record_preset" |
+                    "keyboard_apply_preset" | "keyboard_delete_preset")) => dispatch(state, method, &params["params"]),
                 Some(method @ ("battery_history" | "battery_history_set_retention")) => dispatch(state, method, &params["params"]),
                 Some("open_device_reference") => dispatch(state, "open_device_reference", &params["params"]),
                 Some("open_display_settings") => dispatch(state, "open_display_settings", &params["params"]),
@@ -697,6 +738,7 @@ fn main() {
     let mut initial = State::new();
     let root = std::env::var_os("FLOWHUB_PLUGIN_DATA").map(std::path::PathBuf::from);
     initial.widget_order = widget_order::Store::open(root.clone());
+    initial.keyboard_presets = keyboard_presets::Store::open(root.clone());
     initial.adb_preferences = adb_preferences::Store::open(root.clone());
     initial.battery_history = battery_history::Store::open(root.clone(), now());
     initial.catalog.root = root.clone();
@@ -807,6 +849,28 @@ mod tests {
         assert!(!serde_json::to_string(&result.devices).unwrap().contains("PRIVATE_SERIAL"));
     }
     #[test]
+    fn usb_topology_distinguishes_nested_hubs_and_discards_placeholder_manufacturers() {
+        let sample = json!({"SPUSBDataType":[{"_name":"USB31Bus","_items":[
+            {"_name":"USB2.0 Hub","vendor_id":"0x05e3  (Genesys Logic, Inc.)","product_id":"0x0608","device_speed":"high_speed","_items":[
+                {"_name":"USB 2.0 Hub","vendor_id":"0x1a40  (TERMINUS TECHNOLOGY INC.)","product_id":"0x0801","_items":[
+                    {"_name":"Gaming Keyboard","vendor_id":"0x258a","product_id":"0x0112"}
+                ]},
+                {"_name":"Digital AV Adapter","vendor_id":"0x343c","manufacturer":"xxxxxxxx","device_speed":"low_speed"}
+            ]}
+        ]}]});
+        let scan = parse(&sample);
+        let device = |name: &str| scan.devices.iter().find(|device| device.name == name).unwrap();
+        let root = device("USB2.0 Hub");
+        let nested = device("USB 2.0 Hub");
+        let keyboard = device("Gaming Keyboard");
+        let adapter = device("Digital AV Adapter");
+        assert_eq!(nested.usb.as_ref().unwrap().parent_id.as_ref(), Some(&root.id));
+        assert_eq!(keyboard.usb.as_ref().unwrap().parent_id.as_ref(), Some(&nested.id));
+        assert_eq!(adapter.usb.as_ref().unwrap().parent_id.as_ref(), Some(&root.id));
+        assert_eq!(adapter.detail, "低速 · 1.5 Mb/s");
+        assert!(root.detail.contains("Genesys Logic, Inc.") && root.detail.contains("480 Mb/s"));
+    }
+    #[test]
     fn generic_usb_keyboard_uses_the_hid_name_on_its_exact_port() {
         let sample = json!({"SPUSBDataType":[{"_name":"USB 2.0 Hub","_items":[
             {"_name":"composite_device","vendor_id":"0x258a","product_id":"0x0112","location_id":"0x00111000 / 5"},
@@ -871,7 +935,7 @@ mod tests {
         let usb: Vec<_> = devices.iter().filter(|d| d.category == "usb").collect();
         assert_eq!(usb.len(), 3);
         assert!(usb.iter().any(|d| d.name == "Samsung T7 SSD"
-            && d.detail.contains("super_speed")));
+            && d.detail.contains("5 Gb/s")));
         assert!(usb.iter().any(|d| d.name == "Pixel 9 Pro"));
         assert!(usb.iter().any(|d| d.name == "USB2.0 Hub"));
         assert!(!usb.iter().any(|d| d.name.contains("Controller")

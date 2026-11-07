@@ -53,6 +53,15 @@ export function demo(scenario=''):Snapshot {
  }
  if(scenario==='k75')data.devices.push({id:'usb-k75',name:'Gaming Keyboard',category:'usb',
   kind:'keyboard',detail:'BY Tech',status:'connected',vendor:'0x258a',productId:'0x0112',keyboardModeCandidate:true});
+ if(scenario==='usb-tree'){
+  Object.assign(data.devices.find(device=>device.id==='keyboard')!,{name:'Kzzi-K75 5.0',catalogKey:'kzzi-k75'});
+  data.devices.push(
+   {id:'genesys',name:'USB2.0 Hub',category:'usb',kind:'hub',detail:'Genesys Logic · 高速 · 480 Mb/s',status:'connected',usb:{manufacturer:'Genesys Logic',function:'hub'}},
+   {id:'terminus',name:'USB 2.0 Hub',category:'usb',kind:'hub',detail:'Terminus · 高速 · 480 Mb/s',status:'connected',usb:{parentId:'genesys',manufacturer:'Terminus',function:'hub'}},
+   {id:'adapter',name:'USB Type-C Digital AV Adapter',category:'usb',kind:'device',detail:'低速 · 1.5 Mb/s',status:'connected',usb:{parentId:'genesys',function:'billboard'}},
+   {id:'usb-k75',name:'Gaming Keyboard',category:'usb',kind:'keyboard',detail:'BY Tech',status:'connected',keyboardModeCandidate:true,usb:{parentId:'terminus',manufacturer:'BY Tech'}}
+  );
+ }
  if(scenario==='long')data.devices[0].name='一台名称很长的蓝牙设备 / A deliberately long accessory name that must truncate';
  return data;
 }

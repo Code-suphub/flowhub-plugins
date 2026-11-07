@@ -62,7 +62,29 @@ html:root[data-theme=dark]{--fh-canvas:#151922;--fh-surface:#1d2330;--fh-surface
 .dc-keyboard-mode h4,.dc-keyboard-mode strong{margin:0;font-size:12px}
 .dc-keyboard-mode small{grid-column:1/-1;color:var(--fh-muted)}
 .dc-keyboard-mode small span{margin-inline:4px}
-.dc-keyboard-mode> :last-child{grid-column:2;grid-row:1}
+.dc-keyboard-mode>.dc-keyboard-help{grid-column:2;grid-row:1}
+.dc-keyboard-presets{grid-column:1/-1;margin-top:2px;border-top:1px solid var(--fh-border);padding-top:6px}
+.dc-keyboard-presets summary{font-weight:650;cursor:pointer}
+.dc-keyboard-actions{display:flex;align-items:center;flex-wrap:wrap;gap:5px;margin:7px 0}
+.dc-keyboard-actions input{flex:1 1 110px;min-width:0}
+.dc-keyboard-presets ul{list-style:none;margin:6px 0 0;padding:0}
+.dc-keyboard-presets li{display:flex;align-items:center;gap:4px;border-top:1px solid var(--fh-border);padding:4px 0}
+.dc-keyboard-presets li>span{flex:1;min-width:0;overflow-wrap:anywhere}
+.dc-keyboard-presets li small{display:block}
+.dc-keyboard-presets p{margin:5px 0 0}
+.dc-keyboard-presets>button{margin-top:6px}
+.dc-keyboard-feedback,.dc-keyboard-diagnostic{grid-column:1/-1;margin:3px 0}
+.dc-keyboard-diagnostic{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 8px;font-size:11px}
+.dc-keyboard-diagnostic dd{margin:0;overflow-wrap:anywhere}
+.dc-usb-tree,.dc-usb-ports,.dc-usb-path ul{margin:0;padding:0;list-style:none}
+.dc-usb-tree li,.dc-usb-ports li{min-width:0}
+.dc-usb-ports{display:grid;gap:6px;margin:6px 0 0 8px;padding-inline-start:8px;border-inline-start:1px solid var(--fh-border)}
+.dc-usb-path{margin-block:10px;padding-block:8px;border-block-start:1px solid var(--fh-border);font-size:11px}
+.dc-usb-path h4{margin:0 auto 0 0;font-size:11px}
+.dc-usb-path p{margin:4px 0;color:var(--fh-muted)}
+.dc-usb-path>div,.dc-usb-path ul{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.dc-usb-path>div>span{color:var(--fh-muted)}
+.dc-usb-path li .dc-button{white-space:normal;text-align:start}
 .dc-keyboard-guide h4{margin:0 auto 0 0;color:var(--fh-text);font-size:11px}
 .dc-keyboard-guide p{margin:3px 0 6px;color:var(--fh-muted);font-size:10px;line-height:1.5}
 .dc-keyboard-guide dl{margin:0;font-size:11px}

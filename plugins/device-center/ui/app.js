@@ -108,7 +108,7 @@ function battery(pct,threshold){
   const low=threshold===undefined?level<=20:level<threshold;
   return `<span class="battery-reading${low?' low':''}" aria-label="${low&&threshold!==undefined?'低电量':'电量'} ${level}%"><span class="battery-val">${level}%</span><span class="battery-indicator${low?' low':''}" style="--battery-level:${level/100}" aria-hidden="true"></span></span>`;
 }
-function row(d,position,total){
+function row(d,position,total,parent){
  const adb=d.adb,preferences=data.adbPreferences;
  const cached=adb&&(!data.adb?.at||data.adb.stale||data.adb.error||Date.now()-data.adb.at>30_000);
  const name=(adb&&(preferences?.aliases?.[d.id]||adb.legacyIds?.map(id=>preferences?.aliases?.[id]).find(Boolean)||adb.sharedAlias))||d.name;
@@ -116,7 +116,7 @@ function row(d,position,total){
  const description=adb
    ?connections.length>1?[...new Set(connections.map(connectionLabel))].join(' / ')
      :[connections[0]?connectionLabel(connections[0]):adbTransport(adb.transport),adb.serial].join(' · ')
-   :displaySpec(d)||'已连接';
+   :[displaySpec(d),parent?'经 '+(parent.usb?.manufacturer||parent.name):''].filter(Boolean).join(' · ')||'已连接';
  const state=adb?`<span class="device-adb-state" data-tone="${cached?'stale':adb.state==='device'?'connected':'disconnected'}">${cached?'上次 · ':''}${safe(adbState(adb.state))}</span>`:'';
  const reading=adb
    ?(!cached&&adb.state==='device'&&d.battery?battery(d.battery,preferences?.lowBatteryThreshold??30):'')||'<span class="battery-unknown">电量未知</span>'
@@ -194,7 +194,8 @@ function widgetView(){
   const powerError=w.telemetryError?`<p class="warning-message" role="status">当前功率读取失败：${safe(w.telemetryError)}</p>`:'';
   const counts=[['全部',devices.length,'overview'],['蓝牙',devices.filter(d=>d.category==='bluetooth').length,'bluetooth'],['USB',devices.filter(d=>d.category==='usb').length,'usb'],['显示器',devices.filter(d=>d.category==='display').length,'display'],['ADB',devices.filter(d=>d.category==='adb').length,'adb']];
   const filters=counts.map(([title,value,key])=>`<button type="button" class="widget-metric" data-widget-category="${key}" aria-pressed="${widgetCategory===key}" aria-label="查看${title}设备">${svg(key)}<span>${safe(title)}</span><strong>${value}</strong></button>`).join('');
-  const items=s.length?s.map((d,index)=>row(d,index+1,s.length)).join(''):`<p class="empty">${widgetCategory==='overview'?'当前没有检测到已连接设备':'当前分类没有检测到已连接设备'}</p>`;
+  const deviceById=new Map(devices.map(device=>[device.id,device]));
+  const items=s.length?s.map((d,index)=>row(d,index+1,s.length,deviceById.get(d.usb?.parentId))).join(''):`<p class="empty">${widgetCategory==='overview'?'当前没有检测到已连接设备':'当前分类没有检测到已连接设备'}</p>`;
   const issue=orderError||data.widgetOrder?.error;
   const orderStatus=issue?`<div class="widget-order-error" role="alert">${safe(issue)}${orderDraft&&!orderSaving?'<div><button id="widgetOrderRetry" type="button">重试保存</button><button id="widgetOrderDiscard" type="button">撤销排序</button></div>':''}</div>`:'';
   const content={
