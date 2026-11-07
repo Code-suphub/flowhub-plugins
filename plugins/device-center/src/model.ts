@@ -24,10 +24,12 @@ export interface AdbPreferences {
   revision: number;
   error?: string | null;
 }
-export interface Device {id:string;name:string;category:Category;kind:string;detail:string;status:string;battery?:string|null;vendor?:string|null;productId?:string|null;displayConnection?:string;pixelResolution?:string;logicalResolution?:string;refreshRate?:string;adb?:AdbInfo}
+export interface Device {id:string;name:string;category:Category;kind:string;detail:string;status:string;battery?:string|null;vendor?:string|null;productId?:string|null;displayConnection?:string;pixelResolution?:string;logicalResolution?:string;refreshRate?:string;adb?:AdbInfo;catalogKey?:string}
 export interface DeviceEvent {at:number;name:string;category:string;action:string;deviceId:string;route?:string;state?:string}
 export interface Power {adapterWatts?:string|number|null;inputWatts?:number|null;systemWatts?:number|null;batterySideWatts?:number|null;externalConnected?:boolean|null;batteryPresent?:boolean;source?:string|null;charging?:boolean|null;cableLimitWatts?:number|null;sampledAt?:number|null;note?:string;powerSourceError?:string;powerUnavailableReason?:string;telemetryError?:string;smcError?:string}
-export interface Snapshot {at:number;stale:boolean;devices:Device[];power:Power;events:DeviceEvent[];error?:string|null;intervalSeconds?:number;powerIntervalSeconds?:number;adb?:AdbReport;adbPreferences?:AdbPreferences}
+export interface DeviceProfile {name:string;image?:{dataUrl:string;author:string;license:string}}
+export type DeviceCatalog=Record<string,DeviceProfile>;
+export interface Snapshot {at:number;stale:boolean;devices:Device[];power:Power;events:DeviceEvent[];error?:string|null;intervalSeconds?:number;powerIntervalSeconds?:number;adb?:AdbReport;adbPreferences?:AdbPreferences;catalog?:DeviceCatalog}
 export interface Artwork {available:boolean;icons:Record<string,{dataUrl:string;typeIdentifier:string;source:string}>}
 interface Selection {deviceId?:string;view?:string}
 export interface Context {config?:{powerIntervalSeconds?:number;selection?:Selection};selection?:Selection}

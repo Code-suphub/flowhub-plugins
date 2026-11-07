@@ -4,6 +4,7 @@ mod power_telemetry;
 mod power_source;
 mod smc_power;
 mod device_icons;
+mod device_catalog;
 mod adb;
 mod adb_preferences;
 mod local_preferences;
@@ -88,7 +89,16 @@ struct Scan {
     devices: Vec<Device>,
     power: Value,
 }
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CatalogDevice<'a> {
+    #[serde(flatten)]
+    device: &'a Device,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    catalog_key: Option<&'static str>,
+}
 struct State {
+    catalog: device_catalog::Store,
     widget_order: widget_order::Store,
     adb_preferences: adb_preferences::Store,
     adb: adb::Report,
@@ -406,7 +416,7 @@ fn profile() -> Result<Scan, String> {
 }
 impl State {
     fn new() -> Self {
-        Self { widget_order:widget_order::Store::default(), adb_preferences:adb_preferences::Store::default(), adb:adb::Report::default(), adb_query:Arc::new(Mutex::new(())), scan: Scan { devices: vec![], power: power(&Value::Null) },
+        Self { catalog:device_catalog::Store::default(), widget_order:widget_order::Store::default(), adb_preferences:adb_preferences::Store::default(), adb:adb::Report::default(), adb_query:Arc::new(Mutex::new(())), scan: Scan { devices: vec![], power: power(&Value::Null) },
             at: 0, error: None, events: VecDeque::new(), power_sample: None, power_checked_at: 0 }
     }
     fn apply(&mut self, result: Result<Scan, String>) {
@@ -466,8 +476,15 @@ impl State {
         if let Some(sample) = self.power_sample.as_ref().and_then(Value::as_object) {
             for (key, value) in sample { power[key] = value.clone(); }
         }
-        let devices:Vec<_> = self.scan.devices.iter().chain(self.adb.devices.iter()).collect();
-        json!({"at":self.at, "stale":self.stale(), "devices":devices,"adb":self.adb.value(),"widgetOrder":self.widget_order.value(),"adbPreferences":self.adb_preferences.value(),
+        let mut catalog = BTreeMap::new();
+        let devices: Vec<_> = self.scan.devices.iter().chain(self.adb.devices.iter()).map(|device| {
+            let catalog_key = device_catalog::identify(device).map(|entry| {
+                catalog.entry(entry.key).or_insert_with(|| self.catalog.profile(entry));
+                entry.key
+            });
+            CatalogDevice { device, catalog_key }
+        }).collect();
+        json!({"at":self.at, "stale":self.stale(), "devices":devices,"catalog":catalog,"adb":self.adb.value(),"widgetOrder":self.widget_order.value(),"adbPreferences":self.adb_preferences.value(),
             "power":power, "events":self.events, "error":self.error,
             "intervalSeconds":45,"powerIntervalSeconds":5})
     }
@@ -488,12 +505,27 @@ impl State {
 fn category_label(category: &str) -> &str {
     match category { "usb" => "USB", "bluetooth" => "蓝牙", "display" => "显示器", "adb" => "ADB", _ => "设备" }
 }
+fn schedule_catalog(state: &Arc<Mutex<State>>) {
+    let jobs = {
+        let Ok(mut state) = state.lock() else { return; };
+        let State { catalog, scan, adb, .. } = &mut *state;
+        catalog.schedule(scan.devices.iter().chain(adb.devices.iter()))
+    };
+    for (root, entry) in jobs {
+        let state = Arc::clone(state);
+        thread::spawn(move || {
+            let data = device_catalog::load(&root, entry);
+            if let Ok(mut state) = state.lock() { state.catalog.finish(entry, data); }
+        });
+    }
+}
 fn refresh_adb(state:&Arc<Mutex<State>>) {
     let Ok((query,checked))=state.lock().map(|s|(s.adb_query.clone(),s.adb.checked_at)) else{return;};
     let Ok(_guard)=query.lock() else{return;};
     if state.lock().is_ok_and(|s|s.adb.checked_at>checked){return;}
     let result=adb::read();
     if let Ok(mut s)=state.lock(){s.apply_adb(result);}
+    schedule_catalog(state);
 }
 fn power_interval_seconds(params: &Value) -> u64 {
     params["powerIntervalSeconds"].as_u64().filter(|v| [5,10,30,60].contains(v)).unwrap_or(5)
@@ -514,6 +546,13 @@ fn dispatch(state: &Arc<Mutex<State>>, method: &str, params: &Value) -> Result<V
     match method {
         "health" => Ok(json!({"protocol":2,"name":"device-center","version":env!("CARGO_PKG_VERSION")})),
         "device_icons" => Ok(device_icons::snapshot()),
+        "open_device_reference" => {
+            let key = params["key"].as_str().ok_or("缺少设备型号")?;
+            let kind = params["kind"].as_str().ok_or("缺少资料类型")?;
+            let url = device_catalog::reference(key, kind).ok_or("该设备资料未收录")?;
+            read_system_query("/usr/bin/open", &[url], Duration::from_secs(5), 1024)
+                .map(|_| json!({"opened":true})).map_err(|_| "无法打开设备资料".into())
+        },
         "widget_order_set" => state.lock().map_err(|_| "状态缓存不可用")?.widget_order.update(params),
         "adb_set_alias" => {
             let id = params["id"].as_str().ok_or("缺少设备标识")?;
@@ -549,6 +588,7 @@ fn dispatch(state: &Arc<Mutex<State>>, method: &str, params: &Value) -> Result<V
         "refresh" => {
             let scan = profile();
             state.lock().map_err(|_| "状态缓存不可用")?.apply(scan);
+            schedule_catalog(state);
             update_power_sample(state, true, power_interval_seconds(params));
             let s = state.lock().map_err(|_| "状态缓存不可用")?;
             if let Some(e) = &s.error { Err(e.clone()) } else {
@@ -562,6 +602,7 @@ fn dispatch(state: &Arc<Mutex<State>>, method: &str, params: &Value) -> Result<V
                 Some("snapshot") => dispatch(state, "snapshot", &params["params"]),
                 Some("refresh") => dispatch(state, "refresh", &params["params"]),
                 Some("device_icons") => dispatch(state, "device_icons", &params["params"]),
+                Some("open_device_reference") => dispatch(state, "open_device_reference", &params["params"]),
                 Some("open_display_settings") => dispatch(state, "open_display_settings", &params["params"]),
                 Some("adb_refresh") => dispatch(state, "adb_refresh", &params["params"]),
                 Some(method @ ("adb_set_alias" | "adb_set_low_battery_threshold")) => dispatch(state, method, &params["params"]),
@@ -577,7 +618,8 @@ fn main() {
     let mut initial = State::new();
     let root = std::env::var_os("FLOWHUB_PLUGIN_DATA").map(std::path::PathBuf::from);
     initial.widget_order = widget_order::Store::open(root.clone());
-    initial.adb_preferences = adb_preferences::Store::open(root);
+    initial.adb_preferences = adb_preferences::Store::open(root.clone());
+    initial.catalog.root = root;
     let state = Arc::new(Mutex::new(initial));
     let adb_worker=Arc::clone(&state);
     thread::spawn(move || loop { refresh_adb(&adb_worker); thread::sleep(Duration::from_secs(10)); });
@@ -586,6 +628,7 @@ fn main() {
         loop {
             let scan = profile();
             if let Ok(mut s) = worker.lock() { s.apply(scan); }
+            schedule_catalog(&worker);
             thread::sleep(SCAN_INTERVAL);
         }
     });

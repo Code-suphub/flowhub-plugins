@@ -36,10 +36,16 @@ const server=createServer(async(req,res)=>{
    const context=JSON.parse(url.searchParams.get('context'));
    res.writeHead(200,{'content-type':mime['.js']});
    res.end(`window.__qa={snapshot:${JSON.stringify(fixture(context.scenario))},artwork:${JSON.stringify(artwork)},error:null,requests:[]};
+   if(window.__qa.snapshot.catalog?.['pixel-8-pro']){
+     const canvas=document.createElement('canvas');
+     canvas.width=8;canvas.height=8;
+     window.__qa.snapshot.catalog['pixel-8-pro'].image={dataUrl:canvas.toDataURL('image/jpeg'),author:'Test Author',license:'CC BY 4.0'};
+   }
    let pending=${Boolean(context.pending)};
    window.addEventListener('message',event=>{if(event.source===document.querySelector('iframe').contentWindow&&event.data?.type==='flowhub:widget-navigate')window.__qa.navigation=event.data;});
    window.addEventListener('message',event=>{const frame=document.querySelector('iframe');if(event.source!==frame.contentWindow)return;const m=event.data;if(m.type==='flowhub:theme-ready'){frame.contentWindow.postMessage({type:'flowhub:theme',theme:'light'},'*');return;}if(m.type==='flowhub:widget-ready'){frame.contentWindow.postMessage({type:'flowhub:widget-init',token:'qa-token',context:${JSON.stringify(context)}},'*');return;}if(!['flowhub:request','flowhub:widget-rpc'].includes(m.type))return;const widget=m.type==='flowhub:widget-rpc',method=widget?m.params.method:m.method;window.__qa.requests.push(method);const reply={type:widget?'flowhub:widget-result':'flowhub:response',token:widget?'qa-token':undefined,id:m.id};
    if(method==='open_display_settings'){if(window.__qa.settingsError)reply.error=window.__qa.settingsError;else reply.result={opened:true};if(window.__qa.holdSettings){window.__qa.finishSettings=()=>frame.contentWindow.postMessage(reply,'*');return;}frame.contentWindow.postMessage(reply,'*');return;}
+   if(method==='open_device_reference'){window.__qa.reference=widget?m.params.params:m.params;reply.result={opened:true};frame.contentWindow.postMessage(reply,'*');return;}
    if(method==='adb_set_alias'||method==='adb_set_low_battery_threshold'){
     const params=widget?m.params.params:m.params;
     const previous=window.__qa.snapshot.adbPreferences||{aliases:{},lowBatteryThreshold:30,revision:0};
@@ -242,6 +248,22 @@ try{
  await check('document.querySelector("[data-device=adb-usb] img").getAttribute("src")==="assets/phone.svg"','desktop widget and detail use the same bundled phone artwork');
  await size(800);await navigate('/qa?widget=1&scenario=adb&device=adb-auth');await wait('document.querySelector("dialog").open');await check('document.querySelector("dialog").textContent.includes("未授权") && document.querySelector("dialog").textContent.includes("PUBLIC-AUTH")','widget detail preserves ADB authorization state');
  await check('document.querySelector(".dc-recent-events p").textContent.includes("本次运行暂无连接变化")','device detail explains when no event has been observed');
+ await navigate('/qa?scenario=catalog');
+ await wait('document.querySelector("[data-device=pixel] img[alt=设备型号参考图片]")?.naturalWidth>0');
+ await click('[data-device=pixel]');await wait('document.querySelector("dialog").open');
+ await check('document.querySelector(".dc-device-reference").textContent.includes("Test Author") && document.querySelector(".dc-device-reference").textContent.includes("CC BY 4.0")','cached model image carries source attribution in device detail');
+ await keyboard('Escape','Escape',27);
+ await click('[data-device=keyboard]');await wait('document.querySelector("dialog").open');
+ await check('document.querySelector(".dc-keyboard-guide").textContent.includes("Fn + ↑ / ↓") && document.querySelector(".dc-keyboard-guide").textContent.includes("尚未接入软件调节") && document.querySelector(".dc-detail-hero img").getAttribute("src")==="assets/keyboard.svg"','K75 shows useful physical shortcuts and a category illustration without implying software controls');
+ await click('.dc-keyboard-guide button');
+ if(JSON.stringify(await parent('window.__qa.reference'))!==JSON.stringify({key:'kzzi-k75',kind:'manual'}))throw Error('K75 manual request must send a catalog reference, not a URL');
+ report.checks.push('K75 manual dispatch uses the fixed catalog reference');
+ await capture('k75-keyboard-detail');
+ await size(360,320);await navigate('/qa?surface=card&scenario=catalog');
+ await click('[data-widget-category=usb]');
+ await wait('document.querySelector("[data-device=pixel] img[alt=设备型号参考图片]")?.naturalWidth>0');
+ report.checks.push('desktop widget renders the same cached model image');
+ await size(800);
  await navigate('/ui/index.html');await check('document.querySelector(".dc-group-heading .dc-display-settings").disabled','standalone preview disables system settings');
  await click('[data-category=adb]');await check('document.querySelector(".dc-adb-empty").textContent.includes("没有检测到 ADB 设备") && !document.querySelector(".dc-adb-empty").textContent.includes("正在读取")','standalone ADB preview finishes its empty state without native access');await click('[data-category=all]');
  await click('[data-device=dell]');await wait('document.querySelector("dialog").open');await check('document.querySelector("dialog .dc-display-settings").disabled','standalone display detail also remains read-only');
@@ -254,8 +276,9 @@ try{
  await send('Input.dispatchMouseEvent',{type:'mouseWheel',...listPoint,deltaY:-1000,deltaX:0});await wait('document.querySelector(".widget-device-list").scrollTop===0');
  const edgePoints=await evaluate('(()=>{const a=document.querySelector("[data-order-handle=airpods]").getBoundingClientRect(),b=document.querySelector(".widget-device-list").getBoundingClientRect();return {source:{x:a.left+a.width/2,y:a.top+a.height/2},edge:{x:b.right-35,y:b.bottom-8}}})()');
  await send('Input.dispatchMouseEvent',{type:'mouseMoved',...edgePoints.source});await send('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',buttons:1,clickCount:1,...edgePoints.source});
- await send('Input.dispatchMouseEvent',{type:'mouseMoved',buttons:1,...edgePoints.edge});await sleep(350);
- await check('document.querySelector(".widget-device-list").scrollTop>35 && document.querySelector(".is-order-dragging")','dragging near the list edge scrolls to devices outside the visible rows');
+ await send('Input.dispatchMouseEvent',{type:'mouseMoved',buttons:1,...edgePoints.edge});
+ await wait('document.querySelector(".widget-device-list").scrollTop>35 && document.querySelector(".is-order-dragging")');
+ report.checks.push('dragging near the list edge scrolls to devices outside the visible rows');
  await keyboard('Escape','Escape',27);await send('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',buttons:0,clickCount:1,...edgePoints.edge});
  await check('!document.querySelector(".is-order-dragging") && !document.querySelector("[data-drop]") && !document.querySelector(".widget-drag-ghost")','Escape removes the floating card and restores the original slots');
  if(await parent('window.__qa.requests.includes("widget_order_set")'))throw Error('Cancelled drag persisted an order');

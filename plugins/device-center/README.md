@@ -29,8 +29,10 @@ node scripts/browser-acceptance.mjs /absolute/path/to/evidence
 - 图中的手机屏幕只是设备家族的视觉示意，不读取设备壁纸，也不代表机身颜色。
 - 苹果设备通过包内 Swift helper 调用公开 `UTType` / `NSWorkspace.icon(for:)` API，读取当前 macOS 已安装的家族图标。图像在后端进程内缓存，不随每次功率采样重新提取。
 - 当前匹配 iPhone、AirPods、AirPods Pro、Magic Mouse、Apple 键盘和 MacBook 家族；未声明的系统类型自动回退，不用通用文档图标假装设备图片。该能力依赖已安装的系统资源，不保证覆盖刚发布的型号。
-- 桌面组件、设备卡片和详情使用同一套设备图片。其他设备以及 macOS 图标缺失的设备使用包内 `ui/assets/` 彩色类别插图。插图按手机、显示器、键盘等类别匹配。导航和操作图标使用 `@mdi/js 7.4.47`，许可见 `ui/licenses/material-design-icons.txt`。
-- 系统图标仅接受固定家族的有界 PNG data URL。设备图片只从本机加载。系统图标解析参考 [device-icons](https://github.com/bkahlert/device-icons)。
+- 桌面组件、设备卡片和详情使用同一套设备图片。已收录的型号使用本地缓存的参考图，其余设备使用可用的 macOS 家族图标或包内 `ui/assets/` 彩色类别插图。导航和操作图标使用 `@mdi/js 7.4.47`，许可见 `ui/licenses/material-design-icons.txt`。
+- 首批参考图收录 Pixel 8 Pro、Logitech MX Master 3S、LG UltraFine 5K。只有精确匹配时，后端才会在后台从固定的 Wikimedia Commons 路径下载缩略图。缓存按型号和图片版本保存，跨进程复用。下载失败时继续显示本机图标，15 分钟后可随采集重试。详情提供图片作者、来源与许可。
+- WebView 从后端接收有限大小的 JPEG 和系统 PNG，保留现有 CSP。请求只访问目录内固定 URL。系统图标解析参考 [device-icons](https://github.com/bkahlert/device-icons)。
+- 珂芝 K75 的详情提供背光亮度、灯效、颜色、速度及 Mac／Windows 键位快捷键，还有官方说明书入口。K75 V2 等近似型号不会套用这份说明。该入口仅用于查看设备资料。
 
 ## 设备数据与安全边界
 

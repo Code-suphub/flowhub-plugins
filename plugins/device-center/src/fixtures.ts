@@ -46,6 +46,11 @@ export function demo(scenario=''):Snapshot {
  if(scenario==='missing'){data.devices[0].battery=null;data.devices[1].battery='0%';data.power={externalConnected:true,batteryPresent:false,source:'外接电源',sampledAt:at};}
  if(scenario==='stale'||scenario==='error'){data.at=at-180000;data.stale=true;if(scenario==='error')data.error='设备扫描超时，请重试';}
  if(scenario==='unplugged')data.power={...data.power,externalConnected:false,source:'电池供电',charging:false,inputWatts:null,batterySideWatts:-15.2};
+ if(scenario==='catalog'){
+  Object.assign(data.devices.find(device=>device.id==='keyboard')!,{name:'Kzzi-K75 5.0',catalogKey:'kzzi-k75'});
+  Object.assign(data.devices.find(device=>device.id==='pixel')!,{name:'Pixel 8 Pro',catalogKey:'pixel-8-pro'});
+  data.catalog={'kzzi-k75':{name:'珂芝 K75'},'pixel-8-pro':{name:'Google Pixel 8 Pro'}};
+ }
  if(scenario==='long')data.devices[0].name='一台名称很长的蓝牙设备 / A deliberately long accessory name that must truncate';
  return data;
 }

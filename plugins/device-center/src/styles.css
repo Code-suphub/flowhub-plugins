@@ -54,4 +54,13 @@ html:root[data-theme=dark]{--fh-canvas:#151922;--fh-surface:#1d2330;--fh-surface
 .dc-recent-events li{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:3px 0}
 .dc-recent-events p,.dc-recent-events time{color:var(--fh-muted)}
 .dc-recent-events time{flex:none;font-size:10px;font-variant-numeric:tabular-nums}
+.dc-device-reference{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;color:var(--fh-muted);font-size:10px}
+.dc-device-reference .dc-button{min-height:24px}
+.dc-keyboard-guide{margin:10px 0 13px;padding:8px 0;border-block:1px solid var(--fh-border)}
+.dc-keyboard-guide h4{margin:0 auto 0 0;color:var(--fh-text);font-size:11px}
+.dc-keyboard-guide p{margin:3px 0 6px;color:var(--fh-muted);font-size:10px;line-height:1.5}
+.dc-keyboard-guide dl{margin:0;font-size:11px}
+.dc-keyboard-guide dl div{display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:3px 0}
+.dc-keyboard-guide dd{margin:0;text-align:right}
+.dc-keyboard-guide kbd{display:inline-block;padding:1px 5px;border-radius:4px;background:var(--fh-surface-soft);white-space:nowrap}
 @media(min-width:481px) and (max-width:600px){.dc-toolbar{flex-wrap:wrap}.dc-search{width:100%;flex:none}.dc-filters{flex:1}}

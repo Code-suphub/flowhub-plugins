@@ -69,8 +69,8 @@ const demo={
 let data=preview?structuredClone(demo):{at:0,stale:true,devices:[],events:[],power:{},error:null};
 let artwork,artworkRequested=false;
 function photo(d){
- const art=globalThis.FlowHubDeviceArt.resolve(d,artwork);
- return `<span class="device-photo"><img src="${art.src}" data-fallback="${art.fallback}" alt="${art.system?'macOS 设备家族示意图':'设备类别示意图'}" loading="lazy"></span>`;
+ const art=globalThis.FlowHubDeviceArt.resolve(d,artwork,data.catalog);
+ return `<span class="device-photo"><img src="${art.src}" data-fallback="${art.fallback}" alt="${art.label}" loading="lazy"></span>`;
 }
 function displayType(d){return ({'built-in':'内置','external':'外接'})[d.displayConnection]||'类型未知';}
 function displayBadge(d){return d.category==='display'?`<span class="display-connection">${displayType(d)}</span>`:'';}
