@@ -8,6 +8,7 @@ mod device_catalog;
 mod battery_history;
 mod usb_hid;
 mod adb;
+mod adb_performance;
 mod adb_preferences;
 mod local_preferences;
 mod toolkit_adb;
@@ -671,6 +672,14 @@ fn dispatch(state: &Arc<Mutex<State>>, method: &str, params: &Value) -> Result<V
             let threshold = params["threshold"].as_u64().ok_or("低电量阈值须为 0 到 100 的整数")?;
             state.lock().map_err(|_| "状态缓存不可用")?.adb_preferences.set_threshold(threshold)
         },
+        "adb_performance" => {
+            let id = params["id"].as_str().ok_or("缺少设备标识")?;
+            let state = state.lock().map_err(|_| "状态缓存不可用")?;
+            let info = state.adb.devices.iter().find(|device| device.id == id)
+                .and_then(|device| device.adb.as_ref()).filter(|info| info.state == "device" && !state.adb.stale())
+                .ok_or("该设备当前没有可用的 ADB 连接")?;
+            adb_performance::request(info, params["refresh"].as_bool() == Some(true))
+        },
         "adb_refresh" => { refresh_adb(state); state.lock().map_err(|_| "状态缓存不可用".to_string()).map(|s|s.full()) },
         "open_display_settings" => {
             if !cfg!(target_os = "macos") { return Err("显示器设置仅支持 macOS".into()); }
@@ -709,7 +718,7 @@ fn dispatch(state: &Arc<Mutex<State>>, method: &str, params: &Value) -> Result<V
                 Some(method @ ("battery_history" | "battery_history_set_retention")) => dispatch(state, method, &params["params"]),
                 Some("open_device_reference") => dispatch(state, "open_device_reference", &params["params"]),
                 Some("open_display_settings") => dispatch(state, "open_display_settings", &params["params"]),
-                Some("adb_refresh") => dispatch(state, "adb_refresh", &params["params"]),
+                Some(method @ ("adb_refresh" | "adb_performance")) => dispatch(state, method, &params["params"]),
                 Some(method @ ("adb_set_alias" | "adb_set_low_battery_threshold")) => dispatch(state, method, &params["params"]),
                 Some("widget_order_set") => dispatch(state, "widget_order_set", &params["params"]),
                 _ => Err("不支持的组件操作".into()),

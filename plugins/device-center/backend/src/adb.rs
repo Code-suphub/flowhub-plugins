@@ -76,7 +76,7 @@ pub(crate) fn find_cli(name: &str) -> Option<PathBuf> {
     executable(paths)
 }
 
-fn find() -> Option<PathBuf> {
+pub(super) fn find() -> Option<PathBuf> {
     let mut paths = path_candidates("adb");
     for key in ["ANDROID_HOME", "ANDROID_SDK_ROOT"] {
         if let Some(root) = std::env::var_os(key) { paths.push(PathBuf::from(root).join("platform-tools/adb")); }

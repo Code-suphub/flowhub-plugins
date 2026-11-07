@@ -48,6 +48,13 @@ const server=createServer(async(req,res)=>{
    window.addEventListener('message',event=>{const frame=document.querySelector('iframe');if(event.source!==frame.contentWindow)return;const m=event.data;if(m.type==='flowhub:theme-ready'){frame.contentWindow.postMessage({type:'flowhub:theme',theme:'light'},'*');return;}if(m.type==='flowhub:widget-ready'){frame.contentWindow.postMessage({type:'flowhub:widget-init',token:'qa-token',context:${JSON.stringify(context)}},'*');return;}if(!['flowhub:request','flowhub:widget-rpc'].includes(m.type))return;const widget=m.type==='flowhub:widget-rpc',method=widget?m.params.method:m.method;window.__qa.requests.push(method);const reply={type:widget?'flowhub:widget-result':'flowhub:response',token:widget?'qa-token':undefined,id:m.id};
    if(method==='open_display_settings'){if(window.__qa.settingsError)reply.error=window.__qa.settingsError;else reply.result={opened:true};if(window.__qa.holdSettings){window.__qa.finishSettings=()=>frame.contentWindow.postMessage(reply,'*');return;}frame.contentWindow.postMessage(reply,'*');return;}
    if(method==='open_device_reference'){window.__qa.reference=widget?m.params.params:m.params;reply.result={opened:true};frame.contentWindow.postMessage(reply,'*');return;}
+   if(method==='adb_performance'){
+    const args=widget?m.params.params:m.params;
+    if(args.id!=='adb-usb')reply.error='未找到设备';
+    else if(!window.__qa.performanceStarted||args.refresh){window.__qa.performanceStarted=true;reply.result={status:'pending'};}
+    else reply.result=window.__qa.performanceReply||{status:'read',sampledAt:Date.now(),cpuPercent:24.5,memory:{usedKiB:4194304,totalKiB:8388608}};
+    frame.contentWindow.postMessage(reply,'*');return;
+   }
    if(method==='keyboard_mode'){const args=widget?m.params.params:m.params;if(args.id==='usb-k75')reply.result=window.__qa.keyboardMode||{status:'read',mode:'mac',usbRelease:'0x4023',configurationSupported:true,lighting:'off'};else reply.error='设备不支持';frame.contentWindow.postMessage(reply,'*');return;}
    if(['keyboard_presets','keyboard_record_preset','keyboard_apply_preset','keyboard_delete_preset','keyboard_diagnostics'].includes(method)){
     const args=widget?m.params.params:m.params;
@@ -237,6 +244,16 @@ try{
  if(await parent('window.__qa.requests.filter(m=>m==="adb_refresh").length')!==adbRequests+1)throw Error('ADB refresh did not use its dedicated route');report.checks.push('ADB refresh avoids system profiler route');
  await click('[data-device=adb-usb]');await wait('document.querySelector("dialog").open');
  await check('document.querySelector("dialog").textContent.includes("PUBLIC-USB") && document.querySelector("dialog").textContent.includes("Pixel 8 Pro") && !document.querySelector("dialog .dc-display-settings")','ADB detail exposes serial, model and transport without display settings');
+ await wait('document.querySelector(\'[aria-label="设备性能"]\').textContent.includes("24.5%")');
+ await check('document.querySelector(\'[aria-label="设备性能"]\').textContent.includes("4.0 / 8.0 GiB")','ADB detail shows sampled CPU and used/total memory');
+ await size(390,640);await evaluate('document.documentElement.dataset.theme="dark"');
+ await evaluate('document.querySelector(\'[aria-label="设备性能"]\').scrollIntoView({block:"center"})');
+ await check('(()=>{const s=document.querySelector(\'[aria-label="设备性能"]\'),r=s.getBoundingClientRect();return r.left>=0 && r.right<=innerWidth && s.scrollWidth<=s.clientWidth+1})()','ADB performance fits the narrow dark detail');
+ await capture('adb-performance-dark-narrow');await size(800);await evaluate('document.documentElement.dataset.theme="light"');
+ await parent('window.__qa.performanceReply={status:"read",sampledAt:Date.now(),cpuPercent:0,memory:null}');
+ await click('[aria-label="设备性能"] .dc-button');
+ await wait('document.querySelector(\'[aria-label="设备性能"]\').textContent.includes("未提供")');
+ await check('document.querySelector(\'[aria-label="设备性能"] dd\').textContent==="0%"','ADB resample preserves real zero and partial data');
  await fill('测试手机','dialog .dc-adb-preference input');
  await parent('window.__qa.preferenceError="QA 保存失败"');
  await click('dialog .dc-adb-preference .dc-button');
@@ -247,7 +264,7 @@ try{
  await check('document.querySelector("[data-device=adb-usb] .dc-card-title strong").textContent==="测试手机" && document.querySelector("dialog").textContent.includes("PUBLIC-USB")','alias updates the row and detail while retaining the original identity');
  await evaluate('Object.defineProperty(navigator,"clipboard",{configurable:true,value:{writeText:async text=>{window.__qaCopied=text}}})');
  await click('dialog footer .dc-button');await check('window.__qaCopied==="PUBLIC-USB"','ADB copy action copies the full serial only');
- const adbFocusPoint=await evaluate('(()=>{const r=document.querySelector(".dc-detail-hero h3").getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2}})()');
+ const adbFocusPoint=await evaluate('(()=>{const title=document.querySelector(".dc-detail-hero h3");title.scrollIntoView({block:"nearest"});const r=title.getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2}})()');
  await send('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',clickCount:1,...adbFocusPoint});await send('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',clickCount:1,...adbFocusPoint});
  await evaluate('document.querySelector("dialog footer .dc-button").focus()');await keyboard('Escape','Escape',27);await wait('!document.querySelector("dialog").open');
  await fill('测试手机');
@@ -288,6 +305,7 @@ try{
  await wait('document.querySelector("[data-device=adb-usb] img")?.naturalWidth>0');
  await check('document.querySelector("[data-device=adb-usb] img").getAttribute("src")==="assets/phone.svg"','desktop widget and detail use the same bundled phone artwork');
  await size(800);await navigate('/qa?widget=1&scenario=adb&device=adb-auth');await wait('document.querySelector("dialog").open');await check('document.querySelector("dialog").textContent.includes("未授权") && document.querySelector("dialog").textContent.includes("PUBLIC-AUTH")','widget detail preserves ADB authorization state');
+ await check('!document.querySelector(\'[aria-label="设备性能"]\')','unauthorized ADB detail does not start performance sampling');
  await check('document.querySelector(".dc-recent-events p").textContent.includes("本次运行暂无连接变化")','device detail explains when no event has been observed');
  await navigate('/qa?scenario=catalog');
  await wait('document.querySelector("[data-device=pixel] img[alt=设备型号参考图片]")?.naturalWidth>0');
