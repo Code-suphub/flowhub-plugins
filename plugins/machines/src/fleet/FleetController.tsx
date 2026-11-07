@@ -4,14 +4,16 @@ import { CollectionWorkspace } from '../collections/CollectionWorkspace';
 import type { BackupApi } from '../backup/BackupWorkspace';
 import { HostEditorController, type HostEditorControllerHandle } from '../host-editor/HostEditorController';
 import type { MachinesApi, MachinesRun } from '../api/machines';
-import type { HistoryJob } from '../history/types';
+import type { HistoryJob, HistoryJobDetail } from '../history/types';
+import type { CommandWorkspaceProps } from '../command/types';
+import { version as PLUGIN_VERSION } from '../../flowhub-plugin.json';
 import { FleetPage } from './FleetPage';
 import type { MachineTab } from './MachineWorkspace';
 import type { FleetActions, FleetActiveJob, FleetHost, FleetSnapshot } from './types';
 
 interface MachineState {
   targetRevisions?: Record<string, string>;
-  config: { hosts: (FleetHost & { bastion?: unknown })[]; enabled: boolean; installed: { version: string } | null; monitoring?: boolean; interval: number };
+  config: { hosts: FleetHost[]; enabled: boolean; installed: { version: string } | null; monitoring?: boolean; interval: number };
   metrics: FleetSnapshot['metrics'];
   active: (FleetActiveJob & HistoryJob)[];
   history: HistoryJob[];
@@ -26,11 +28,15 @@ export function FleetController({ api, run, backupApi = null }: { api: MachinesA
   const [collectionHostId, setCollectionHostId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<MachineTab>('fleet');
   const [focusTab, setFocusTab] = useState<MachineTab | null>(null);
+  const [inspectRequest, setInspectRequest] = useState<{ hostId: string; sequence: number } | null>(null);
+  const [prefillRequest, setPrefillRequest] = useState<CommandWorkspaceProps['prefillRequest']>(null);
+  const [workspaceRevision, setWorkspaceRevision] = useState(0);
   const editor = useRef<HostEditorControllerHandle>(null);
   const current = useRef(state);
   const alive = useRef(false);
   const busy = useRef(false);
   const refresh = useRef<() => Promise<void>>(async () => {});
+  const inspectSequence = useRef(0);
   const navigate = (tab: MachineTab, focus = false) => {
     setActiveTab(tab);
     setFocusTab(focus ? tab : null);
@@ -127,7 +133,7 @@ export function FleetController({ api, run, backupApi = null }: { api: MachinesA
       if (action === 'collections') { setCollectionHostId(host.id); return; }
       if (!enabled) return;
       if (action === 'terminal' && host.readOnly) return;
-      if (action === 'edit' || action === 'copy') { void editor.current?.open(host.id, { copy: action === 'copy' }).catch(error => message(String(error), true)); return; }
+      if (action === 'edit' || action === 'copy' || action === 'connection') { void editor.current?.open(host.id, { copy: action === 'copy', tab: action === 'connection' ? 'connection' : 'basic' }).catch(error => message(String(error), true)); return; }
       if (action === 'command') { select([host.id]); navigate('command', true); return; }
       void operate(async () => {
         if (action === 'terminal') await api!(host.bastion ? 'bastionTerminal' : 'terminal', { hostId: host.id });
@@ -140,8 +146,20 @@ export function FleetController({ api, run, backupApi = null }: { api: MachinesA
     },
   };
   return <MachineShell
-    onMonitorSaved={() => { void refresh.current().catch(error => message(String(error), true)); }}
-    editor={<HostEditorController ref={editor} api={api} onSaved={() => { void refresh.current().catch(error => message(String(error), true)); }} />}
+    refreshToken={workspaceRevision}
+    prefillRequest={prefillRequest}
+    onRefillCommand={(job: HistoryJobDetail) => {
+      const host = current.current.config.hosts.find(host => host.id === job.hostId && host.alias === job.alias);
+      if (!host || !job.command || job.kind !== 'command' || new TextEncoder().encode(job.command).length > 8192) { message('记录的目标已移除、连接已变化或命令不可回填，请重新检查。', true); return; }
+      select([host.id]); setPrefillRequest({ sequence: ++inspectSequence.current, hostId: host.id, alias: host.alias, command: job.command }); navigate('command', true);
+    }}
+    onOpenMachine={hostId => {
+      if (!current.current.config.hosts.some(host => host.id === hostId)) { message('目标机器已移除，请刷新列表。', true); return; }
+      setInspectRequest({ hostId, sequence: ++inspectSequence.current }); navigate('fleet', true);
+    }}
+    onEditConnection={hostId => { const host = current.current.config.hosts.find(host => host.id === hostId); if (host) actions.onHostAction('connection', host); }}
+    onMonitorSaved={() => { setWorkspaceRevision(value => value + 1); void refresh.current().catch(error => message(String(error), true)); }}
+    editor={<HostEditorController ref={editor} api={api} onSaved={() => { setWorkspaceRevision(value => value + 1); void refresh.current().catch(error => message(String(error), true)); }} />}
     backupApi={backupApi}
     collections={<CollectionWorkspace host={state.config.hosts.find(host => host.id === collectionHostId) ?? null} jobs={[...state.active, ...state.history]} api={api} onClose={() => setCollectionHostId(null)} />}
     selectedHostIds={selected}
@@ -152,9 +170,9 @@ export function FleetController({ api, run, backupApi = null }: { api: MachinesA
     api={api}
     run={run}
     available={!!state.config.installed && state.config.enabled}
-    version={state.config.installed ? `v${state.config.installed.version}${state.config.enabled ? '' : ' · 已停用'}` : '未安装'}
+    version={state.config.installed ? `v${PLUGIN_VERSION}${state.config.enabled ? '' : ' · 已停用'}` : '未安装'}
     notice={notice}
-    fleet={<FleetPage snapshot={{ hosts: state.config.hosts, metrics: state.metrics, activeJobs: state.active }} config={{ enabled, monitoring: !!state.config.monitoring, intervalSeconds: state.config.interval || 60 }} selectedHostIds={selected} actions={actions} now={Date.now()} />}
+    fleet={<FleetPage api={api} active={activeTab === 'fleet'} inspectRequest={inspectRequest} jobs={[...state.active, ...state.history]} snapshot={{ hosts: state.config.hosts, metrics: state.metrics, activeJobs: state.active }} config={{ enabled, monitoring: !!state.config.monitoring, intervalSeconds: state.config.interval || 60 }} selectedHostIds={selected} actions={actions} now={Date.now()} />}
   />;
 }
 

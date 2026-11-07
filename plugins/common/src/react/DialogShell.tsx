@@ -4,6 +4,7 @@ import {
   useId,
   useRef,
   type DialogHTMLAttributes,
+  type KeyboardEvent,
   type ReactNode,
   type SyntheticEvent,
 } from "react";
@@ -59,6 +60,7 @@ export const DialogShell = forwardRef<HTMLDialogElement, DialogShellProps>(
       onCancel,
       onClose,
       onClick,
+      onKeyDown,
       ...props
     },
     forwardedRef,
@@ -132,6 +134,34 @@ export const DialogShell = forwardRef<HTMLDialogElement, DialogShellProps>(
       if (!event.defaultPrevented) onOpenChange(false);
     }
 
+    function handleKeyDown(event: KeyboardEvent<HTMLDialogElement>): void {
+      onKeyDown?.(event);
+      if (event.defaultPrevented || event.key !== "Tab" || event.altKey || event.ctrlKey || event.metaKey) return;
+      const dialog = event.currentTarget;
+      if (!(event.target instanceof Element) || event.target.closest("dialog[open]") !== dialog) return;
+
+      // WKWebView can move Tab from the last control out of a modal iframe.
+      // Wrap its boundaries explicitly so subsequent keys still reach the dialog.
+      const controls = Array.from(dialog.querySelectorAll<HTMLElement>(
+        "button, input, select, textarea, a[href], area[href], [tabindex], [contenteditable=true]",
+      )).filter((element) => element.tabIndex >= 0
+        && !element.matches(":disabled")
+        && !element.closest("[inert]")
+        && element.getClientRects().length > 0
+        && getComputedStyle(element).visibility === "visible");
+      const first = controls[0];
+      const last = controls[controls.length - 1];
+      const active = document.activeElement;
+      const target = event.shiftKey
+        ? (active === first || active === dialog ? last : undefined)
+        : (active === last || active === dialog ? first : undefined);
+      if (target) {
+        event.preventDefault();
+        event.stopPropagation();
+        target.focus();
+      }
+    }
+
     return (
       <dialog
         {...props}
@@ -151,6 +181,7 @@ export const DialogShell = forwardRef<HTMLDialogElement, DialogShellProps>(
         }}
         onCancel={handleCancel}
         onClose={handleClose}
+        onKeyDown={handleKeyDown}
       >
         <div className={cx("fh-dialog-shell__content grid min-h-0", contentClassName)}>
           <header className="flex items-start justify-between gap-4 border-b border-[var(--fh-border,#294336)] bg-[var(--fh-surface,#101f17)] px-5 py-4">

@@ -12,12 +12,14 @@ test('SSH identity is automatic, stable on rename, independent on copy and mode 
   const slots = [];
   let cursor = 0, props, handle;
   let hosts = [];
+  let probeResult = { success: true, reason: '共享会话 hostname 查询完成' };
   const writes = [];
   const api = async (method, args) => {
     if (method === 'state') return { config: { hosts } };
     if (method === 'sshRead') return { revision: 'r1', profile: { hostname: 'example.test', user: 'root', port: 22, proxyJump: '', identityFile: '' } };
     if (method === 'sshSave') { writes.push(args.profile.alias); return { revision: 'r2' }; }
     if (method === 'hosts') { hosts = args.hosts; return {}; }
+    if (method === 'sshProbe') return probeResult;
     throw Error(method);
   };
   const exports = {};
@@ -49,6 +51,13 @@ test('SSH identity is automatic, stable on rename, independent on copy and mode 
   await props.actions.onSave(); render();
   assert.equal(hosts[0].alias, alias);
   assert.deepEqual(writes, [alias]);
+  await props.actions.onProbeSsh(); render();
+  assert.equal(props.testState.status, 'success');
+  assert.equal(props.testState.message, '共享会话 hostname 查询完成');
+  probeResult = { success: false, reason: '共享会话 hostname 查询失败', durationMs: 23 };
+  await props.actions.onProbeSsh(); render();
+  assert.equal(props.testState.status, 'error');
+  assert.equal(props.testState.message, '共享会话 hostname 查询失败（23 ms）');
   await handle.open(hosts[0].id); render();
   change('name', '改名后');
   await props.actions.onSave(); render();

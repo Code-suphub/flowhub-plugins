@@ -1,4 +1,4 @@
-import { useMemo, useState, type PointerEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
 import './time-series-chart.css';
 
 type Row = readonly (number | null)[];
@@ -9,14 +9,15 @@ interface Props {
   unit?: string;
   colors?: readonly string[];
   label: string;
+  compact?: boolean;
 }
 
-const WIDTH = 760;
-const HEIGHT = 240;
-const LEFT = 48;
+const DEFAULT_WIDTH = 760;
+const DEFAULT_HEIGHT = 240;
+const DEFAULT_LEFT = 48;
 const RIGHT = 18;
 const TOP = 20;
-const BOTTOM = 204;
+const DEFAULT_BOTTOM = 204;
 const DEFAULT_COLORS = ['#69b7e8', '#e9a05d', '#8dcc9b', '#d394ca'];
 
 function nearestSample(rows: readonly Row[], time: number): number {
@@ -29,13 +30,29 @@ function nearestSample(rows: readonly Row[], time: number): number {
   return low > 0 && Math.abs((rows[low - 1][0] as number) - time) < Math.abs((rows[low][0] as number) - time) ? low - 1 : low;
 }
 
-export function TimeSeriesChart({ rows, series, unit = '', colors = DEFAULT_COLORS, label }: Props) {
+export function TimeSeriesChart({ rows, series, unit = '', colors = DEFAULT_COLORS, label, compact = false }: Props) {
+  const shell = useRef<HTMLDivElement>(null);
+  const [compactWidth, setCompactWidth] = useState(320);
+  const WIDTH = compact ? compactWidth : DEFAULT_WIDTH;
+  const HEIGHT = compact ? 170 : DEFAULT_HEIGHT;
+  const LEFT = compact ? 40 : DEFAULT_LEFT;
+  const BOTTOM = compact ? 134 : DEFAULT_BOTTOM;
   const [cursor, setCursor] = useState<number | null>(null);
   const samples = useMemo(() => rows
     .filter((row) => Number.isFinite(row[0]))
     .slice()
     .sort((a, b) => (a[0] as number) - (b[0] as number)), [rows]);
   const valid = samples.filter((row) => row.slice(1).some((value) => Number.isFinite(value)));
+  const hasSamples = valid.length > 0;
+  useEffect(() => {
+    if (!compact || !shell.current || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(entries => {
+      const width = Math.max(160, Math.round(entries[0]?.contentRect.width || 320));
+      setCompactWidth(current => current === width ? current : width);
+    });
+    observer.observe(shell.current);
+    return () => observer.disconnect();
+  }, [compact, hasSamples]);
   if (!valid.length) return <div className="fh-time-series__empty" role="status">此范围没有历史采样</div>;
 
   const first = samples[0][0] as number;
@@ -56,7 +73,7 @@ export function TimeSeriesChart({ rows, series, unit = '', colors = DEFAULT_COLO
     setCursor(nearestSample(valid, time));
   }
 
-  return <div className="fh-time-series">
+  return <div ref={shell} className={compact ? 'fh-time-series fh-time-series--compact' : 'fh-time-series'}>
     <svg viewBox={`0 0 ${WIDTH} ${HEIGHT}`} role="img" tabIndex={0} aria-label={`${label}，悬浮或使用左右方向键查看采样数值`} onPointerMove={move} onPointerLeave={() => setCursor(null)} onFocus={() => setCursor((current) => current ?? valid.length - 1)} onBlur={() => setCursor(null)} onKeyDown={(event) => {
       if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
       event.preventDefault();
@@ -78,8 +95,8 @@ export function TimeSeriesChart({ rows, series, unit = '', colors = DEFAULT_COLO
         {primary !== undefined ? <line x1={LEFT} x2={WIDTH - RIGHT} y1={y(primary)} y2={y(primary)} /> : null}
         {series.map((name, index) => Number.isFinite(selected[index + 1]) ? <circle key={name} cx={selectedX} cy={y(selected[index + 1] as number)} r="4" fill={colors[index % colors.length]} /> : null)}
       </g> : null}
-      <text x={LEFT} y="231">{new Date(first * 1000).toLocaleString()}</text>
-      <text x={WIDTH - RIGHT} y="231" textAnchor="end">{new Date(last * 1000).toLocaleString()}</text>
+      <text x={LEFT} y={HEIGHT - 9}>{compact ? new Date(first * 1000).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : new Date(first * 1000).toLocaleString()}</text>
+      <text x={WIDTH - RIGHT} y={HEIGHT - 9} textAnchor="end">{compact ? new Date(last * 1000).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : new Date(last * 1000).toLocaleString()}</text>
     </svg>
     {selected && selectedX !== null ? <div className="fh-time-series__tooltip" style={{ left: `clamp(80px, ${selectedX / WIDTH * 100}%, calc(100% - 80px))` }}>
       <time>{new Date((selected[0] as number) * 1000).toLocaleString()}</time>

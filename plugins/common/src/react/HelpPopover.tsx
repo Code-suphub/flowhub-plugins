@@ -47,8 +47,10 @@ export function HelpPopover({
     function handleEscape(event: KeyboardEvent): void {
       if (event.key !== "Escape") return;
       event.preventDefault();
+      // Restoring focus can fire onFocusCapture and reopen a pointer-opened panel.
+      // Close last so that focus restoration cannot undo the Escape dismissal.
+      triggerRef.current?.focus({ preventScroll: true });
       setOpen(false);
-      triggerRef.current?.focus();
     }
 
     document.addEventListener("pointerdown", handlePointerDown);
