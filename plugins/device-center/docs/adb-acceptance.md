@@ -52,5 +52,6 @@
 - FlowHub 读取 Toolkit 的版本 1 设备登记。设备连接和恢复仍由 Toolkit 管理，FlowHub 继续保存显示偏好。检测到的同一台手机共用一张卡片，详情逐条显示 USB、EasyTier、Tailscale 或 TCP/IP 入口和状态。身份不匹配的连接单独显示。另一条线路已核实身份时，在线但核对超时的已登记入口标为“身份待核对”，卡片电量优先采用已核实的入口。
 - 隔离后端以真实共享登记验证。Redmi Note 11T Pro 的 EasyTier 主入口和 Tailscale 备用入口均在线，硬件身份一致，合为一张卡片。K80 的 EasyTier 入口独立显示离线。前后核对 Toolkit 配置文件内容一致。
 - 最终构建的浏览器验证通过 98 项行为检查及 24 组响应式检查。包括三条线路在同一卡片显示、按备用地址搜索、线路分别标注状态以及桌面组件读取共享别名。实机扫描没有 USB 调试入口，USB 归并使用后端夹具和浏览器验证。
-- 全仓测试、构建、机器管理布局检查及补充的旧排序继承测试通过。普通安装版重载等待 macOS 解锁，当前验收覆盖新版构建、真实后端与隔离浏览器。
-- 证据位于 `/Users/bilibili/.local/state/flowhub-toolkit-adb-20261107/`。其中 `rpc-proof.json` 为真实 ADB 后端读回，`browser/report.json` 和 `browser/adb-toolkit-connections.png` 为浏览器验证与示例预览。
+- 全仓测试、构建、机器管理布局检查及补充的旧排序继承测试通过。
+- macOS 解锁后通过正常插件市场把 0.3.9 重载到 0.3.10。27 项包文件指纹及新后端进程核对通过，Toolkit 登记与 FlowHub 本地偏好读回一致。主页面和桌面组件均从 3 条 ADB 记录变为 2 张设备卡片。Redmi Note 11T Pro 为一张卡片，详情列出已连接的 EasyTier 主入口和 Tailscale 备用入口。
+- 证据位于 `/Users/bilibili/.local/state/flowhub-toolkit-adb-20261107/`。其中 `rpc-proof.json` 为真实 ADB 后端读回，`browser/report.json` 和 `browser/adb-toolkit-connections.png` 为浏览器验证与示例预览，`installed-proof.json` 为安装版读回。
