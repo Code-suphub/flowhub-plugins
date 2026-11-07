@@ -12,14 +12,26 @@
 
 | 能力 | 证据和边界 |
 | --- | --- |
-| USB 与 BLE 输入 | 有线 HID 是 `258a:0112`，BLE HID 是 `3554:fa07`。有线存在 520 字节 Feature Report 的厂商集合。BLE 主集合是普通键盘，最大 Feature Report 为 1 字节。独立 GATT 探针在授权检查返回未决定，私有服务仍待枚举 |
+| USB 与 BLE 输入 | 有线 HID `258a:0112` 提供 520 字节 Feature Report 的厂商集合。BLE HID `3554:fa07` 的键盘集合最大 Feature Report 为 1 字节。已在 Mac mini 授权并枚举应用可见的 GATT 特征，详见下文 |
 | 配置块与键位 | USB 命令 `0x84` 返回 128 字节和尾部标记 `5a a5`。对有线设备版本 `0x4023`，首字节 `0=Windows`、`1=Mac`。实体 Fn 切换与工程版设置命令均有实机读回 |
 | 灯效 | 对布局标记 `0x09=0`，偏移 `0x0a` 的 `2=呼吸`、`4=关灯` 已验证。其他灯效只显示为未识别。预设支持记录已识别灯效，写入前比较预期状态并核对整块配置读回 |
 | 电源与电量 | 命令 `0x87` 返回两个原始字节。蓝牙系统百分比与有线原始字节需要独立对照，充放电和 30%／100% 映射待验 |
 | 按键映射、组合键、宏和灯光参数 | 官方驱动为该 USB ID 提供键位布局，包含灯效选项和消抖参数表，软件界面也提供映射和宏。对本设备的存储布局、写入命令及 Fn 层行为待对照验证 |
-| 固件与芯片 | 标准版和性能版的 Windows PE 程序段完全相同，差异全部在文件偏移 `0x1fb800` 后的固件附加块。两块均有 16 字节头，前缀为 `5a a5 SINO`，头内 ID 分别为 `258a:0112` 与 `258a:0149`，载荷各 60 KiB。主控具体型号、载荷编码、最后四字节含义和引导协议待识别 |
+| 固件与芯片 | 标准版和性能版的 Windows PE 程序段完全相同，固件附加块从文件偏移 `0x1fb800` 开始。已解出两份各 60 KiB 的 8051 应用镜像，并定位标准版设置蓝牙名称的串口链路。主控丝印、无线模块固件与引导协议待核对 |
 
 参考 [珂芝 K75 说明书](https://en.kzzi.com/media/files/20230613/20230613120005_4169.pdf)、[珂芝官方驱动](https://en.kzzi.com/download/1/) 和 [Bluetooth HID over GATT](https://www.bluetooth.com/specifications/specs/hid-over-gatt-profile/)。
+
+## 蓝牙配置实机复测
+
+- 旧探针在授权状态为 `.notDetermined` 时退出，尚未创建 `CBCentralManager`。复测在 Mac mini 的图形会话启动带蓝牙用途说明的独立诊断应用。探针读回 `.allowedAlways`，并完成 K75 特征枚举。授权属于诊断应用，当前外设中心 0.3.17 的预设配置仍走 USB。[Apple 蓝牙用途说明](https://developer.apple.com/documentation/bundleresources/information-property-list/nsbluetoothalwaysusagedescription)
+- CoreBluetooth 返回设备信息 `180A` 和电池服务 `180F`。设备信息读到软件版本 `3008` 和 PnP ID，电池特征 `2A19` 读到 `0x64`（100%），与同时段 macOS 系统报告一致。枚举到的三个特征均无写属性，硬件版本和固件版本特征也未出现。30%／100% 变化原因仍需按同一设备的时间序列核对。[Bluetooth SIG Assigned Numbers](https://www.bluetooth.com/wp-content/uploads/Files/Specification/HTML/Assigned_Numbers/out/en/index-en.html)
+- 同一台 Mac mini 的 IOKit 另外枚举到 K75 的 BLE 键盘 HID。对该路线尝试匹配只读配置命令 `0x84` 所需的厂商 Report `0x06`，匹配数为零，测试在发送前停止。写入模式和灯效仍待找到可验证的无线协议。证据见 `ble-followup/result.json` 和 `ble-followup/hid-route-verification.json`。
+
+## 固件离线拆解
+
+- 附加块由 12 字节头、60 KiB 密文和末尾 4 字节解码键组成。头部包含 `5a a5 SINO`、大端 VID/PID 和载荷长度。Windows 更新器 `0x403aa0` 处实现 32 轮改版 TEA，增量为 `0x9e3769b9`。两份载荷均以大端 8 字节块解码成功，重新编码逐字节匹配原密文，复位向量、多个中断向量和 USB 描述符均可核对。标准版的 USB 描述符与实机 `258a:0112`、`bcdDevice=0x4023` 和厂商 Report `0x06` 匹配。性能版对应 `258a:0149`、`bcdDevice=0x1207`。[同类 NuPhy Air75 解包参考](https://github.com/thebabush/nuphy-air75-reversing/blob/main/extract_firmware.py)
+- 标准版 `0x9629` 从 `0xb9b5` 或 `0xb9c2` 取蓝牙名称，组帧后经 `0x996f` 发送。发送代码将字节写到串口数据寄存器 `SBUF` (`0xaa`)，并以 `0x55` 减前面字节之和生成帧尾。串口中断入口与中颖 SH68F90 的寄存器和向量表吻合。这个路径定位在键盘主控内部，仍需识别无线端实现及其对外协议。[中颖 SH68F90 规格书](https://www.32mcu.com/pdf/PDF_24/SH68F90%20CV1.0.pdf)
+- 解包和结构核对证据见 `firmware-followup/decode-report.json` 与 `firmware-followup/structure-verification.json`。固件镜像和实机日志保存在 Git 外。本轮未执行固件更新。
 
 ## 验收步骤
 
