@@ -67,7 +67,11 @@ const demo={
   ],previewAnomalies:1
 };
 let data=preview?structuredClone(demo):{at:0,stale:true,devices:[],events:[],power:{},error:null};
-function photo(d){const known=['headphones','mouse','keyboard','phone','drive','hub','device','laptop'];const kind=d.category==='display'?'monitor':known.includes(d.kind)?d.kind:'device';return '<span class="device-photo"><img src="assets/'+kind+'.svg" alt="设备类别图标" loading="lazy"></span>';}
+let artwork,artworkRequested=false;
+function photo(d){
+ const art=globalThis.FlowHubDeviceArt.resolve(d,artwork);
+ return `<span class="device-photo"><img src="${art.src}" data-fallback="${art.fallback}" alt="${art.system?'macOS 设备家族示意图':'设备类别示意图'}" loading="lazy"></span>`;
+}
 function displayType(d){return ({'built-in':'内置','external':'外接'})[d.displayConnection]||'类型未知';}
 function displayBadge(d){return d.category==='display'?`<span class="display-connection">${displayType(d)}</span>`:'';}
 function displaySpec(d){
@@ -178,7 +182,12 @@ function redraw(focusId,ensureVisible=false){
     target?.focus({preventScroll:true});
     if(ensureVisible&&ownFocus){target?.scrollIntoView({block:'nearest'});if(widgetList)widgetScroll[widgetCategory]=widgetList.scrollTop;}
   }
-  for(const img of node.querySelectorAll('img'))img.addEventListener('error',()=>{img.replaceWith(document.createTextNode('◇'));},{once:true});
+  for(const img of node.querySelectorAll('img'))img.addEventListener('error',()=>{
+    if(img.getAttribute('src')!==img.dataset.fallback){
+      img.src=img.dataset.fallback;
+      img.alt='设备类别示意图';
+    }else img.replaceWith(document.createTextNode('◇'));
+  });
   if(isWidget&&widgetToken&&widgetReady){window.parent.postMessage({type:'flowhub:widget-size',token:widgetToken,height:Math.ceil(document.documentElement.scrollHeight)},'*');}
 }
 function rpc(method,extra={}){
@@ -351,7 +360,13 @@ function receive(event){
   if(!msg||typeof msg!=='object'||isWidget&&widgetToken&&msg.token!==widgetToken)return;
   if(isWidget&&msg.type==='flowhub:widget-init'){
     widgetReady=true;widgetContext=msg.context||{};
-    redraw();startPolling();if(surface!=='editor')void refresh();return;
+    redraw();startPolling();
+    if(surface!=='editor')void refresh();
+    if(surface==='card'&&!preview&&!artworkRequested){
+      artworkRequested=true;
+      void rpc('device_icons').then(result=>{if(!done){artwork=result;redraw();}}).catch(()=>{});
+    }
+    return;
   }
   if(isWidget&&msg.type==='flowhub:widget-save'){
     const interval=Number(node.querySelector('#widget-interval')?.value||5);

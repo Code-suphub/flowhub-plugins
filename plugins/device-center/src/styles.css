@@ -47,4 +47,11 @@ html:root[data-theme=dark]{--fh-canvas:#151922;--fh-surface:#1d2330;--fh-surface
 .dc-adb-connections li small{margin-inline-start:6px;color:var(--fh-muted);font-size:9px}
 .dc-adb-connections li .dc-adb-state{max-width:none}
 .dc-adb-connections code{grid-column:1/-1;color:var(--fh-muted);font-size:10px;overflow-wrap:anywhere}
+.dc-recent-events{margin:12px 0;padding-top:9px;border-top:1px solid var(--fh-border);font-size:11px}
+.dc-recent-events h4{margin:0 0 5px;font-size:11px}
+.dc-recent-events p,.dc-recent-events ul{margin:0;padding:0}
+.dc-recent-events ul{list-style:none}
+.dc-recent-events li{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:3px 0}
+.dc-recent-events p,.dc-recent-events time{color:var(--fh-muted)}
+.dc-recent-events time{flex:none;font-size:10px;font-variant-numeric:tabular-nums}
 @media(min-width:481px) and (max-width:600px){.dc-toolbar{flex-wrap:wrap}.dc-search{width:100%;flex:none}.dc-filters{flex:1}}

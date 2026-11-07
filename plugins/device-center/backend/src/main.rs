@@ -50,9 +50,38 @@ struct Device {
 #[serde(rename_all = "camelCase")]
 struct Event {
     at: u64,
+    device_id: String,
     name: String,
     category: String,
     action: String,
+    #[serde(skip_serializing_if="Option::is_none")]
+    route: Option<String>,
+    #[serde(skip_serializing_if="Option::is_none")]
+    state: Option<String>,
+}
+impl Event {
+    fn device(at: u64, device: &Device, action: &str) -> Self {
+        Self { at, device_id: device.id.clone(), name: device.name.clone(), category: device.category.clone(),
+            action: action.into(), route: None, state: None }
+    }
+
+    fn adb(at: u64, device: &Device, info: &adb::Info, route: &adb::Connection, state: &str, action: &str) -> Self {
+        let mut event = Self::device(at, device, action);
+        event.name = info.shared_alias.as_ref().or(info.model.as_ref()).cloned()
+            .unwrap_or_else(|| "Android 设备".into());
+        event.route = Some(route.source.as_ref().unwrap_or(&route.transport).clone());
+        event.state = Some(match state {
+            "device" | "offline" | "unauthorized" | "no permissions" | "recovery" |
+            "sideload" | "bootloader" | "connecting" | "authorizing" => state,
+            _ => "unknown",
+        }.into());
+        event
+    }
+}
+fn adb_routes(devices: &[Device]) -> BTreeMap<&str, (&Device, &adb::Info, &adb::Connection)> {
+    devices.iter().filter_map(|d| d.adb.as_ref().map(|info| (d, info)))
+        .flat_map(|(d, info)| info.connections.iter().map(move |route| (route.serial.as_str(), (d, info, route))))
+        .collect()
 }
 #[derive(Clone)]
 struct Scan {
@@ -389,10 +418,10 @@ impl State {
                     let before: BTreeMap<&str, &Device> = self.scan.devices.iter().map(|d| (d.id.as_str(), d)).collect();
                     let after: BTreeMap<&str, &Device> = new.devices.iter().map(|d| (d.id.as_str(), d)).collect();
                     for d in &new.devices {
-                        if !before.contains_key(d.id.as_str()) { self.events.push_front(Event { at: time, name: d.name.clone(), category: d.category.clone(), action: "connected".into() }); }
+                        if !before.contains_key(d.id.as_str()) { self.events.push_front(Event::device(time, d, "connected")); }
                     }
                     for d in &self.scan.devices {
-                        if !after.contains_key(d.id.as_str()) { self.events.push_front(Event { at: time, name: d.name.clone(), category: d.category.clone(), action: "disconnected".into() }); }
+                        if !after.contains_key(d.id.as_str()) { self.events.push_front(Event::device(time, d, "disconnected")); }
                     }
                     self.events.truncate(60);
                 }
@@ -401,6 +430,35 @@ impl State {
                 self.error = None;
             }
         }
+    }
+    fn apply_adb(&mut self, result: Result<Vec<Device>, adb::Error>) {
+        // Use the last successful observation. Changes to grouping, aliases and
+        // network labels do not change the state of an ADB route.
+        if let Ok(next) = &result {
+            if self.adb.at != 0 {
+                let time = now();
+                let before = adb_routes(&self.adb.devices);
+                let after = adb_routes(next);
+                for (&serial, &(device, info, route)) in &after {
+                    let previous = before.get(serial).map(|(_, _, route)| route.state.as_str());
+                    let state = route.state.as_str();
+                    if previous == Some(state) { continue; }
+                    let action = match (previous, state) {
+                        (_, "device") => "connected",
+                        (Some("device"), "offline") => "disconnected",
+                        _ => "state",
+                    };
+                    self.events.push_front(Event::adb(time, device, info, route, state, action));
+                }
+                for (serial, (device, info, route)) in before {
+                    if route.state == "device" && !after.contains_key(serial) {
+                        self.events.push_front(Event::adb(time, device, info, route, "offline", "disconnected"));
+                    }
+                }
+                self.events.truncate(60);
+            }
+        }
+        self.adb.apply(result);
     }
     fn stale(&self) -> bool { self.at == 0 || now().saturating_sub(self.at) > 120_000 || self.error.is_some() }
     fn full(&self) -> Value {
@@ -435,7 +493,7 @@ fn refresh_adb(state:&Arc<Mutex<State>>) {
     let Ok(_guard)=query.lock() else{return;};
     if state.lock().is_ok_and(|s|s.adb.checked_at>checked){return;}
     let result=adb::read();
-    if let Ok(mut s)=state.lock(){s.adb.apply(result);}
+    if let Ok(mut s)=state.lock(){s.apply_adb(result);}
 }
 fn power_interval_seconds(params: &Value) -> u64 {
     params["powerIntervalSeconds"].as_u64().filter(|v| [5,10,30,60].contains(v)).unwrap_or(5)
@@ -772,5 +830,45 @@ mod tests {
         state.adb.apply(Err(adb::Error::Query("ADB timeout".into())));
         assert_eq!(state.status()["rows"][0]["status"],"healthy");assert_eq!(state.status()["rows"][1]["status"],"stale");
         assert!(state.full()["error"].is_null());assert_eq!(state.full()["adb"]["error"],"ADB timeout");
+    }
+    #[test]
+    fn adb_events_follow_route_changes_after_a_successful_baseline() {
+        let mut state = State::new();
+        let scan = |rows: &str| toolkit_adb::group(
+            adb::parse(&format!("List of devices attached\n{rows}")).unwrap(),
+            &toolkit_adb::Catalog::default(), &toolkit_adb::NetworkSources::default()
+        );
+        let baseline = scan("192.0.2.1:5555 device\nPUBLIC-USB device usb:1-1");
+        state.apply_adb(Ok(baseline.clone()));
+        assert!(state.events.is_empty());
+
+        let mut renamed = baseline;
+        renamed[0].id = "adb-group".into();
+        renamed[0].adb.as_mut().unwrap().shared_alias = Some("Test Phone".into());
+        state.apply_adb(Ok(renamed.clone()));
+        state.apply_adb(Err(adb::Error::Query("ADB timeout".into())));
+        assert!(state.events.is_empty());
+
+        renamed[0].adb.as_mut().unwrap().connections[0].state = "offline".into();
+        state.apply_adb(Ok(renamed.clone()));
+        assert_eq!(state.events.len(), 1);
+        let event = &state.full()["events"][0];
+        assert_eq!(event["deviceId"], "adb-group");
+        assert_eq!(event["name"], "Test Phone");
+        assert_eq!(event["action"], "disconnected");
+        assert_eq!(event["route"], "tcp");
+        assert_eq!(event["state"], "offline");
+        assert!(!event.to_string().contains("192.0.2.1"));
+
+        state.apply_adb(Ok(renamed));
+        assert_eq!(state.events.len(), 1);
+        state.apply_adb(Ok(scan("")));
+        assert_eq!(state.events.len(), 2);
+        let event = &state.full()["events"][0];
+        assert_eq!(event["name"], "Android 设备");
+        assert_eq!(event["route"], "usb");
+        assert!(!event.to_string().contains("PUBLIC-USB"));
+        state.apply_adb(Ok(scan("PUBLIC-USB device usb:1-1")));
+        assert_eq!(state.events[0].action, "connected");
     }
 }

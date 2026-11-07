@@ -12,7 +12,7 @@ export function demo(scenario=''):Snapshot {
  {id:'dell',name:'DELL U2723QE',category:'display',kind:'monitor',detail:'显示器',status:'connected',pixelResolution:'3840 × 2160',refreshRate:'60 Hz',displayConnection:'external'},
  {id:'lg',name:'LG UltraFine',category:'display',kind:'monitor',detail:'显示器',status:'connected',pixelResolution:'2560 × 1440',refreshRate:'60 Hz',displayConnection:'external'}
  ],power:{externalConnected:true,charging:true,batteryPresent:true,source:'外接电源',inputWatts:56.8,systemWatts:25.4,batterySideWatts:31.4,adapterWatts:'96',sampledAt:at},
- events:[{at:at-360000,name:'Pixel 9 Pro 已连接',category:'usb',action:'connected'},{at:at-720000,name:'DELL U2723QE 已连接',category:'display',action:'connected'},{at:at-1020000,name:'AirPods Pro 2 已连接',category:'bluetooth',action:'connected'}]};
+ events:[{at:at-360000,deviceId:'pixel',name:'Pixel 9 Pro',category:'usb',action:'connected'},{at:at-720000,deviceId:'dell',name:'DELL U2723QE',category:'display',action:'connected'},{at:at-1020000,deviceId:'airpods',name:'AirPods Pro 2',category:'bluetooth',action:'connected'}]};
  if(scenario.startsWith('adb')) {
   data.adb={available:true,at,checkedAt:at,stale:false,intervalSeconds:10};
   data.devices.push(...[
@@ -36,6 +36,10 @@ export function demo(scenario=''):Snapshot {
     legacyIds:['adb-old-direct','adb-old-usb']
    });
    data.adbPreferences={aliases:{},lowBatteryThreshold:30,revision:0};
+   data.events.unshift(
+    {at:at-30000,deviceId:'adb-old-direct',name:'测试手机',category:'adb',action:'disconnected',route:'tailscale',state:'offline'},
+    {at:at-45000,deviceId:'other-adb',name:'测试手机',category:'adb',action:'connected',route:'usb',state:'device'}
+   );
   }
  }
  if(scenario==='empty')data.devices=[];

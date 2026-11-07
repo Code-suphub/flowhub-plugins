@@ -97,8 +97,9 @@ try{
  await wait('document.documentElement.dataset.theme==="light"');
  const geometry=await evaluate(`([...document.querySelectorAll('[data-device]')].map(e=>{const r=e.getBoundingClientRect();return {id:e.dataset.device,visible:r.top>=49&&r.bottom<=innerHeight-26}}))`);
  if(!geometry.every(x=>x.visible))throw Error('800x560 cards are clipped: '+JSON.stringify(geometry));report.checks.push('all nine devices fit 800x560');
- if(artwork.icons.iphone){await wait('document.querySelector("[data-device=iphone] img")?.naturalWidth>0');report.checks.push('packaged macOS iPhone artwork rendered');}
- await check('!!document.querySelector("[data-device=pixel] svg") && !document.querySelector("[data-device=pixel] img")','unknown Android phone uses category artwork');await capture('devices-light');
+ if(artwork.icons.iphone){await wait('document.querySelector("[data-device=iphone] img")?.naturalWidth>0 && document.querySelector("[data-device=iphone] img").src.startsWith("data:image/png")');report.checks.push('packaged macOS iPhone artwork rendered');}
+ await wait('document.querySelector("[data-device=pixel] img")?.naturalWidth>0');
+ await check('document.querySelector("[data-device=pixel] img").getAttribute("src")==="assets/phone.svg"','unknown Android phone uses bundled category artwork');await capture('devices-light');
  await click('.dc-group-heading .dc-display-settings');
  if(await parent('window.__qa.requests.filter(m=>m==="open_display_settings").length')!==1)throw Error('Missing display settings request');
  report.checks.push('display group settings action dispatches only on click');
@@ -226,10 +227,21 @@ try{
  await check('document.querySelectorAll("[data-device]").length===1','search finds a phone by its secondary ADB route');
  await click('[data-device=adb-usb]');await wait('document.querySelector("dialog").open');
  await check('document.querySelectorAll(".dc-adb-connections li").length===3 && document.querySelector(".dc-adb-connections").textContent.includes("EasyTier · 本机转发") && document.querySelector(".dc-adb-connections").textContent.includes("Tailscale · 直连") && document.querySelector(".dc-adb-connections [data-tone=disconnected]").textContent.trim()==="离线" && [...document.querySelectorAll(".dc-adb-connections strong")].some(label=>label.textContent==="USB")','grouped detail shows USB, EasyTier and Tailscale with per-route state');
+ await wait('document.querySelector(".dc-detail-hero img")?.naturalWidth>0');
+ await check('document.querySelector(".dc-detail-hero img").getAttribute("src")==="assets/phone.svg"','ADB detail renders the bundled phone artwork');
+ await check('document.querySelectorAll(".dc-recent-events li").length===1 && document.querySelector(".dc-recent-events li").textContent.includes("Tailscale · 已断开") && !document.querySelector(".dc-recent-events").textContent.includes("100.64")','detail includes the linked route event without exposing the endpoint or including a same-name device');
+ await check('document.querySelector(".dc-recent-events").getBoundingClientRect().bottom<=document.querySelector("dialog footer").getBoundingClientRect().top','three-route detail shows its latest event without scrolling on desktop');
  await capture('adb-toolkit-connections');
+ await click('dialog footer .dc-button:last-child');await wait('!document.querySelector("dialog").open');
+ await check('document.querySelectorAll(".dc-event").length===1 && document.querySelector(".dc-event").textContent.includes("Tailscale · 已断开")','related events opens the event log filtered to the ADB device');
+ await click('.dc-events-heading .dc-button');
+ await check('document.querySelectorAll(".dc-event").length===5','clearing the device filter restores all events');
  await size(360,320);await navigate('/qa?surface=card&scenario=adb-toolkit');await click('[data-widget-category=adb]');
  await check('document.querySelectorAll("[data-device]").length===1 && document.querySelector("[data-device=adb-usb]").textContent.includes("EasyTier / Tailscale / USB")','desktop widget uses one shared phone row with the available routes');
+ await wait('document.querySelector("[data-device=adb-usb] img")?.naturalWidth>0');
+ await check('document.querySelector("[data-device=adb-usb] img").getAttribute("src")==="assets/phone.svg"','desktop widget and detail use the same bundled phone artwork');
  await size(800);await navigate('/qa?widget=1&scenario=adb&device=adb-auth');await wait('document.querySelector("dialog").open');await check('document.querySelector("dialog").textContent.includes("未授权") && document.querySelector("dialog").textContent.includes("PUBLIC-AUTH")','widget detail preserves ADB authorization state');
+ await check('document.querySelector(".dc-recent-events p").textContent.includes("本次运行暂无连接变化")','device detail explains when no event has been observed');
  await navigate('/ui/index.html');await check('document.querySelector(".dc-group-heading .dc-display-settings").disabled','standalone preview disables system settings');
  await click('[data-category=adb]');await check('document.querySelector(".dc-adb-empty").textContent.includes("没有检测到 ADB 设备") && !document.querySelector(".dc-adb-empty").textContent.includes("正在读取")','standalone ADB preview finishes its empty state without native access');await click('[data-category=all]');
  await click('[data-device=dell]');await wait('document.querySelector("dialog").open');await check('document.querySelector("dialog .dc-display-settings").disabled','standalone display detail also remains read-only');

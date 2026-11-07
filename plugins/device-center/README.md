@@ -29,9 +29,8 @@ node scripts/browser-acceptance.mjs /absolute/path/to/evidence
 - 图中的手机屏幕只是设备家族的视觉示意，不读取设备壁纸，也不代表机身颜色。
 - 苹果设备通过包内 Swift helper 调用公开 `UTType` / `NSWorkspace.icon(for:)` API，读取当前 macOS 已安装的家族图标。图像在后端进程内缓存，不随每次功率采样重新提取。
 - 当前匹配 iPhone、AirPods、AirPods Pro、Magic Mouse、Apple 键盘和 MacBook 家族；未声明的系统类型自动回退，不用通用文档图标假装设备图片。该能力依赖已安装的系统资源，不保证覆盖刚发布的型号。
-- 其余设备使用 `@mdi/js 7.4.47` 的类别图标，许可说明打包在 `ui/licenses/material-design-icons.txt`。不是全品牌商品照片数据库，也不会把一张粉色 iPhone 图片套给所有手机。
-- 参考 [device-icons](https://github.com/bkahlert/device-icons) 的系统图标解析思路；没有复制其系统图集。类别图标来自 [Material Design Icons](https://github.com/Templarian/MaterialDesign)。均不进行运行时网络图片查询。
-- 九张旧演示产品 PNG 已移除。系统图标仅接受固定家族的有界 PNG data URL，其他内容回退到包内类别图标，不放宽宿主 CSP。
+- 桌面组件、设备卡片和详情使用同一套设备图片。其他设备以及 macOS 图标缺失的设备使用包内 `ui/assets/` 彩色类别插图。插图按手机、显示器、键盘等类别匹配。导航和操作图标使用 `@mdi/js 7.4.47`，许可见 `ui/licenses/material-design-icons.txt`。
+- 系统图标仅接受固定家族的有界 PNG data URL。设备图片只从本机加载。系统图标解析参考 [device-icons](https://github.com/bkahlert/device-icons)。
 
 ## 设备数据与安全边界
 
@@ -41,6 +40,7 @@ node scripts/browser-acceptance.mjs /absolute/path/to/evidence
 - 完整列表与排序的验证结果、正式替换证据和后续实机任务见[组件排序验收记录](docs/widget-order-acceptance-2026-11-07.md)。
 - 供电来源独立通过只读 `pmset -g batt` 读取，不依赖电池或瓦数遥测。无内置电池的桌面设备不显示充放电状态；系统未提供实时功率时仍显示已确认的供电来源，不用估算或适配器规格填充缺失瓦数。
 - 系统设备清单不回传蓝牙地址或硬件序列号；ADB 清单单独返回连接序列号供本地识别、搜索和复制，不写入连接事件或持久化文件。连接事件只保存在进程内存。
+- 详情显示该设备最近三条连接事件，可通过“相关事件”查看完整记录。首扫建立基线，之后记录检测到的蓝牙、USB、显示器连接变化，以及 ADB 各线路的连接、断开或授权等状态变化。采集失败保留上次状态，最多保留 60 条事件，插件后端重启后从新基线开始。
 - ADB 后台以 10 秒间隔运行固定 `adb devices -l`，列表查询上限为 5 秒、128 KiB 和 256 条。使用本机已有 Platform-Tools，型号、序列号及连接方式按真实输出显示。本地转发和 IP:端口标为 TCP/IP。查询可能启动本机 ADB 服务。已授权在线连接通过固定的 `adb -s <已发现的连接标识> shell dumpsys battery` 读取电量。每批最多 4 路并行，单次最多 1.25 秒、8 KiB，批次预算 2.5 秒。页面仅能请求刷新，设备目标由本机 ADB 列表确定。[ADB 状态说明](https://developer.android.com/tools/adb#devicestatus) · [Android 诊断接口](https://developer.android.com/tools/dumpsys)
 - ADB 主页面和桌面组件在名称旁显示连接状态。已连接为绿色，离线、未授权等为红色，过期数据标明“上次”。电量未知时不显示百分比。低于 30% 默认标红，设备页的“电量设置”可改为 0 至 100，0 关闭提醒。详情可保存或清空别名，支持按别名、型号、序列号及连接状态搜索。别名按连接哈希 ID 保存在本机，原始型号和序列号仍可查看。
 - 外设中心只读使用 Toolkit 的 `~/.config/toolkit/adb-devices.json`。自定义路径可通过宿主进程的 `FLOWHUB_TOOLKIT_ADB_CONFIG` 指定绝对路径。FlowHub 的本地显示别名优先，清空后采用 Toolkit 别名。已确认同一登记硬件身份的连接共用一张卡片，原线路的排序位置可继承。已登记入口可在另一条线路确认设备身份后显示在同一张卡片里，在线但未读到身份的入口标为“身份待核对”。详情列出本机观察到的 USB 与网络线路及各自状态。通过 Tailscale 对端地址或 EasyTier 本机监听端口确认网络来源，其他 TCP 连接仍标为 TCP/IP。

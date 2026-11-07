@@ -55,3 +55,12 @@
 - 全仓测试、构建、机器管理布局检查及补充的旧排序继承测试通过。
 - macOS 解锁后通过正常插件市场把 0.3.9 重载到 0.3.10。27 项包文件指纹及新后端进程核对通过，Toolkit 登记与 FlowHub 本地偏好读回一致。主页面和桌面组件均从 3 条 ADB 记录变为 2 张设备卡片。Redmi Note 11T Pro 为一张卡片，详情列出已连接的 EasyTier 主入口和 Tailscale 备用入口。
 - 证据位于 `/Users/bilibili/.local/state/flowhub-toolkit-adb-20261107/`。其中 `rpc-proof.json` 为真实 ADB 后端读回，`browser/report.json` 和 `browser/adb-toolkit-connections.png` 为浏览器验证与示例预览，`installed-proof.json` 为安装版读回。
+
+## 0.3.11 设备图片与连接事件
+
+- 设备列表、桌面组件和详情共用包内彩色插图与可用的 macOS 家族图。打开任一设备详情可以查看最近三条事件；“相关事件”进入按设备标识筛选的完整记录。
+- 后端回归覆盖首次扫描建立基线、线路离线／消失／重新连接、采集失败不生成断开、别名和分组变化不重复生成事件。事件输出不含原始连接地址或序列号。
+- 目标插件 43 项 Rust 和 33 项 Node 测试、类型检查、全仓测试与构建通过。独立机器管理布局检查的所有断点符合预期，输出结果后进程未退出，已结束该次检查进程。
+- 最终构建的隔离浏览器通过 105 项行为检查和 24 组响应式检查，控制台无错误。覆盖同名设备分开筛选、Android 插图跨入口一致、三条线路的详情在桌面视口无需滚动即可看到最新一条事件、无历史时的空状态。
+- macOS 15.5 arm64 正常安装版经插件市场重载，核对 28 项包文件指纹和新后端进程。通过 Computer Use 验证主页面和桌面卡片打开同一设备详情、显示插图及最近事件空状态、跳转相关事件。Tab 和 Shift+Tab 在弹窗首尾循环，Esc 关闭；从列表点击打开时，关闭后焦点回到原卡片。
+- 实机未断开手机或拔插外设。线路状态变化使用后端测试和浏览器夹具验证。证据位于 `/Users/bilibili/.local/state/flowhub-device-art-events-20261107/`，`browser/report.json` 为浏览器报告，`browser/adb-toolkit-connections.png` 为示例，`installed-proof.json` 为实机读回。

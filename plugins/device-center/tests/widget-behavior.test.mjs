@@ -5,6 +5,7 @@ import vm from 'node:vm';
 
 const code=fs.readFileSync(new URL('../ui/app.js',import.meta.url),'utf8');
 const orderCode=fs.readFileSync(new URL('../ui/widget-order.js',import.meta.url),'utf8');
+const artCode=fs.readFileSync(new URL('../ui/device-art.js',import.meta.url),'utf8');
 
 // Exercise the shipped widget message protocol and rendering with host snapshots.
 async function mountWidget(data,config={},surface='card'){
@@ -16,7 +17,7 @@ async function mountWidget(data,config={},surface='card'){
     documentElement:{scrollHeight:440},hidden:false,createTextNode:text=>text};
   const context=vm.createContext({window,document,location:{hash:'#flowhubWidgetToken=test-token',search:''},
     URLSearchParams,structuredClone,setTimeout:()=>1,clearTimeout(){},setInterval:(fn,ms)=>{intervals.push(ms);return 1;},clearInterval(){}});
-  vm.runInContext(orderCode,context);vm.runInContext(code,context);
+  vm.runInContext(orderCode,context);vm.runInContext(artCode,context);vm.runInContext(code,context);
   listeners.message({source:parent,data:{type:'flowhub:widget-init',token:'test-token',context:{config}}});
   if(surface!=='editor'){
     const request=sent.find(message=>message.type==='flowhub:widget-rpc');
