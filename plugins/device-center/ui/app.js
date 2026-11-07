@@ -43,6 +43,7 @@ const safe=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'
 const label={overview:'概览',bluetooth:'蓝牙设备',usb:'USB 与移动设备',display:'显示器',adb:'ADB',power:'供电',events:'历史事件',settings:'设置'};
 const adbState=state=>({device:'已连接',unauthorized:'未授权',offline:'离线','no permissions':'权限不足',recovery:'Recovery',sideload:'Sideload',bootloader:'Bootloader',connecting:'连接中',authorizing:'授权中'})[state]||state||'状态未提供';
 const adbTransport=transport=>({usb:'USB',tcp:'TCP/IP',wireless:'无线调试',emulator:'模拟器'})[transport]||'连接方式未提供';
+const connectionLabel=connection=>({easytier:'EasyTier',tailscale:'Tailscale'})[connection.source]||adbTransport(connection.transport);
 const demo={
   at:Date.now(),stale:false,
   devices:[
@@ -90,8 +91,12 @@ function battery(pct,threshold){
 function row(d,position,total){
  const adb=d.adb,preferences=data.adbPreferences;
  const cached=adb&&(!data.adb?.at||data.adb.stale||data.adb.error||Date.now()-data.adb.at>30_000);
- const name=(adb&&preferences?.aliases?.[d.id])||d.name;
- const description=adb?[adbTransport(adb.transport),adb.serial].join(' · '):displaySpec(d)||'已连接';
+ const name=(adb&&(preferences?.aliases?.[d.id]||adb.legacyIds?.map(id=>preferences?.aliases?.[id]).find(Boolean)||adb.sharedAlias))||d.name;
+ const connections=adb?.connections||[];
+ const description=adb
+   ?connections.length>1?[...new Set(connections.map(connectionLabel))].join(' / ')
+     :[connections[0]?connectionLabel(connections[0]):adbTransport(adb.transport),adb.serial].join(' · ')
+   :displaySpec(d)||'已连接';
  const state=adb?`<span class="device-adb-state" data-tone="${cached?'stale':adb.state==='device'?'connected':'disconnected'}">${cached?'上次 · ':''}${safe(adbState(adb.state))}</span>`:'';
  const reading=adb
    ?(!cached&&adb.state==='device'&&d.battery?battery(d.battery,preferences?.lowBatteryThreshold??30):'')||'<span class="battery-unknown">电量未知</span>'

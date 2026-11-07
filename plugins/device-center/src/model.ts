@@ -1,5 +1,20 @@
 export type Category='bluetooth'|'usb'|'display'|'adb';
-export interface AdbInfo {serial:string;state:string;transport:string;model?:string|null;product?:string|null;transportId?:string|null}
+export interface AdbConnection {
+  serial: string;
+  state: string;
+  transport: string;
+  source?: string | null;
+  role?: string | null;
+  identityVerified?: boolean;
+}
+export interface AdbInfo extends AdbConnection {
+  model?: string | null;
+  product?: string | null;
+  transportId?: string | null;
+  sharedAlias?: string | null;
+  connections?: AdbConnection[];
+  legacyIds?: string[];
+}
 export interface AdbReport {available:boolean;at:number;checkedAt:number;stale:boolean;error?:string|null;intervalSeconds:number}
 export interface AdbPreferences {
   aliases: Record<string,string>;
@@ -19,9 +34,24 @@ export const categories:{id:Category;label:string;short:string}[]=[{id:'bluetoot
 export function listed(device:Device):boolean {return device.category==='adb'||device.status==='connected';}
 export function adbState(state?:string):string {return ({device:'已连接',unauthorized:'未授权',offline:'离线','no permissions':'权限不足',recovery:'Recovery',sideload:'Sideload',bootloader:'Bootloader',connecting:'连接中',authorizing:'授权中'} as Record<string,string>)[state||'']||state||'状态未提供';}
 export function adbTransport(transport?:string):string {return ({usb:'USB',tcp:'TCP/IP',wireless:'无线调试',emulator:'模拟器'} as Record<string,string>)[transport||'']||'连接方式未提供';}
+export function adbConnectionLabel(connection:AdbConnection,detail=false):string {
+  if(connection.source==='easytier')return detail?'EasyTier · 本机转发':'EasyTier';
+  if(connection.source==='tailscale')return detail?'Tailscale · 直连':'Tailscale';
+  return adbTransport(connection.transport);
+}
+export function adbConnectionSummary(adb:AdbInfo):string {
+  if(!adb.connections?.length)return [adbTransport(adb.transport),adb.serial].join(' · ');
+  if(adb.connections.length===1)return [adbConnectionLabel(adb.connections[0]),adb.serial].join(' · ');
+  return [...new Set(adb.connections.map(connection=>adbConnectionLabel(connection)))].join(' / ');
+}
 export function adbStale(report?:AdbReport,now=Date.now()):boolean {return !report?.at||report.stale||Boolean(report.error)||now-report.at>30_000;}
+export function deviceAlias(device:Device,preferences?:AdbPreferences):string {
+  return preferences?.aliases[device.id]
+    || device.adb?.legacyIds?.map(id=>preferences?.aliases[id]).find(Boolean)
+    || '';
+}
 export function deviceName(device:Device,preferences?:AdbPreferences):string {
-  return (device.adb&&preferences?.aliases[device.id])||device.name;
+  return (device.adb&&(deviceAlias(device,preferences)||device.adb.sharedAlias))||device.name;
 }
 export function deviceBattery(device:Device,stale:boolean):number|null {
   return device.adb&&(stale||device.adb.state!=='device')?null:batteryLevel(device.battery);

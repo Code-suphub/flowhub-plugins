@@ -23,6 +23,20 @@ export function demo(scenario=''):Snapshot {
   if(scenario==='adb-empty'||scenario==='adb-missing')data.devices=data.devices.filter(d=>d.category!=='adb');
   if(scenario==='adb-missing'){data.adb.available=false;data.adb.at=0;data.adb.stale=true;data.adb.error='未找到 ADB，请安装 Android SDK Platform-Tools 后重试。';}
   if(scenario==='adb-error'){data.adb.stale=true;data.adb.error='ADB 读取超时，请检查本机 ADB 服务后重试。';}
+  if(scenario==='adb-toolkit'){
+   data.devices=data.devices.filter(device=>device.category!=='adb'||device.id==='adb-usb');
+   const phone=data.devices.find(device=>device.id==='adb-usb')!;
+   Object.assign(phone.adb!,{
+    sharedAlias:'测试手机',
+    connections:[
+     {serial:'127.0.0.1:17352',transport:'tcp',source:'easytier',state:'device',role:'primary'},
+     {serial:'100.64.0.2:5555',transport:'tcp',source:'tailscale',state:'offline',role:'fallback'},
+     {serial:'PUBLIC-USB',transport:'usb',state:'device'}
+    ],
+    legacyIds:['adb-old-direct','adb-old-usb']
+   });
+   data.adbPreferences={aliases:{},lowBatteryThreshold:30,revision:0};
+  }
  }
  if(scenario==='empty')data.devices=[];
  if(scenario==='missing'){data.devices[0].battery=null;data.devices[1].battery='0%';data.power={externalConnected:true,batteryPresent:false,source:'外接电源',sampledAt:at};}

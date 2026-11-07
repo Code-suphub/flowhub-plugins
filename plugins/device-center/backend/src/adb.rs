@@ -12,6 +12,26 @@ pub(crate) struct Info {
     pub model: Option<String>,
     pub product: Option<String>,
     pub transport_id: Option<String>,
+    #[serde(skip)]
+    pub hardware_identity: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shared_alias: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub connections: Vec<Connection>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub legacy_ids: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct Connection {
+    pub serial: String,
+    pub state: String,
+    pub transport: String,
+    pub source: Option<String>,
+    pub role: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub identity_verified: Option<bool>,
 }
 
 #[derive(Default)]
@@ -46,8 +66,18 @@ fn executable(candidates: impl IntoIterator<Item = PathBuf>) -> Option<PathBuf> 
     candidates.into_iter().find(|path| path.metadata().is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0))
 }
 
+fn path_candidates(name: &str) -> Vec<PathBuf> {
+    std::env::var_os("PATH").map(|p| std::env::split_paths(&p).filter(|p| p.is_absolute()).map(|p| p.join(name)).collect()).unwrap_or_default()
+}
+
+pub(crate) fn find_cli(name: &str) -> Option<PathBuf> {
+    let mut paths = path_candidates(name);
+    paths.extend(["/opt/homebrew/bin", "/usr/local/bin"].map(|dir| PathBuf::from(dir).join(name)));
+    executable(paths)
+}
+
 fn find() -> Option<PathBuf> {
-    let mut paths: Vec<PathBuf> = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).filter(|p| p.is_absolute()).map(|p| p.join("adb")).collect()).unwrap_or_default();
+    let mut paths = path_candidates("adb");
     for key in ["ANDROID_HOME", "ANDROID_SDK_ROOT"] {
         if let Some(root) = std::env::var_os(key) { paths.push(PathBuf::from(root).join("platform-tools/adb")); }
     }
@@ -59,8 +89,10 @@ fn find() -> Option<PathBuf> {
 pub(crate) fn read() -> Result<Vec<Device>, Error> {
     let program = find().ok_or(Error::Missing)?;
     let mut devices = read_program(&program, Duration::from_secs(5))?;
-    sample_batteries(&program, &mut devices);
-    Ok(devices)
+    let catalog = crate::toolkit_adb::Catalog::load();
+    let network = crate::toolkit_adb::NetworkSources::read(&devices);
+    sample_devices(&program, &mut devices, catalog.has_identities());
+    Ok(crate::toolkit_adb::group(devices, &catalog, &network))
 }
 fn read_program(program: &std::path::Path, timeout: Duration) -> Result<Vec<Device>, Error> {
     // Only the fixed listing command discovers eligible device connections.
@@ -85,7 +117,7 @@ fn battery_percentage(text: &str) -> Option<String> {
     Some(format!("{}%", u64::from(level) * 100 / u64::from(scale)))
 }
 
-fn sample_batteries(program: &std::path::Path, devices: &mut [Device]) {
+fn sample_devices(program: &std::path::Path, devices: &mut [Device], verify_identity: bool) {
     let Some(program) = program.to_str() else { return; };
     let mut connected: Vec<_> = devices.iter_mut()
         .filter(|device| device.adb.as_ref().is_some_and(|info| info.state == "device"))
@@ -97,7 +129,8 @@ fn sample_batteries(program: &std::path::Path, devices: &mut [Device]) {
             scope.spawn(move || {
                 for device in group {
                     let Some(remaining) = deadline.checked_duration_since(Instant::now()) else { break; };
-                    let serial = &device.adb.as_ref().expect("eligible ADB device").serial;
+                    let info = device.adb.as_mut().expect("eligible ADB device");
+                    let serial = &info.serial;
                     // A single fixed read-only diagnostic. The serial comes only from adb devices.
                     let output = super::read_system_query(
                         program, &["-s", serial, "shell", "dumpsys", "battery"],
@@ -106,13 +139,23 @@ fn sample_batteries(program: &std::path::Path, devices: &mut [Device]) {
                     device.battery = output.ok().and_then(|bytes| {
                         battery_percentage(std::str::from_utf8(&bytes).ok()?)
                     });
+                    if verify_identity {
+                        let Some(remaining) = deadline.checked_duration_since(Instant::now()) else { break; };
+                        info.hardware_identity = super::read_system_query(
+                            program, &["-s", serial, "shell", "getprop", "ro.serialno"],
+                            remaining.min(Duration::from_millis(900)), 1024,
+                        ).ok().and_then(|bytes| String::from_utf8(bytes).ok())
+                            .map(|value| value.trim().to_owned())
+                            .filter(|value| !value.is_empty() && value.len() <= 128
+                                && !value.chars().any(char::is_whitespace));
+                    }
                 }
             });
         }
     });
 }
 
-fn parse(text: &str) -> Result<Vec<Device>, String> {
+pub(crate) fn parse(text: &str) -> Result<Vec<Device>, String> {
     let mut header = false;
     let mut devices = Vec::new();
     let mut seen = BTreeSet::new();
@@ -141,7 +184,8 @@ fn parse(text: &str) -> Result<Vec<Device>, String> {
         item.kind = "phone".into();
         item.status = if state == "device" { "connected" } else { state }.into();
         item.adb = Some(Info { serial:serial.into(), state:short(state, 80), transport:transport.into(), model,
-            product:attribute("product:"), transport_id:attribute("transport_id:") });
+            product:attribute("product:"), transport_id:attribute("transport_id:"),
+            hardware_identity:None, shared_alias:None, connections:Vec::new(), legacy_ids:Vec::new() });
         devices.push(item);
     }
     if !header { return Err("ADB 返回的设备列表格式无效".into()); }

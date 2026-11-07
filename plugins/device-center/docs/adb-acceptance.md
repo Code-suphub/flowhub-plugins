@@ -46,3 +46,11 @@
 - 独立原生后端读到 3 条真实 ADB 连接，其中 2 条在线连接返回电量，1 条离线显示未知。通过隔离数据目录验证别名和阈值写入后重启读回，文件权限为 0600。
 - 正常插件市场重载 0.3.9，27 项包文件指纹和新后端进程核对通过。已安装主页面与桌面组件均读回在线电量和离线未知。安装版打开了默认阈值 30 的设置控件及设备别名编辑框。正式用户偏好与重载前一致。
 - 原生鼠标拖拽的手感保留待验，浮层和行位移通过浏览器指针事件验证。证据位于 `/Users/bilibili/.local/state/flowhub-device-widget-polish-20261107/`，其中 `browser-delivery/` 为最终浏览器报告及示例截图，`rpc-proof.json` 为隔离后端验证，`installed-proof.json` 为安装读回。
+
+## 0.3.10 Toolkit 设备登记联动
+
+- FlowHub 读取 Toolkit 的版本 1 设备登记。设备连接和恢复仍由 Toolkit 管理，FlowHub 继续保存显示偏好。检测到的同一台手机共用一张卡片，详情逐条显示 USB、EasyTier、Tailscale 或 TCP/IP 入口和状态。身份不匹配的连接单独显示。另一条线路已核实身份时，在线但核对超时的已登记入口标为“身份待核对”，卡片电量优先采用已核实的入口。
+- 隔离后端以真实共享登记验证。Redmi Note 11T Pro 的 EasyTier 主入口和 Tailscale 备用入口均在线，硬件身份一致，合为一张卡片。K80 的 EasyTier 入口独立显示离线。前后核对 Toolkit 配置文件内容一致。
+- 最终构建的浏览器验证通过 98 项行为检查及 24 组响应式检查。包括三条线路在同一卡片显示、按备用地址搜索、线路分别标注状态以及桌面组件读取共享别名。实机扫描没有 USB 调试入口，USB 归并使用后端夹具和浏览器验证。
+- 全仓测试、构建、机器管理布局检查及补充的旧排序继承测试通过。普通安装版重载等待 macOS 解锁，当前验收覆盖新版构建、真实后端与隔离浏览器。
+- 证据位于 `/Users/bilibili/.local/state/flowhub-toolkit-adb-20261107/`。其中 `rpc-proof.json` 为真实 ADB 后端读回，`browser/report.json` 和 `browser/adb-toolkit-connections.png` 为浏览器验证与示例预览。

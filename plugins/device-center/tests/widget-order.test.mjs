@@ -23,3 +23,11 @@ test('the bounded identity cache drops absent entries before losing live devices
  const saved=Array.from({length:1024},(_,i)=>'old-'+i),devices=[{id:'live'},{id:'old-0'}];
  const next=plain(order.merge(saved,devices));assert.equal(next.length,1024);assert.ok(next.includes('live'));assert.ok(next.includes('old-0'));assert.equal(new Set(next).size,next.length);
 });
+test('a grouped phone inherits its old route position until the phone has its own saved position',()=>{
+ const phone={id:'phone',adb:{legacyIds:['old-usb','old-tcp']}};
+ const devices=[{id:'monitor'},phone,{id:'mouse'}];
+ const old=['old-usb','monitor','old-tcp','mouse'];
+ assert.deepEqual(plain(order.sort(devices,old)).map(device=>device.id),['phone','monitor','mouse']);
+ assert.deepEqual(plain(order.merge(old,devices)),['phone','monitor','mouse']);
+ assert.deepEqual(plain(order.sort(devices,['old-tcp','mouse','phone','monitor'])).map(device=>device.id),['mouse','phone','monitor']);
+});

@@ -3,7 +3,7 @@ import {Button,DialogShell,EmptyState,HelpPopover,Input,Tabs} from '@flowhub/plu
 import type {Api} from './api';
 import {DeviceArt,Icon} from './Icons';
 import {AdbPreferenceEditor} from './AdbPreferenceEditor';
-import {adbState,adbStale,adbTransport,categories,contextSelection,deviceBattery,deviceName,displaySpec,displayType,emptyArtwork,finite,initial,isStale,listed,source,time,watts,type AdbPreferences,type Artwork,type Category,type Device,type Snapshot} from './model';
+import {adbConnectionLabel,adbConnectionSummary,adbState,adbStale,adbTransport,categories,contextSelection,deviceAlias,deviceBattery,deviceName,displaySpec,displayType,emptyArtwork,finite,initial,isStale,listed,source,time,watts,type AdbPreferences,type Artwork,type Category,type Device,type Snapshot} from './model';
 
 type Page='devices'|'power'|'events';
 type Filter='all'|Category;
@@ -14,7 +14,7 @@ function DeviceCard({device,artwork,stale,preferences,onOpen}:{device:Device;art
  const name=deviceName(device,preferences);
  const low=level!==null&&(device.adb?level<(preferences?.lowBatteryThreshold??30):level<=20);
  const speed=/(\d+(?:\.\d+)?)\s*(?:Gbit\/s|Gbps|Gb\/s|Mbps)/i.exec(device.detail);
- const info=device.adb?[adbTransport(device.adb.transport),device.adb.serial].join(' · '):device.category==='display'?device.pixelResolution||'像素参数未提供':device.detail||categories.find(c=>c.id===device.category)?.short||'设备';
+ const info=device.adb?adbConnectionSummary(device.adb):device.category==='display'?device.pixelResolution||'像素参数未提供':device.detail||categories.find(c=>c.id===device.category)?.short||'设备';
  const connection=device.adb?(stale?'上次 · ':'')+adbState(device.adb.state):'';
  const battery=device.adb?(level===null?'电量未知':`电量 ${level}%${low?'，低电量':''}`):'';
  return <Button variant="ghost" className={'dc-card '+(stale?'is-stale':'')} data-device={device.id} aria-haspopup="dialog" aria-label={[name,connection,battery,'查看详情'].filter(Boolean).join('，')} onClick={event=>{event.currentTarget.focus();onOpen(device);}}>
@@ -75,7 +75,7 @@ export function App({api}:{api:Api}) {
      setSnapshot(previous=>(previous.adbPreferences?.revision??0)>(next.adbPreferences?.revision??0)
       ?{...next,adbPreferences:previous.adbPreferences}:next);
      setClock(Date.now());
-     if(requestedDevice.current&&(next.at>0||next.adb?.at)){const d=next.devices.find(d=>d.id===requestedDevice.current);requestedDevice.current=undefined;if(d){setSelected(d);setOpen(true);}else setNotice('该设备未出现在本次采集结果中');}
+     if(requestedDevice.current&&(next.at>0||next.adb?.at)){const id=requestedDevice.current;const d=next.devices.find(d=>d.id===id||d.adb?.legacyIds?.includes(id));requestedDevice.current=undefined;if(d){setSelected(d);setOpen(true);}else setNotice('该设备未出现在本次采集结果中');}
     }
    }catch(error){if(alive){const message=String(error instanceof Error?error.message:error);setSnapshot(previous=>({...previous,...(adbOnly?{}:{stale:true,error:message}),adb:{available:false,at:0,intervalSeconds:10,...previous.adb,checkedAt:Date.now(),stale:true,error:message}}));}}
    finally {inflight=false;if(alive)setBusy(false);}
@@ -100,7 +100,12 @@ export function App({api}:{api:Api}) {
   window.addEventListener('keydown',shortcut);return ()=>window.removeEventListener('keydown',shortcut);
  },[open]);
  const connected=snapshot.devices.filter(listed);
- const visible=connected.filter(d=>(filter==='all'||d.category===filter)&&[deviceName(d,snapshot.adbPreferences),d.name,d.detail,d.adb?.serial,d.adb?adbState(d.adb.state):'',d.adb?adbTransport(d.adb.transport):''].join(' ').toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
+ const search=query.trim().toLocaleLowerCase();
+ const visible=connected.filter(d=>(filter==='all'||d.category===filter)&&[
+  deviceName(d,snapshot.adbPreferences),d.name,d.detail,d.adb?.serial,d.adb?.sharedAlias,
+  d.adb?adbState(d.adb.state):'',d.adb?adbTransport(d.adb.transport):'',
+  ...(d.adb?.connections??[]).flatMap(connection=>[connection.serial,adbState(connection.state),adbConnectionLabel(connection,true)])
+ ].join(' ').toLocaleLowerCase().includes(search));
  const showAdb=filter==='adb'||filter==='all'&&Boolean(snapshot.adb?.available||snapshot.devices.some(d=>d.category==='adb'));
  const current=selected?snapshot.devices.find(d=>d.id===selected.id):undefined;
  const detail=current||selected;
@@ -122,7 +127,12 @@ export function App({api}:{api:Api}) {
   finally{openingSettings.current=false;setSettingsBusy(false);}
  }
  async function copy(){if(!detail)return;try{await navigator.clipboard.writeText(detail.adb?detail.adb.serial:[detail.name,detail.detail,detail.battery,detail.pixelResolution,detail.refreshRate].filter(Boolean).join(' · '));setCopyState('已复制');}catch{setCopyState('复制受限，可选中详情文字手动复制');}}
- const fields=detail?(detail.adb?[['序列号',detail.adb.serial],['连接状态',adbState(detail.adb.state)],['连接方式',adbTransport(detail.adb.transport)],['型号',detail.adb.model||'未提供'],['产品',detail.adb.product||'未提供'],['传输 ID',detail.adb.transportId||'未提供']]:detail.category==='display'?[['像素分辨率',detail.pixelResolution||'未提供'],['界面逻辑尺寸',detail.logicalResolution||'未提供'],['刷新率',detail.refreshRate||'未提供'],['屏幕类型',displayType(detail)]]:[['连接方式',categories.find(c=>c.id===detail.category)?.short||'未提供'],['系统描述',detail.detail||'未提供'],['厂商 ID',detail.vendor||'未提供'],['产品 ID',detail.productId||'未提供']]):[];
+ const connections=detail?.adb?.connections??[];
+ const fields=detail?(detail.adb?[
+  ...(connections.length?[]:[['序列号',detail.adb.serial],['连接状态',adbState(detail.adb.state)],['连接方式',adbTransport(detail.adb.transport)],['传输 ID',detail.adb.transportId||'未提供']]),
+  ['型号',detail.adb.model||'未提供'],['产品',detail.adb.product||'未提供'],
+  ...(detail.adb.sharedAlias?[['Toolkit 别名',detail.adb.sharedAlias]]:[])
+ ]:detail.category==='display'?[['像素分辨率',detail.pixelResolution||'未提供'],['界面逻辑尺寸',detail.logicalResolution||'未提供'],['刷新率',detail.refreshRate||'未提供'],['屏幕类型',displayType(detail)]]:[['连接方式',categories.find(c=>c.id===detail.category)?.short||'未提供'],['系统描述',detail.detail||'未提供'],['厂商 ID',detail.vendor||'未提供'],['产品 ID',detail.productId||'未提供']]):[];
  return <Tabs value={page} onValueChange={value=>{setPage(value as Page);setEventName('');}} className="dc-app">
   <header className="dc-header"><div className="dc-brand"><Icon name="laptop"/><strong>外设中心</strong></div><Tabs.List className="dc-navigation" aria-label="外设中心工作区"><Tabs.Trigger value="devices">设备</Tabs.Trigger><Tabs.Trigger value="power">供电</Tabs.Trigger><Tabs.Trigger value="events">事件</Tabs.Trigger></Tabs.List><div className="dc-header-actions">{api.preview?<span className="dc-preview">示例数据</span>:null}{!(page==='devices'&&filter==='adb')?<Button className="dc-button dc-refresh" disabled={busy} aria-label="刷新设备" onClick={()=>reload.current(true)}><Icon className={busy?'is-spinning':''} name="refresh"/><span>刷新</span></Button>:null}</div></header>
   {(snapshot.error||stale&&snapshot.at>0)&&!(page==='devices'&&filter==='adb')?<div className="dc-warning" role={snapshot.error?'alert':'status'}>{snapshot.error?'读取失败：'+snapshot.error:'设备数据已过期'}{snapshot.at?'；以下为 '+time(snapshot.at)+' 的上次采集结果。':'。'}<Button className="dc-button" disabled={busy} onClick={()=>reload.current(true)}>重新读取</Button></div>:null}
@@ -142,7 +152,20 @@ export function App({api}:{api:Api}) {
   <footer className="dc-footer"><span>{busy?'正在采集…':filter==='adb'&&page==='devices'?adbStale(snapshot.adb)?'上次更新 ':'更新于 ':stale?'上次更新 ':'更新于 '}{busy?'':time(page==='power'?snapshot.power.sampledAt:filter==='adb'?snapshot.adb?.at:snapshot.at)}</span><span>{page==='power'?'功率每 '+interval+' 秒 · 设备每 45 秒':page==='events'?'仅在本次运行保留':filter==='adb'?'ADB 每 10 秒 · 点击查看详情':'点击设备查看详情'}</span></footer>
   <DialogShell open={open&&Boolean(detail)} onOpenChange={value=>{setOpen(value);if(!value&&!current)requestAnimationFrame(()=>inputRef.current?.focus());}} title="设备详情" className="dc-dialog" contentClassName="dc-dialog-content" footer={<><span className="dc-copy-status" role="status">{copyState}</span>{detail?.category==='display'?<Button className="dc-button dc-display-settings" disabled={api.preview||settingsBusy} title={api.preview?'只读预览不打开系统设置':'打开 macOS 显示器设置'} onClick={()=>void openDisplaySettings()}><Icon name="external"/>{settingsBusy?'正在打开…':'显示设置'}</Button>:null}<Button className="dc-button" onClick={()=>void copy()}><Icon name="copy"/>{detail?.adb?'复制序列号':'复制摘要'}</Button>{!detail?.adb?<Button variant="ghost" className="dc-button" onClick={()=>{setOpen(false);setPage('events');setEventName(detail?.name||'');}}>相关事件</Button>:null}</>}>
    {detail?<><div className="dc-detail-hero"><DeviceArt device={detail} artwork={artwork}/><div><h3>{detailName}</h3><p>{removed?'本次扫描未检测到':(detail.adb?adbStale(snapshot.adb):stale)?'上次采集结果':detail.adb?adbState(detail.adb.state):'已连接'}</p></div>{level!==null?<strong className={'dc-detail-battery '+(lowBattery?'low':'')} aria-label={lowBattery?`低电量 ${level}%`:undefined}>{level}<small>%</small></strong>:detail.adb?<small>电量未知</small>:detail.category==='display'?<strong className="dc-detail-spec">{displaySpec(detail)}</strong>:null}</div>{removed?<p className="dc-warning" role="status">设备已离开当前连接列表，以下为上次信息。</p>:null}
-    {open&&detail.adb&&!api.preview?<AdbPreferenceEditor key={detail.id} kind="alias" saved={snapshot.adbPreferences?.aliases[detail.id]??''} disabled={removed} save={alias=>saveAdbPreference('adb_set_alias',{id:detail.id,alias})}/>:null}
+    {connections.length?<section className="dc-adb-connections" aria-label="连接线路">
+     <h4>连接线路 <small>{connections.length}</small></h4>
+     <ul>{connections.map(connection=><li key={connection.serial}>
+      <div><strong>{adbConnectionLabel(connection,true)}</strong>
+       {connection.role?<small>{connection.role==='primary'?'主入口':'备用入口'}</small>:null}
+       {connection.identityVerified===false?<small>身份待核对</small>:null}
+      </div>
+      <span className="dc-adb-state" data-tone={removed||adbStale(snapshot.adb)?'stale':connection.state==='device'?'connected':'disconnected'}>
+       {removed||adbStale(snapshot.adb)?'上次 · ':''}{adbState(connection.state)}
+      </span>
+      <code>{connection.serial}</code>
+     </li>)}</ul>
+    </section>:null}
+    {open&&detail.adb&&!api.preview?<AdbPreferenceEditor key={detail.id} kind="alias" saved={deviceAlias(detail,snapshot.adbPreferences)} disabled={removed} sharedAlias={detail.adb.sharedAlias} save={alias=>saveAdbPreference('adb_set_alias',{id:detail.id,alias})}/>:null}
     <dl className="dc-detail-facts">{fields.map(([label,value])=><div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>{detail.category==='display'?<><p className="dc-detail-note">点击“显示设置”，在 macOS 中选择屏幕并调整分辨率、刷新率、镜像／扩展和排列。</p>{settingsError?<p role="alert" className="dc-warning">{settingsError}</p>:null}</>:null}{detail.adb?.state==='unauthorized'?<p className="dc-warning" role="status">请在 Android 设备上确认调试授权，然后刷新。</p>:null}{detail.adb&&snapshot.adb?.error?<p role="alert" className="dc-warning">{snapshot.adb.error}</p>:null}{level===null&&detail.category==='bluetooth'?<p className="dc-detail-note">macOS 未提供当前电量。</p>:null}<p className="dc-detail-note">{(detail.adb?adbStale(snapshot.adb):stale)||removed?'上次采集于 ':'采集于 '}{time(detail.adb?snapshot.adb?.at:snapshot.at)} · 数据来自 {detail.adb?'本机 ADB':'macOS'}</p></>:null}
   </DialogShell>
  </Tabs>;

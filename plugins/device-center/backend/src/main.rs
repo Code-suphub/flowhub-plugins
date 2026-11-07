@@ -7,6 +7,7 @@ mod device_icons;
 mod adb;
 mod adb_preferences;
 mod local_preferences;
+mod toolkit_adb;
 mod widget_order;
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
@@ -460,10 +461,11 @@ fn dispatch(state: &Arc<Mutex<State>>, method: &str, params: &Value) -> Result<V
             let id = params["id"].as_str().ok_or("缺少设备标识")?;
             let alias = params["alias"].as_str().ok_or("别名格式无效")?;
             let mut state = state.lock().map_err(|_| "状态缓存不可用")?;
-            if !state.adb.devices.iter().any(|device| device.id == id) {
-                return Err("该 ADB 连接已不在列表中，请刷新后重试".into());
-            }
-            state.adb_preferences.set_alias(id, alias)
+            let info = state.adb.devices.iter().find(|device| device.id == id)
+                .and_then(|device| device.adb.as_ref())
+                .ok_or("该 ADB 连接已不在列表中，请刷新后重试")?;
+            let previous_ids = info.legacy_ids.clone();
+            state.adb_preferences.set_alias(id, alias, &previous_ids)
         },
         "adb_set_low_battery_threshold" => {
             let threshold = params["threshold"].as_u64().ok_or("低电量阈值须为 0 到 100 的整数")?;

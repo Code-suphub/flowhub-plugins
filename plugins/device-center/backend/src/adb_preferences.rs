@@ -68,11 +68,14 @@ impl Store {
         })
     }
 
-    pub fn set_alias(&mut self, id: &str, alias: &str) -> Result<Value, String> {
+    pub fn set_alias(&mut self, id: &str, alias: &str, previous_ids: &[String]) -> Result<Value, String> {
         if !valid_id(id) || !valid_alias(alias) {
             return Err("别名最多 40 字，且不能包含控制字符".into());
         }
         let mut next = self.saved.clone();
+        for previous in previous_ids {
+            next.aliases.remove(previous);
+        }
         if alias.trim().is_empty() {
             next.aliases.remove(id);
         } else {
@@ -122,15 +125,15 @@ mod tests {
         let first = "adb-aaaaaaaaaaaaaaaa";
         let second = "adb-bbbbbbbbbbbbbbbb";
         assert_eq!(store.value()["lowBatteryThreshold"], 30);
-        store.set_alias(first, " 测试机 ").unwrap();
-        store.set_alias(second, "备用机").unwrap();
+        store.set_alias(first, " 测试机 ", &[]).unwrap();
+        store.set_alias(second, "备用机", &[]).unwrap();
         store.set_threshold(40).unwrap();
-        assert!(store.set_alias("raw-serial", "无效").is_err());
+        assert!(store.set_alias("raw-serial", "无效", &[]).is_err());
         assert!(store.set_threshold(101).is_err());
         let mut reopened = Store::open(Some(root.clone()));
         assert_eq!(reopened.value(), store.value());
         assert_eq!(reopened.value()["aliases"][first], "测试机");
-        reopened.set_alias(first, "").unwrap();
+        reopened.set_alias(first, "", &[]).unwrap();
         let saved = Store::open(Some(root.clone())).value();
         assert!(saved["aliases"][first].is_null());
         assert_eq!(saved["aliases"][second], "备用机");

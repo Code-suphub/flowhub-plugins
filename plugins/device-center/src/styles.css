@@ -37,4 +37,14 @@ html:root[data-theme=dark]{--fh-canvas:#151922;--fh-surface:#1d2330;--fh-surface
 .dc-adb-threshold>button{width:30px;min-height:30px;font-size:14px}
 .dc-adb-preference p{margin:5px 0 0;color:var(--fh-muted);font-size:10px}
 .dc-adb-preference p.dc-adb-save-error{color:var(--fh-danger)}
+.dc-adb-connections{margin:0 0 12px}
+.dc-adb-connections h4{margin:0 0 5px;font-size:11px}
+.dc-adb-connections h4 small{color:var(--fh-muted);margin-inline-start:4px}
+.dc-adb-connections ul{list-style:none;margin:0;padding:0;border:1px solid var(--fh-border);border-radius:8px}
+.dc-adb-connections li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 8px;padding:7px 9px;align-items:baseline}
+.dc-adb-connections li+li{border-top:1px solid var(--fh-border)}
+.dc-adb-connections li strong{font-size:11px}
+.dc-adb-connections li small{margin-inline-start:6px;color:var(--fh-muted);font-size:9px}
+.dc-adb-connections li .dc-adb-state{max-width:none}
+.dc-adb-connections code{grid-column:1/-1;color:var(--fh-muted);font-size:10px;overflow-wrap:anywhere}
 @media(min-width:481px) and (max-width:600px){.dc-toolbar{flex-wrap:wrap}.dc-search{width:100%;flex:none}.dc-filters{flex:1}}

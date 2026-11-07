@@ -5,10 +5,11 @@ type Props = {
   kind: 'alias' | 'threshold';
   saved: string;
   disabled?: boolean;
+  sharedAlias?: string | null;
   save: (value: string) => Promise<void>;
 };
 
-export function AdbPreferenceEditor({kind,saved,disabled,save}:Props) {
+export function AdbPreferenceEditor({kind,saved,disabled,sharedAlias,save}:Props) {
   const id=useId();
   const [draft,setDraft]=useState<string|null>(null);
   const [busy,setBusy]=useState(false);
@@ -67,7 +68,9 @@ export function AdbPreferenceEditor({kind,saved,disabled,save}:Props) {
         {busy?'保存中…':'保存'}
       </Button>
     </div>
-    <p id={id+'-help'}>{alias?'按当前 ADB 连接保存，留空可恢复原名。':'低于此值时标红，填 0 关闭提醒。'}</p>
+    <p id={id+'-help'}>{alias
+      ?sharedAlias?'留空时使用 Toolkit 别名。':'留空可恢复原名。'
+      :'低于此值时标红，填 0 关闭提醒。'}</p>
     {message?<p className={failed?'dc-adb-save-error':''} role={failed?'alert':'status'}>{message}</p>:null}
   </div>;
 }
