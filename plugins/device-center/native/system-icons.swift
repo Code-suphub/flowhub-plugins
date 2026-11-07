@@ -1,5 +1,35 @@
 import AppKit
+import IOKit
 import UniformTypeIdentifiers
+
+func usbHidNames() -> [[String: Any]] {
+    var iterator: io_iterator_t = 0
+    guard IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOHIDDevice"), &iterator)
+            == KERN_SUCCESS else { return [] }
+    defer { IOObjectRelease(iterator) }
+    var rows: [[String: Any]] = []
+    while rows.count < 128 {
+        let service = IOIteratorNext(iterator)
+        guard service != 0 else { break }
+        defer { IOObjectRelease(service) }
+        func property(_ key: String) -> CFTypeRef? {
+            IORegistryEntryCreateCFProperty(service, key as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue()
+        }
+        guard let transport = property("Transport") as? String, transport == "USB",
+              let vendor = property("VendorID") as? NSNumber,
+              let product = property("ProductID") as? NSNumber,
+              let location = property("LocationID") as? NSNumber, location.uint64Value != 0,
+              let name = property("Product") as? String, !name.isEmpty else { continue }
+        rows.append(["transport": transport, "vendor": vendor, "product": product,
+                     "location": location, "name": String(name.prefix(92))])
+    }
+    return rows
+}
+
+if CommandLine.arguments.dropFirst().elementsEqual(["--usb-hid-names"]) {
+    FileHandle.standardOutput.write(try JSONSerialization.data(withJSONObject: usbHidNames()))
+    exit(EXIT_SUCCESS)
+}
 
 // Resolve installed system artwork, not a product-photo CDN or a wallpaper.
 // Fixed family identifiers only; this helper never accepts device names or paths.

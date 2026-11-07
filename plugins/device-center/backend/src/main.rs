@@ -6,6 +6,7 @@ mod smc_power;
 mod device_icons;
 mod device_catalog;
 mod battery_history;
+mod usb_hid;
 mod adb;
 mod adb_preferences;
 mod local_preferences;
@@ -47,6 +48,8 @@ struct Device {
     refresh_rate: Option<String>,
     #[serde(skip)]
     native_display_id: Option<u32>,
+    #[serde(skip)]
+    usb_location: Option<String>,
     #[serde(default, skip_serializing_if="Option::is_none")]
     adb: Option<adb::Info>,
 }
@@ -162,7 +165,7 @@ fn device(category: &str, name: String, detail: String, discriminant: String,
     Device { id: stable_id(category, &name, &discriminant), name: short(&name, 92),
         category: category.into(), kind, detail: short(&detail, 150), status: "connected".into(),
         battery, battery_source:None, vendor, product_id, display_connection:None, pixel_resolution:None,
-        logical_resolution:None, refresh_rate:None, native_display_id:None, adb:None }
+        logical_resolution:None, refresh_rate:None, native_display_id:None, usb_location:None, adb:None }
 }
 // USB entries may be beneath _items, a host_controller object, or other nested
 // containers depending on macOS version. Walk object containers but only emit nodes
@@ -189,7 +192,9 @@ fn usb(node: &Value, parent: &str, out: &mut Vec<Device>, depth: usize) {
                     let port = field(node, &["location_id", "locationID"]).unwrap_or_default();
                     let key = format!("{}:{}:{}", vendor_id.as_deref().unwrap_or(""),
                         product_id.as_deref().unwrap_or(""), port);
-                    out.push(device("usb", name, detail, key, None, vendor_id, product_id));
+                    let mut peripheral = device("usb", name, detail, key, None, vendor_id, product_id);
+                    peripheral.usb_location = Some(port);
+                    out.push(peripheral);
                 }
             }
             for (key, value) in obj {
@@ -413,6 +418,7 @@ fn profile() -> Result<Scan, String> {
         Duration::from_secs(30), MAX_BYTES)?;
     let raw: Value = serde_json::from_slice(&output).map_err(|_| "系统设备信息格式不支持".to_string())?;
     let mut scan = parse(&raw);
+    usb_hid::read(&mut scan.devices);
     supplement_display_connections(&mut scan.devices);
     if scan.devices.iter().any(|d| d.category == "bluetooth" && d.battery.is_none()) {
         if let Ok(output) = read_system_query("/usr/bin/pmset", &["-g", "accps"], Duration::from_secs(3), 65_536) {
@@ -753,6 +759,33 @@ mod tests {
         assert_eq!(result.devices.len(), 2);
         assert!(result.devices.iter().any(|d| d.name == "Samsung T7 SSD"));
         assert!(!serde_json::to_string(&result.devices).unwrap().contains("PRIVATE_SERIAL"));
+    }
+    #[test]
+    fn generic_usb_keyboard_uses_the_hid_name_on_its_exact_port() {
+        let sample = json!({"SPUSBDataType":[{"_name":"USB 2.0 Hub","_items":[
+            {"_name":"composite_device","vendor_id":"0x258a","product_id":"0x0112","location_id":"0x00111000 / 5"},
+            {"_name":"composite_device","vendor_id":"0x258a","product_id":"0x0112","location_id":"0x00112000 / 6"}
+        ]}]});
+        let mut devices = parse(&sample).devices;
+        let keyboard_id = devices[0].id.clone();
+        let original_id = devices[1].id.clone();
+        let rows = json!([
+            {"transport":"USB","vendor":0x258a,"product":0x0112,"location":0x00111000,"name":"Gaming Keyboard"},
+            {"transport":"USB","vendor":0x258a,"product":0x0112,"location":0x00111000,"name":"Gaming Keyboard"},
+            {"transport":"Bluetooth Low Energy","vendor":0x258a,"product":0x0112,"location":0x00111000,"name":"Kzzi K75"},
+            {"transport":"USB","vendor":0x258a,"product":0x0112,"location":0x00112000,"name":"Other"},
+            {"transport":"USB","vendor":0x258a,"product":0x0112,"location":0x00112000,"name":"Different"}
+        ]);
+        let report = serde_json::to_vec(&rows).unwrap();
+        usb_hid::fill_names(&mut devices, &report);
+        let keyboard = devices.iter().find(|d| d.name == "Gaming Keyboard").unwrap();
+        assert_eq!(keyboard.id, keyboard_id);
+        assert_eq!(keyboard.category, "usb");
+        assert_eq!(keyboard.kind, "keyboard");
+        assert_eq!(keyboard.usb_location.as_deref(), Some("0x00111000 / 5"));
+        assert_eq!(devices[1].id, original_id);
+        assert_eq!(devices[1].name, "composite_device");
+        assert!(!serde_json::to_string(&devices).unwrap().contains("0x00111000"));
     }
     #[test]
     fn collects_only_connected_bluetooth() {

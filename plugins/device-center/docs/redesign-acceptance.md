@@ -86,3 +86,10 @@
 - Mac mini 重插后读到 USB `Gaming Keyboard`（VID `0x258a`，PID `0x0112`），同时蓝牙 `Kzzi-K75 5.0` 报告 100%。USB 记录未提供电量。HID 描述含厂商用途页，仍需确认协议后才能尝试灯光控制。
 - 0.3.13 通过 SSH 传输并核对归档指纹。在 Mac mini 隔离数据目录运行正式构建，实测 USB 设备、蓝牙电量及来源；将保留期设为 7 天，重启隔离进程后读回设置与电量样本。正常安装版与隔离进程单独核对。
 - 证据在 `/Users/bilibili/.local/state/flowhub-battery-history-20261107/`，`browser/battery-history.png` 为夹具示例。
+
+## 0.3.14 USB HID 显示名补全
+
+- Mac mini 在扩展坞下实际枚举到 `0x258a:0x0112` 键盘。系统 USB 报告使用 `composite_device`，HID 接口使用 `Gaming Keyboard`，macOS 同时独立报告蓝牙 `Kzzi-K75 5.0`。两个传输没有可比较的同一序列号。
+- HID 名称只用于 USB 通用名的显示补全。厂商 ID、产品 ID、USB 位置三者同时匹配且名称唯一才采用。保留设备 ID，不读取按键报告或回传 USB 位置。Mac mini 的全量 HID 注册表超过读取上限，最终使用 Swift helper 取所需的五个字段。
+- 通过 Mac mini 隔离后端对照 0.3.13 与 0.3.14，同一 USB 设备 ID 从 `composite_device` 正确显示为 `Gaming Keyboard`，类型由通用设备变为键盘。正式插件仍登记为 0.3.13，修复包已传到 `~/Library/Application Support/FlowHub/local-plugin-builds/device-center-0.3.14-verified`。
+- 目标插件回归覆盖同 ID 异口、同口多 HID 接口、蓝牙排除和身份保留。最终浏览器通过 111 项行为和 24 组尺寸／主题检查。实机读回在 `/Users/bilibili/.local/state/flowhub-usb-hid-20261107/mac-mini-final-rpc.json`。
