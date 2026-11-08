@@ -69,3 +69,27 @@
 - [x] 登记并替换正式插件 0.3.2，保存实机结果与待修／待验项；核心流程通过不代表全量验收完成。
 
 正式安装版的过程、CLI 覆盖范围和证据见 [2026-11-07 实机验收](installed-acceptance-2026-11-07.md)。它与上文隔离宿主／夹具结果分开记录。
+
+## 0.3.12 型号参考图与珂芝 K75 指南
+
+- 首批精确匹配的参考图是 Pixel 8 Pro、Logitech MX Master 3S 和 LG UltraFine 5K。未收录的型号继续用本机插图。珂芝 K75 详情显示背光快捷键和说明书入口。
+- 隔离后端从三个 Wikimedia Commons 地址分别下载一次，结束进程后以同一缓存目录重跑，三张图均读回且未发出下载请求。自动测试覆盖精确匹配、无缓存、跨次复用和损坏缓存替换。
+- 全仓测试、构建和机器管理布局检查通过。最终浏览器验证通过 109 项行为检查及 24 组尺寸／主题检查，控制台无错误。覆盖型号图在卡片与组件呈现、详情署名、K75 快捷键与说明书 RPC。拖拽检查由固定延时改为等待滚动达到原判定条件。
+- 当前 MacBook Pro 正式插件经市场重载至 0.3.12，核对 28 项文件、后端进程、详情回退图及 Esc 焦点。构建包未压缩为 1,607,365 字节，比 0.3.11 增加 53,423 字节。
+- 通过只读 SSH 在 Mac mini 读到注册的外设中心 0.2.7 和蓝牙 `Kzzi-K75 5.0`，HID 仅枚举普通键盘用途。未验证该键盘的 USB 控制协议和软件灯效写入，K75 暂无获准收录的型号参考图。
+- 证据在 `/Users/bilibili/.local/state/flowhub-device-catalog-20261107/`。其中 `cache-live.log` 为真实来源与缓存读回，`browser/k75-keyboard-detail.png` 为夹具界面，`installed-proof.json` 为安装版读回。
+
+## 0.3.13 外设电量历史
+
+- 蓝牙和 ADB 设备详情可以展开电量历史。日志按设备标识保存，记录百分比、时间及来源，默认 48 小时，可选 7 天。数据缺失时不补数，曲线留出断点。当前保留选项适用于电量历史。
+- 后端测试覆盖 30%→100% 跳变、来源切换、设备缺失、跨进程持久化和缩短保留期。全仓测试、构建和机器管理布局检查通过。最终浏览器验证通过 111 项行为检查及 24 组尺寸／主题检查，控制台无错误。
+- Mac mini 重插后读到 USB `Gaming Keyboard`（VID `0x258a`，PID `0x0112`），同时蓝牙 `Kzzi-K75 5.0` 报告 100%。USB 记录未提供电量。HID 描述含厂商用途页，仍需确认协议后才能尝试灯光控制。
+- 0.3.13 通过 SSH 传输并核对归档指纹。在 Mac mini 隔离数据目录运行正式构建，实测 USB 设备、蓝牙电量及来源；将保留期设为 7 天，重启隔离进程后读回设置与电量样本。正常安装版与隔离进程单独核对。
+- 证据在 `/Users/bilibili/.local/state/flowhub-battery-history-20261107/`，`browser/battery-history.png` 为夹具示例。
+
+## 0.3.14 USB HID 显示名补全
+
+- Mac mini 在扩展坞下实际枚举到 `0x258a:0x0112` 键盘。系统 USB 报告使用 `composite_device`，HID 接口使用 `Gaming Keyboard`，macOS 同时独立报告蓝牙 `Kzzi-K75 5.0`。两个传输没有可比较的同一序列号。
+- HID 名称只用于 USB 通用名的显示补全。厂商 ID、产品 ID、USB 位置三者同时匹配且名称唯一才采用。保留设备 ID，不读取按键报告或回传 USB 位置。Mac mini 的全量 HID 注册表超过读取上限，最终使用 Swift helper 取所需的五个字段。
+- 通过 Mac mini 隔离后端对照 0.3.13 与 0.3.14，同一 USB 设备 ID 从 `composite_device` 正确显示为 `Gaming Keyboard`，类型由通用设备变为键盘。正式插件仍登记为 0.3.13，修复包已传到 `~/Library/Application Support/FlowHub/local-plugin-builds/device-center-0.3.14-verified`。
+- 目标插件回归覆盖同 ID 异口、同口多 HID 接口、蓝牙排除和身份保留。最终浏览器通过 111 项行为和 24 组尺寸／主题检查。实机读回在 `/Users/bilibili/.local/state/flowhub-usb-hid-20261107/mac-mini-final-rpc.json`。

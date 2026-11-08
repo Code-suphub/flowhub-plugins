@@ -1,13 +1,78 @@
-export type Category='bluetooth'|'usb'|'display';
-export interface Device {id:string;name:string;category:Category;kind:string;detail:string;status:string;battery?:string|null;vendor?:string|null;productId?:string|null;displayConnection?:string;pixelResolution?:string;logicalResolution?:string;refreshRate?:string}
-export interface DeviceEvent {at:number;name:string;category:string;action:string}
+import '../ui/device-art.js';
+
+export type Category='bluetooth'|'usb'|'display'|'adb';
+export interface AdbConnection {
+  serial: string;
+  state: string;
+  transport: string;
+  source?: string | null;
+  role?: string | null;
+  identityVerified?: boolean;
+}
+export interface AdbInfo extends AdbConnection {
+  model?: string | null;
+  product?: string | null;
+  transportId?: string | null;
+  sharedAlias?: string | null;
+  connections?: AdbConnection[];
+  legacyIds?: string[];
+}
+export interface AdbReport {available:boolean;at:number;checkedAt:number;stale:boolean;error?:string|null;intervalSeconds:number}
+export interface AdbPreferences {
+  aliases: Record<string,string>;
+  lowBatteryThreshold: number;
+  revision: number;
+  error?: string | null;
+}
+export interface Device {id:string;name:string;category:Category;kind:string;detail:string;status:string;battery?:string|null;vendor?:string|null;productId?:string|null;displayConnection?:string;pixelResolution?:string;logicalResolution?:string;refreshRate?:string;adb?:AdbInfo;catalogKey?:string;keyboardModeCandidate?:boolean;usb?:{parentId?:string;manufacturer?:string;speed?:string;function?:'hub'|'billboard'}}
+export interface DeviceEvent {at:number;name:string;category:string;action:string;deviceId:string;route?:string;state?:string}
 export interface Power {adapterWatts?:string|number|null;inputWatts?:number|null;systemWatts?:number|null;batterySideWatts?:number|null;externalConnected?:boolean|null;batteryPresent?:boolean;source?:string|null;charging?:boolean|null;cableLimitWatts?:number|null;sampledAt?:number|null;note?:string;powerSourceError?:string;powerUnavailableReason?:string;telemetryError?:string;smcError?:string}
-export interface Snapshot {at:number;stale:boolean;devices:Device[];power:Power;events:DeviceEvent[];error?:string|null;intervalSeconds?:number;powerIntervalSeconds?:number}
+export interface DeviceProfile {name:string;image?:{dataUrl:string;author:string;license:string}}
+export type DeviceCatalog=Record<string,DeviceProfile>;
+export interface BatteryPoint {at:number;percent?:number;source?:'system_profiler'|'pmset'|'adb'}
+export interface BatteryReport {hours:number;from:number;to:number;points:BatteryPoint[];error?:string|null}
+export function demoBatteryHistory(id:string,now=Date.now()):BatteryReport {
+ const from=now-48*3_600_000;
+ const sample=id==='keyboard';
+ return {hours:48,from,to:now,points:sample?[
+  {at:now-72*60_000,percent:30,source:'system_profiler'},
+  {at:now-57*60_000,percent:30,source:'system_profiler'},
+  {at:now-45*60_000},
+  {at:now-27*60_000,percent:100,source:'pmset'},
+  {at:now-12*60_000,percent:100,source:'pmset'},
+ ]:[]};
+}
+export interface Snapshot {at:number;stale:boolean;devices:Device[];power:Power;events:DeviceEvent[];error?:string|null;intervalSeconds?:number;powerIntervalSeconds?:number;adb?:AdbReport;adbPreferences?:AdbPreferences;catalog?:DeviceCatalog}
 export interface Artwork {available:boolean;icons:Record<string,{dataUrl:string;typeIdentifier:string;source:string}>}
 interface Selection {deviceId?:string;view?:string}
 export interface Context {config?:{powerIntervalSeconds?:number;selection?:Selection};selection?:Selection}
 export function contextSelection(context:Context):Selection {return {deviceId:context.selection?.deviceId||context.config?.selection?.deviceId,view:context.selection?.view||context.config?.selection?.view};}
-export const categories:{id:Category;label:string;short:string}[]=[{id:'bluetooth',label:'蓝牙设备',short:'蓝牙'},{id:'usb',label:'USB 与移动设备',short:'USB'},{id:'display',label:'显示器',short:'显示器'}];
+export const categories:{id:Category;label:string;short:string}[]=[{id:'bluetooth',label:'蓝牙设备',short:'蓝牙'},{id:'usb',label:'USB 与移动设备',short:'USB'},{id:'display',label:'显示器',short:'显示器'},{id:'adb',label:'ADB 设备',short:'ADB'}];
+export function listed(device:Device):boolean {return device.category==='adb'||device.status==='connected';}
+export function adbState(state?:string):string {return ({device:'已连接',unauthorized:'未授权',offline:'离线','no permissions':'权限不足',recovery:'Recovery',sideload:'Sideload',bootloader:'Bootloader',connecting:'连接中',authorizing:'授权中'} as Record<string,string>)[state||'']||state||'状态未提供';}
+export function adbTransport(transport?:string):string {return ({usb:'USB',tcp:'TCP/IP',wireless:'无线调试',emulator:'模拟器'} as Record<string,string>)[transport||'']||'连接方式未提供';}
+export function adbConnectionLabel(connection:AdbConnection,detail=false):string {
+  if(connection.source==='easytier')return detail?'EasyTier · 本机转发':'EasyTier';
+  if(connection.source==='tailscale')return detail?'Tailscale · 直连':'Tailscale';
+  return adbTransport(connection.transport);
+}
+export function adbConnectionSummary(adb:AdbInfo):string {
+  if(!adb.connections?.length)return [adbTransport(adb.transport),adb.serial].join(' · ');
+  if(adb.connections.length===1)return [adbConnectionLabel(adb.connections[0]),adb.serial].join(' · ');
+  return [...new Set(adb.connections.map(connection=>adbConnectionLabel(connection)))].join(' / ');
+}
+export function adbStale(report?:AdbReport,now=Date.now()):boolean {return !report?.at||report.stale||Boolean(report.error)||now-report.at>30_000;}
+export function deviceAlias(device:Device,preferences?:AdbPreferences):string {
+  return preferences?.aliases[device.id]
+    || device.adb?.legacyIds?.map(id=>preferences?.aliases[id]).find(Boolean)
+    || '';
+}
+export function deviceName(device:Device,preferences?:AdbPreferences):string {
+  return (device.adb&&(deviceAlias(device,preferences)||device.adb.sharedAlias))||device.name;
+}
+export function deviceBattery(device:Device,stale:boolean):number|null {
+  return device.adb&&(stale||device.adb.state!=='device')?null:batteryLevel(device.battery);
+}
 export const initial:Snapshot={at:0,stale:true,devices:[],power:{},events:[]};
 export const emptyArtwork:Artwork={available:false,icons:{}};
 export function batteryLevel(value:unknown):number|null {if(typeof value!=='string')return null;const match=/^(\d+(?:\.\d+)?)%$/.exec(value.trim());const n=match?Number(match[1]):NaN;return Number.isFinite(n)&&n>=0&&n<=100?n:null;}
@@ -15,13 +80,13 @@ export function finite(value:unknown):number|null {return typeof value==='number
 export function watts(value:unknown):string {const n=finite(value);return n===null?'未提供':Math.abs(n).toFixed(1);}
 export function time(value:unknown):string {const n=finite(value);return n!==null&&n>0?new Date(n).toLocaleTimeString('zh-CN',{hour12:false}):'尚未采集';}
 export function isStale(snapshot:Snapshot,now=Date.now()):boolean {return !snapshot.at||snapshot.stale||Boolean(snapshot.error)||now-snapshot.at>120_000;}
-export function family(device:Device):string|undefined {
-  const n=device.name.toLowerCase();
-  if(device.kind==='phone'&&/^iphone(?:\b|\d)/i.test(n))return 'iphone';
-  if(device.kind==='headphones'&&/^airpods\b/.test(n))return /\bpro\b/.test(n)?'airpods-pro':'airpods';
-  if(device.kind==='mouse'&&/\bmagic\s*mouse\b/.test(n))return 'apple-mouse';
-  if(device.kind==='keyboard'&&/^(?:magic|apple)\s+keyboard\b/.test(n))return 'apple-keyboard';
-  if(/^macbook\b/.test(n))return 'macbook';
+export const family=globalThis.FlowHubDeviceArt.family;
+export const resolveDeviceArt=globalThis.FlowHubDeviceArt.resolve;
+export function eventLabel(event:DeviceEvent):string {
+  if(!event.route)return event.action==='connected'?'设备连接':event.action==='disconnected'?'设备断开':'设备状态变化';
+  const route=event.route==='easytier'?'EasyTier':event.route==='tailscale'?'Tailscale':event.route==='unknown'?'ADB':adbTransport(event.route);
+  const state=event.action==='connected'?'已连接':event.action==='disconnected'?'已断开':event.state==='unknown'?'状态变化':adbState(event.state);
+  return route+' · '+state;
 }
 export function displayType(device:Device):string {return device.displayConnection==='built-in'?'内置':device.displayConnection==='external'?'外接':'类型未提供';}
 export function displaySpec(device:Device):string {

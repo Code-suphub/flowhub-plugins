@@ -8,6 +8,15 @@ const load=name=>{
 };
 const model=load('model.ts'),{createApi}=load('api.ts');
 
+test('ADB states remain visible and stale results do not masquerade as current connections',()=>{
+ for(const state of ['device','unauthorized','offline','no permissions','recovery'])assert.equal(model.listed({category:'adb',status:state}),true);
+ assert.equal(model.listed({category:'usb',status:'disconnected'}),false);
+ assert.equal(model.adbState('unauthorized'),'未授权');assert.equal(model.adbState('offline'),'离线');assert.equal(model.adbState('future-state'),'future-state');
+ assert.equal(model.adbTransport('wireless'),'无线调试');assert.equal(model.adbTransport('tcp'),'TCP/IP');assert.equal(model.adbTransport('unknown'),'连接方式未提供');
+ assert.equal(model.adbStale({at:1000,stale:false},2000),false);assert.equal(model.adbStale({at:1000,stale:false,error:'timeout'},2000),true);
+ assert.equal(model.adbStale({at:1000,stale:false},31001),true);
+});
+
 test('older widget config selections remain compatible with current context selections',()=>{
  assert.deepEqual(model.contextSelection({config:{selection:{deviceId:'legacy',view:'power'}}}),{deviceId:'legacy',view:'power'});
  assert.deepEqual(model.contextSelection({selection:{deviceId:'current'},config:{selection:{deviceId:'legacy',view:'power'}}}),{deviceId:'current',view:'power'});
@@ -56,6 +65,10 @@ test('hosted page cannot opt into demo data, and accepts only its parent respons
  h.receive({type:'flowhub:response',id:h.sent[0].id,result:{devices:[]}},{});await Promise.resolve();assert.equal(resolved,false);
  h.receive({type:'flowhub:response',id:h.sent[0].id,result:{at:42}});assert.deepEqual(await promise,{at:42});api.dispose();
 });
+test('standalone preview completes an empty ADB read without querying native tools',async()=>{
+ const h=host({preview:true}),api=createApi(h.window),snapshot=await api.request('snapshot');
+ assert.equal(snapshot.adb.available,false);assert.ok(snapshot.adb.checkedAt>0);assert.equal(snapshot.devices.some(d=>d.category==='adb'),false);assert.equal(h.sent.length,0);api.dispose();
+});
 test('widget initialization preserves selection and requires its token for RPC',async()=>{
  const h=host({widget:true}),api=createApi(h.window);let context;
  api.onReady(value=>context=value);api.start();assert.equal(h.sent[0].type,'flowhub:widget-ready');
@@ -66,6 +79,14 @@ test('widget initialization preserves selection and requires its token for RPC',
  assert.equal(request.params.action,'management');assert.equal(request.params.params.powerIntervalSeconds,30);
  h.receive({type:'flowhub:widget-result',token:'secret',id:request.id,result:{ok:true}});assert.deepEqual(await result,{ok:true});api.dispose();
 });
+test('display settings uses the authenticated widget management route',async()=>{
+ const h=host({widget:true}),api=createApi(h.window);
+ h.receive({type:'flowhub:widget-init',token:'secret',context:{}});
+ const result=api.request('open_display_settings');const request=h.sent.at(-1);
+ assert.deepEqual(request.params,{action:'management',method:'open_display_settings',params:{}});
+ h.receive({type:'flowhub:widget-result',token:'secret',id:request.id,result:{opened:true}});
+ assert.deepEqual(await result,{opened:true});api.dispose();
+});
 test('transport has bounded waits and disposes outstanding requests',async()=>{
  const h=host(),api=createApi(h.window,3);await assert.rejects(api.request('snapshot'),/设备响应超时/);
  const pending=api.request('snapshot');const rejection=assert.rejects(pending,/页面已关闭/);api.dispose();await rejection;
@@ -73,5 +94,6 @@ test('transport has bounded waits and disposes outstanding requests',async()=>{
 });
 test('standalone preview remains read-only with explicit fixtures',async()=>{
  const h=host({preview:true}),api=createApi(h.window);const data=await api.request('snapshot');
- assert.equal(data.devices.length,9);assert.equal(h.sent.length,0);await assert.rejects(api.request('pair'),/只读预览/);api.dispose();
+ assert.equal(data.devices.length,9);assert.equal(h.sent.length,0);await assert.rejects(api.request('pair'),/只读预览/);
+ await assert.rejects(api.request('open_display_settings'),/只读预览/);assert.equal(h.sent.length,0);api.dispose();
 });

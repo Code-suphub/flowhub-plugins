@@ -20,7 +20,7 @@ export function createApi(host:Window,timeout=44_000) {
  host.addEventListener('message',receive);
  function request<T>(method:string,params:Record<string,unknown>={}):Promise<T> {
   if(closed)return Promise.reject(Error('页面已关闭'));
-  if(preview){if(method==='device_icons')return Promise.resolve({available:false,icons:{}} as T);if(method==='snapshot'||method==='refresh')return Promise.resolve(demo(scenario) as T);return Promise.reject(Error('只读预览不执行设备操作'));}
+  if(preview){if(method==='device_icons')return Promise.resolve({available:false,icons:{}} as T);if(method==='snapshot'||method==='refresh'||method==='adb_refresh')return Promise.resolve(demo(scenario) as T);return Promise.reject(Error('只读预览不执行设备操作'));}
   if(!ready)return Promise.reject(Error('等待组件初始化'));
   return new Promise((resolve,reject)=>{
    const id='dc-'+Date.now()+'-'+ ++sequence;

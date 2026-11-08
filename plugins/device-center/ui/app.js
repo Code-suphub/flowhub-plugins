@@ -4,18 +4,34 @@ const node=document.getElementById('app');
 const surface=document.body.dataset.surface||'main';
 const isWidget=surface!=='main';
 const hostWindow=window.parent!==window;
-const widgetToken=new URLSearchParams(location.hash.slice(1)).get('flowhubWidgetToken');
+const widgetParams=new URLSearchParams(location.hash.slice(1));
+const widgetToken=widgetParams.get('flowhubWidgetToken');
 const preview=!hostWindow||(isWidget&&!widgetToken)||new URLSearchParams(location.search).has('preview');
 if(new URLSearchParams(location.search).has('embedded'))document.body.classList.add('embedded');
 const p=new URLSearchParams(location.search);
-let loading=false,done=false,widgetContext={},widgetReady=false;
+let loading=false,done=false,widgetContext={},widgetReady=false,widgetActive=widgetParams.get('flowhubWidgetActive')!=='0';
 const pending=new Map();
-let poll=null;
+let poll=null,modePoll=null,modeRetry=null,modePending=false,modeReading=null;
 let widgetCategory='overview';
 const widgetScroll={};
-const widgetLimit=value=>value==='all'?'all':[3,5,8].includes(Number(value))?Number(value):3;
+const orderTools=window.FlowHubDeviceOrder;
+let orderDraft=null,orderSaving=false,orderError='',orderNotice='',drag=null,dragFrame=null;
 const powerIntervals=[5,10,30,60];
 const powerInterval=()=>powerIntervals.includes(Number(widgetContext?.config?.powerIntervalSeconds))?Number(widgetContext.config.powerIntervalSeconds):5;
+const cardDefinitions={
+  power:{label:'供电概览',description:'整机耗电与供电来源',icon:'power',visible:true},
+  devices:{label:'设备列表',description:'连接记录与设备筛选',icon:'overview',visible:true},
+  keyboard:{label:'K75 键位模式',description:'通过有线 USB 读取 Mac 或 Windows 键位',icon:'keyboard',visible:false}
+};
+function cards(config=widgetContext?.config){
+  const saved=Array.isArray(config?.cards)?config.cards:[];
+  const result=new Map();
+  for(const card of saved){
+    if(typeof card?.id==='string'&&Object.hasOwn(cardDefinitions,card.id)&&typeof card.visible==='boolean'&&!result.has(card.id))result.set(card.id,card.visible);
+  }
+  for(const [id,definition] of Object.entries(cardDefinitions))if(!result.has(id))result.set(id,definition.visible);
+  return [...result].map(([id,visible])=>({id,visible}));
+}
 const paths={
   overview:'<rect x="3" y="3" width="18" height="15" rx="3"/><path d="M9 22h6m-3-4v4"/>',
   bluetooth:'<path d="m7 7 10 10-5 4V3l5 4L7 17"/>',
@@ -33,12 +49,17 @@ const paths={
   refresh:'<path d="M20 7v5h-5M4 17v-5h5"/><path d="M6 9A7 7 0 0 1 18 7l2 5M4 12l2 5a7 7 0 0 0 12-2"/>',
   info:'<circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10h.01"/>',
   close:'<path d="m5 5 14 14M19 5 5 19"/>',
+  grip:'<circle cx="9" cy="5" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="19" r="1"/>',
+  keyboard:'<rect x="2" y="5" width="20" height="14" rx="3"/><path d="M6 9h1m4 0h1m4 0h1M6 13h1m4 0h1m4 0h1m-8 3h6"/>',
   headset:'<path d="M4 13v-2a8 8 0 0 1 16 0v2M4 13h4v7H6a2 2 0 0 1-2-2v-5Zm16 0h-4v7h2a2 2 0 0 0 2-2v-5Z"/>',
   device:'<rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/>'
 };
 const svg=(name,cls='')=>`<svg class="icon ${cls}" viewBox="0 0 24 24" aria-hidden="true">${paths[name]||paths.device}</svg>`;
 const safe=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const label={overview:'概览',bluetooth:'蓝牙设备',usb:'USB 与移动设备',display:'显示器',power:'供电',events:'历史事件',settings:'设置'};
+const label={overview:'概览',bluetooth:'蓝牙设备',usb:'USB 与移动设备',display:'显示器',adb:'ADB',power:'供电',events:'历史事件',settings:'设置'};
+const adbState=state=>({device:'已连接',unauthorized:'未授权',offline:'离线','no permissions':'权限不足',recovery:'Recovery',sideload:'Sideload',bootloader:'Bootloader',connecting:'连接中',authorizing:'授权中'})[state]||state||'状态未提供';
+const adbTransport=transport=>({usb:'USB',tcp:'TCP/IP',wireless:'无线调试',emulator:'模拟器'})[transport]||'连接方式未提供';
+const connectionLabel=connection=>({easytier:'EasyTier',tailscale:'Tailscale'})[connection.source]||adbTransport(connection.transport);
 const demo={
   at:Date.now(),stale:false,
   devices:[
@@ -62,7 +83,11 @@ const demo={
   ],previewAnomalies:1
 };
 let data=preview?structuredClone(demo):{at:0,stale:true,devices:[],events:[],power:{},error:null};
-function photo(d){const known=['headphones','mouse','keyboard','phone','drive','hub','device','laptop'];const kind=d.category==='display'?'monitor':known.includes(d.kind)?d.kind:'device';return '<span class="device-photo"><img src="assets/'+kind+'.svg" alt="设备类别图标" loading="lazy"></span>';}
+let artwork,artworkRequested=false;
+function photo(d){
+ const art=globalThis.FlowHubDeviceArt.resolve(d,artwork,data.catalog);
+ return `<span class="device-photo"><img src="${art.src}" data-fallback="${art.fallback}" alt="${art.label}" loading="lazy"></span>`;
+}
 function displayType(d){return ({'built-in':'内置','external':'外接'})[d.displayConnection]||'类型未知';}
 function displayBadge(d){return d.category==='display'?`<span class="display-connection">${displayType(d)}</span>`:'';}
 function displaySpec(d){
@@ -76,12 +101,38 @@ function displaySpec(d){
     '6144x3456':'6K','7680x4320':'8K'};
   return [names[key]||d.pixelResolution,d.refreshRate].filter(Boolean).join(' · ');
 }
-function battery(pct){
-  const level=Number(String(pct).replace(/%$/,''));
+function battery(pct,threshold){
+  const match=/^(\d+(?:\.\d+)?)%$/.exec(String(pct).trim());
+  const level=match?Number(match[1]):NaN;
   if(!Number.isFinite(level)||level<0||level>100)return '';
-  return `<span class="battery-val">${level}%</span><span class="battery-indicator${level<=20?' low':''}" style="--battery-level:${level/100}" aria-label="电量 ${level}%"></span>`;
+  const low=threshold===undefined?level<=20:level<threshold;
+  return `<span class="battery-reading${low?' low':''}" aria-label="${low&&threshold!==undefined?'低电量':'电量'} ${level}%"><span class="battery-val">${level}%</span><span class="battery-indicator${low?' low':''}" style="--battery-level:${level/100}" aria-hidden="true"></span></span>`;
 }
-function row(d){return '<button class="device-row" type="button" data-device="'+safe(d.id)+'">'+photo(d)+'<span class="device-name-wrap"><span class="device-name">'+safe(d.name)+displayBadge(d)+'</span><span class="device-sub">'+safe(displaySpec(d)||'已连接')+'</span></span>'+(d.battery?battery(d.battery):'')+'</button>';}
+function row(d,position,total,parent){
+ const adb=d.adb,preferences=data.adbPreferences;
+ const cached=adb&&(!data.adb?.at||data.adb.stale||data.adb.error||Date.now()-data.adb.at>30_000);
+ const name=(adb&&(preferences?.aliases?.[d.id]||adb.legacyIds?.map(id=>preferences?.aliases?.[id]).find(Boolean)||adb.sharedAlias))||d.name;
+ const connections=adb?.connections||[];
+ const description=adb
+   ?connections.length>1?[...new Set(connections.map(connectionLabel))].join(' / ')
+     :[connections[0]?connectionLabel(connections[0]):adbTransport(adb.transport),adb.serial].join(' · ')
+   :[displaySpec(d),parent?'经 '+(parent.usb?.manufacturer||parent.name):''].filter(Boolean).join(' · ')||'已连接';
+ const state=adb?`<span class="device-adb-state" data-tone="${cached?'stale':adb.state==='device'?'connected':'disconnected'}">${cached?'上次 · ':''}${safe(adbState(adb.state))}</span>`:'';
+ const reading=adb
+   ?(!cached&&adb.state==='device'&&d.battery?battery(d.battery,preferences?.lowBatteryThreshold??30):'')||'<span class="battery-unknown">电量未知</span>'
+   :d.battery?battery(d.battery):'';
+ return `<div class="device-row" role="listitem" aria-posinset="${position}" aria-setsize="${total}" data-order-item="${safe(d.id)}">
+   <button class="device-open" type="button" data-device="${safe(d.id)}">
+     ${photo(d)}<span class="device-name-wrap">
+       <span class="device-title"><span class="device-name" title="${safe(name)}">${safe(name)}${displayBadge(d)}</span>${state}</span>
+       <span class="device-sub" title="${safe(description)}">${safe(description)}</span>
+     </span>${reading}
+   </button>
+   <button class="device-order-handle" type="button" data-order-handle="${safe(d.id)}"
+     aria-label="调整 ${safe(name)} 的顺序" aria-description="拖动排序，也可使用上下方向键移动，Home 和 End 移到首尾"
+     title="拖动排序，或用上下方向键移动"${preview||orderSaving||orderDraft?' disabled':''}>${svg('grip')}</button>
+ </div>`;
+}
 function powerValues(power){
   const number=value=>{const n=value===null||value===undefined||value===''?null:Number(value);return n!==null&&Number.isFinite(n)?n:null;};
   const watt=value=>{const n=number(value);return n!==null&&Number.isFinite(n)?`${Math.abs(n).toFixed(1)}W`:'未提供';};
@@ -102,25 +153,89 @@ function powerFlow(power){
   }
   return {source:'未提供',state:power.powerSourceError||'供电状态未提供',detail:''};
 }
+function keyboardCandidates(){
+  return data.devices.filter(d=>d.keyboardModeCandidate&&d.status==='connected');
+}
+function modeText(){
+  const candidates=keyboardCandidates();
+  if(candidates.length>1)return '有多把候选键盘';
+  if(!candidates.length)return data.at?'未检测到有线 K75':'正在检测…';
+  const reading=modeReading?.id===candidates[0].id?modeReading.value:null;
+  if(reading?.status==='unavailable')return '无法读取';
+  if(reading?.status!=='read')return '正在读取…';
+  return reading.mode==='mac'?'Mac 模式':reading.mode==='windows'?'Windows 模式':'模式未知';
+}
+async function refreshKeyboardMode(followUp=false){
+  if(done||preview||!widgetActive||document.hidden||modePending||!cards().some(card=>card.id==='keyboard'&&card.visible))return;
+  const candidates=keyboardCandidates();
+  if(candidates.length!==1){modeReading=null;return;}
+  const {id}=candidates[0];
+  modePending=true;
+  let value;
+  try{value=await rpc('keyboard_mode',{id});}
+  catch{value={status:'unavailable'};}
+  finally{modePending=false;}
+  if(done||!widgetActive)return;
+  modeReading={id,value};
+  const mode=node.querySelector('#widgetKeyboardMode');
+  if(mode){const text=modeText();if(text!==mode.textContent)mode.textContent=text;}
+  if(followUp&&value?.status==='pending')modeRetry=setTimeout(()=>void refreshKeyboardMode(),400);
+}
 function widgetView(){
-  const config=widgetContext?.config||{},limit=widgetLimit(config.limit);
-  const devices=data.devices.filter(d=>d.status==='connected');
+  const config=widgetContext?.config||{};
+  const devices=orderTools.sort(data.devices.filter(d=>d.category==='adb'||d.status==='connected'),orderDraft||data.widgetOrder?.ids||[]);
   const filtered=widgetCategory==='overview'?devices:devices.filter(d=>d.category===widgetCategory);
-  const s=limit==='all'?filtered:filtered.slice(0,limit),w=data.power||{};
-  const title=String(config.title||'外设中心').slice(0,40),stale=data.stale||Boolean(data.error);
-  const status=!preview&&stale?`<p class="warning-message" role="status">${data.error?'设备读取失败：'+safe(data.error):'设备状态已过期'}，以下为上次采集结果。</p>`:'';
-  const heading=(stale?'上次连接设备':'当前连接设备')+(widgetCategory==='overview'?'':` · ${label[widgetCategory]}`);
-  const shown=s.length<filtered.length?` · 显示 ${s.length}/${filtered.length}`:` · ${filtered.length} 个`;
+  const s=filtered,w=data.power||{};
+  const title=String(config.title||'外设中心').slice(0,40),stale=widgetCategory==='adb'?(!data.adb?.at||data.adb.stale||Boolean(data.adb.error)):data.stale||Boolean(data.error),error=widgetCategory==='adb'?data.adb?.error:data.error;
+  const status=!preview&&stale?`<p class="warning-message" role="status">${error?'设备读取失败：'+safe(error):'设备状态已过期'}，以下为上次采集结果。</p>`:'';
+  const heading=(stale?'上次':'当前')+(filtered.some(d=>d.category==='adb')?'设备记录':'连接设备')+(widgetCategory==='overview'?'':` · ${label[widgetCategory]}`);
+  const shown=` · ${filtered.length} 个`;
   const reading=powerValues(w),flow=powerFlow(w);
   const powerError=w.telemetryError?`<p class="warning-message" role="status">当前功率读取失败：${safe(w.telemetryError)}</p>`:'';
-  const counts=[['全部',devices.length,'overview'],['蓝牙',devices.filter(d=>d.category==='bluetooth').length,'bluetooth'],['USB',devices.filter(d=>d.category==='usb').length,'usb'],['显示器',devices.filter(d=>d.category==='display').length,'display']];
+  const counts=[['全部',devices.length,'overview'],['蓝牙',devices.filter(d=>d.category==='bluetooth').length,'bluetooth'],['USB',devices.filter(d=>d.category==='usb').length,'usb'],['显示器',devices.filter(d=>d.category==='display').length,'display'],['ADB',devices.filter(d=>d.category==='adb').length,'adb']];
   const filters=counts.map(([title,value,key])=>`<button type="button" class="widget-metric" data-widget-category="${key}" aria-pressed="${widgetCategory===key}" aria-label="查看${title}设备">${svg(key)}<span>${safe(title)}</span><strong>${value}</strong></button>`).join('');
-  const items=s.length?s.map(d=>row(d,{widget:true})).join(''):`<p class="empty">${widgetCategory==='overview'?'当前没有检测到已连接设备':'当前分类没有检测到已连接设备'}</p>`;
-  return `<main class="widget"><header class="widget-head"><span class="brand-mark">${svg('overview')}</span><strong>${safe(title)}</strong><button class="icon-control more" id="widgetOpen" type="button" aria-label="打开外设中心">${svg('dots')}</button></header>${status}<div class="widget-counts">${filters}</div><button type="button" class="widget-power" id="widgetPower" aria-label="查看供电详情" title="${safe(w.powerUnavailableReason||w.note||'查看输入功率、电池充放电与适配器详情')}"><span class="widget-power-metric"><span>整机耗电</span><strong>${reading.system}</strong></span><span class="widget-power-metric"><span>供电来源</span><span class="widget-source-value" title="${safe(flow.state)}"><strong>${flow.source}</strong>${flow.detail?`<small>${safe(flow.detail)}</small>`:''}</span></span></button>${powerError}<p class="widget-section">${heading}${shown}</p><div class="widget-device-list">${items}</div></main>${preview?'<span class="preview-tag">演示数据</span>':''}`;
+  const deviceById=new Map(devices.map(device=>[device.id,device]));
+  const items=s.length?s.map((d,index)=>row(d,index+1,s.length,deviceById.get(d.usb?.parentId))).join(''):`<p class="empty">${widgetCategory==='overview'?'当前没有检测到已连接设备':'当前分类没有检测到已连接设备'}</p>`;
+  const issue=orderError||data.widgetOrder?.error;
+  const orderStatus=issue?`<div class="widget-order-error" role="alert">${safe(issue)}${orderDraft&&!orderSaving?'<div><button id="widgetOrderRetry" type="button">重试保存</button><button id="widgetOrderDiscard" type="button">撤销排序</button></div>':''}</div>`:'';
+  const content={
+    power:`<section data-widget-card="power" aria-label="供电概览"><button type="button" class="widget-power" id="widgetPower" aria-label="查看供电详情" title="${safe(w.powerUnavailableReason||w.note||'查看输入功率、电池充放电与适配器详情')}"><span class="widget-power-metric"><span>整机耗电</span><strong>${reading.system}</strong></span><span class="widget-power-metric"><span>供电来源</span><span class="widget-source-value" title="${safe(flow.state)}"><strong>${flow.source}</strong>${flow.detail?`<small>${safe(flow.detail)}</small>`:''}</span></span></button>${powerError}</section>`,
+    devices:`<section class="widget-devices" data-widget-card="devices" aria-label="设备列表">${status}<div class="widget-counts">${filters}</div><div class="widget-section"><span>${heading}${shown}</span><span class="widget-order-notice" role="status">${safe(orderNotice)}</span></div>${orderStatus}<div class="widget-device-list" data-widget-list-category="${widgetCategory}" role="list" aria-label="设备列表">${items}</div></section>`,
+    keyboard:`<section class="widget-keyboard" data-widget-card="keyboard" aria-label="K75 键位模式">${svg('keyboard')}<span>K75 键位</span><strong id="widgetKeyboardMode" role="status">${modeText()}</strong></section>`
+  };
+  const visible=cards(config).filter(card=>card.visible);
+  return `<main class="widget"><header class="widget-head"><span class="brand-mark">${svg('overview')}</span><strong>${safe(title)}</strong><button class="icon-control more" id="widgetOpen" type="button" aria-label="打开外设中心">${svg('dots')}</button></header><div class="widget-cards">${visible.map(card=>content[card.id]).join('')||'<p class="empty">可在组件编辑中选择要显示的卡片</p>'}</div></main>${preview?'<span class="preview-tag">演示数据</span>':''}`;
 }
-function editorView(){const conf=widgetContext?.config||{};return `<main class="editor"><h1>桌面组件</h1><label>组件名称<input id="widget-title" maxlength="40" value="${safe(conf.title||'外设中心')}"></label><label>显示数量<select id="widget-limit">${[3,5,8,'all'].map(n=>`<option value="${n}" ${widgetLimit(conf.limit)===n?'selected':''}>${n==='all'?'全部设备（列表可滚动）':n+' 个'}</option>`).join('')}</select></label><label>功率采样间隔<select id="widget-interval">${powerIntervals.map(n=>`<option value="${n}" ${powerInterval()===n?'selected':''}>${n} 秒</option>`).join('')}</select></label></main>`;}
-function redraw(){
-  if(done)return;
+function editorView(){
+  const conf=widgetContext?.config||{};
+  const rows=cards(conf).map(({id,visible})=>{
+    const {label,description,icon}=cardDefinitions[id];
+    return `<div class="editor-card" role="listitem" data-order-item="${id}">
+      <label><input type="checkbox" data-card-visible aria-label="显示${label}" ${visible?'checked':''}><span class="brand-mark">${svg(icon)}</span><span><strong>${label}</strong><small>${description}</small></span></label>
+      <button class="device-order-handle" type="button" data-order-handle="${id}" aria-label="调整${label}的顺序" aria-description="拖动排序，也可使用上下方向键移动，Home 和 End 移到首尾" title="拖动排序，或用上下方向键移动">${svg('grip')}</button>
+    </div>`;
+  }).join('');
+  return `<main class="editor"><h1>桌面组件</h1><label class="editor-field">组件名称<input id="widget-title" maxlength="40" value="${safe(conf.title||'外设中心')}"></label><section aria-labelledby="widget-cards-heading"><h2 id="widget-cards-heading">展示内容</h2><p>勾选要显示的卡片，拖动右侧把手调整顺序。</p><div class="editor-cards" role="list" aria-labelledby="widget-cards-heading">${rows}</div></section><label class="editor-field">功率采样间隔<select id="widget-interval">${powerIntervals.map(n=>`<option value="${n}" ${powerInterval()===n?'selected':''}>${n} 秒</option>`).join('')}</select></label></main>`;
+}
+function moveCard(source,target,after,ensureVisible=false){
+  const list=node.querySelector('.editor-cards');
+  const rows=[...list.querySelectorAll('[data-order-item]')];
+  const moved=rows.find(row=>row.dataset.orderItem===source);
+  const destination=rows.find(row=>row.dataset.orderItem===target);
+  if(!moved||!destination||moved===destination)return false;
+  list.insertBefore(moved,after?destination.nextSibling:destination);
+  const handle=moved.querySelector('[data-order-handle]');
+  handle.focus({preventScroll:true});
+  if(ensureVisible)handle.scrollIntoView({block:'nearest'});
+  return true;
+}
+function redraw(focusId,ensureVisible=false){
+  if(done||drag)return;
+  const previousList=node.querySelector('.widget-device-list');
+  if(previousList?.dataset?.widgetListCategory)widgetScroll[previousList.dataset.widgetListCategory]=previousList.scrollTop;
+  const active=document.hasFocus?.()?document.activeElement:null;
+  const ownFocus=focusId&&(!active||active===document.body||active.dataset?.orderHandle===focusId);
+  const focus=ownFocus?{handle:focusId}:active?.dataset?.orderHandle?{handle:active.dataset.orderHandle}:active?.dataset?.device?{device:active.dataset.device}:active?.dataset?.widgetCategory?{category:active.dataset.widgetCategory}:null;
   node.innerHTML=surface==='editor'?editorView():widgetView();
   node.querySelectorAll('[data-widget-category]').forEach(btn=>btn.addEventListener('click',()=>{widgetCategory=btn.dataset.widgetCategory;redraw();}));
   const widgetList=node.querySelector('.widget-device-list'),category=widgetCategory;
@@ -131,43 +246,225 @@ function redraw(){
   }));
   node.querySelector('#widgetOpen')?.addEventListener('click',()=>{if(!preview&&widgetToken)window.parent.postMessage({type:'flowhub:widget-navigate',token:widgetToken,action:'detail',selection:{view:widgetCategory}},'*');});
   node.querySelector('#widgetPower')?.addEventListener('click',()=>{if(!preview&&widgetToken)window.parent.postMessage({type:'flowhub:widget-navigate',token:widgetToken,action:'detail',selection:{view:'power'}},'*');});
-  for(const img of node.querySelectorAll('img'))img.addEventListener('error',()=>{img.replaceWith(document.createTextNode('◇'));},{once:true});
+  node.querySelector('#widgetOrderRetry')?.addEventListener('click',()=>{if(orderDraft)void saveOrder(orderDraft);});
+  node.querySelector('#widgetOrderDiscard')?.addEventListener('click',()=>{orderDraft=null;orderError='';orderNotice='';redraw();});
+  bindOrder(widgetList,moveDevice,()=>preview||orderSaving||Boolean(orderDraft));
+  bindOrder(node.querySelector('.editor-cards'),moveCard,()=>false);
+  if(focus&&document.hasFocus?.()){
+    const selector=focus.handle?'[data-order-handle]':focus.device?'[data-device]':'[data-widget-category]';
+    const target=[...node.querySelectorAll(selector)].find(el=>(el.dataset.orderHandle||el.dataset.device||el.dataset.widgetCategory)===(focus.handle||focus.device||focus.category));
+    target?.focus({preventScroll:true});
+    if(ensureVisible&&ownFocus){target?.scrollIntoView({block:'nearest'});if(widgetList)widgetScroll[widgetCategory]=widgetList.scrollTop;}
+  }
+  for(const img of node.querySelectorAll('img'))img.addEventListener('error',()=>{
+    if(img.getAttribute('src')!==img.dataset.fallback){
+      img.src=img.dataset.fallback;
+      img.alt='设备类别示意图';
+    }else img.replaceWith(document.createTextNode('◇'));
+  });
   if(isWidget&&widgetToken&&widgetReady){window.parent.postMessage({type:'flowhub:widget-size',token:widgetToken,height:Math.ceil(document.documentElement.scrollHeight)},'*');}
 }
-function rpc(method){
+function rpc(method,extra={}){
   if(preview)return Promise.resolve(demo);
   const id='dc-preview-'+Date.now()+'-'+Math.random().toString(16).slice(2);
   return new Promise((resolve,reject)=>{
     const timer=setTimeout(()=>{pending.delete(id);reject(new Error('设备响应超时'));},44000);
     pending.set(id,{resolve,reject,timer});
-    const params={powerIntervalSeconds:powerInterval()};
+    const params={...extra,powerIntervalSeconds:powerInterval()};
     const msg=isWidget?{type:'flowhub:widget-rpc',id,token:widgetToken,params:{action:'management',method,params}}:{type:'flowhub:request',id,method,params};
     window.parent.postMessage(msg,'*');
   });
 }
+async function saveOrder(ids,focusId,ensureVisible=false){
+  if(preview||orderSaving)return;
+  orderDraft=ids;orderSaving=true;orderError='';orderNotice='保存中…';redraw(focusId,ensureVisible);
+  try{
+    const result=await rpc('widget_order_set',{ids,expectedRevision:data.widgetOrder?.revision||0});
+    if(done)return;
+    data={...data,widgetOrder:result};orderDraft=null;orderNotice='顺序已保存';
+  }catch(error){
+    if(done)return;
+    orderError=String(error);orderNotice='尚未保存';
+    // A timeout can happen after a successful write. Read back before offering
+    // a retry; never blindly repeat a preference write with an old revision.
+    try{const next=await rpc('snapshot');if(!done&&Array.isArray(next.devices)){data=next;if(JSON.stringify(data.widgetOrder?.ids)===JSON.stringify(ids)){orderDraft=null;orderError='';orderNotice='顺序已保存';}}}catch{}
+  }finally{orderSaving=false;if(!done)redraw(focusId);}
+}
+function moveDevice(source,target,after=false,ensureVisible=false){
+  if(preview||orderSaving||orderDraft)return false;
+  const order=orderTools.merge(data.widgetOrder?.ids||[],data.devices);
+  const next=orderTools.move(order,source,target,after);
+  if(JSON.stringify(next)===JSON.stringify(order))return false;
+  void saveOrder(next,source,ensureVisible);return true;
+}
+function endDrag(){
+  if(dragFrame!==null){cancelAnimationFrame(dragFrame);dragFrame=null;}
+  const previous=drag;drag=null;
+  previous?.ghost?.remove();
+  try{if(previous?.handle.hasPointerCapture(previous.pointerId))previous.handle.releasePointerCapture(previous.pointerId);}catch{}
+  previous?.list.classList.remove('is-order-dragging');
+  previous?.sourceRow.classList.remove('is-dragging');
+  previous?.target?.removeAttribute('data-drop');
+  previous?.rows?.forEach(({row})=>row.style.removeProperty('--drag-shift'));
+}
+function liftRow(active){
+  const {list,sourceRow}=active;
+  const bounds=list.getBoundingClientRect();
+  const origin=sourceRow.getBoundingClientRect();
+  active.rows=[...list.querySelectorAll('[data-order-item]')].map(row=>{
+    const rect=row.getBoundingClientRect();
+    return {row,midpoint:rect.top-bounds.top+list.scrollTop+rect.height/2};
+  });
+  active.sourceIndex=active.rows.findIndex(item=>item.row===sourceRow);
+  active.height=origin.height;
+  active.pointerOffset=active.startY-origin.top;
+  const ghost=sourceRow.cloneNode(true);
+  ghost.classList.add('widget-drag-ghost');
+  ghost.removeAttribute('data-order-item');
+  ghost.setAttribute('aria-hidden','true');
+  ghost.inert=true;
+  for(const child of ghost.querySelectorAll('[data-device],[data-order-handle],[data-card-visible]')){
+    child.removeAttribute('data-device');
+    child.removeAttribute('data-order-handle');
+    child.removeAttribute('data-card-visible');
+  }
+  ghost.style.left=origin.left+'px';
+  ghost.style.width=origin.width+'px';
+  ghost.style.height=origin.height+'px';
+  document.body.append(ghost);
+  active.ghost=ghost;
+  sourceRow.classList.add('is-dragging');
+  list.classList.add('is-order-dragging');
+}
+function showDropGap(active,gap){
+  if(active.gap===gap)return;
+  active.gap=gap;
+  active.target?.removeAttribute('data-drop');
+  const {rows,sourceIndex,height}=active;
+  const moved=gap!==null&&gap!==sourceIndex&&gap!==sourceIndex+1;
+  const destination=moved?(gap>sourceIndex?gap-1:gap):sourceIndex;
+  active.target=moved?(rows[gap]||rows[rows.length-1]).row:null;
+  active.after=moved&&gap===rows.length;
+  if(active.target)active.target.dataset.drop=active.after?'after':'before';
+  rows.forEach(({row},index)=>{
+    let shift=0;
+    if(index===sourceIndex)shift=destination-sourceIndex;
+    else if(destination<sourceIndex&&index>=destination&&index<sourceIndex)shift=1;
+    else if(destination>sourceIndex&&index>sourceIndex&&index<=destination)shift=-1;
+    row.style.setProperty('--drag-shift',shift*height+'px');
+  });
+}
+function dragPosition(list,x,y){
+  if(!drag)return;
+  drag.x=x;
+  drag.y=y;
+  const bounds=list.getBoundingClientRect();
+  const inside=x>=bounds.left&&x<=bounds.right&&y>=bounds.top&&y<=bounds.bottom;
+  // Use the original row positions so animated neighbors never move the hit targets.
+  const contentY=y-bounds.top+list.scrollTop;
+  const next=inside?drag.rows.findIndex(({midpoint})=>contentY<midpoint):-1;
+  showDropGap(drag,inside?(next===-1?drag.rows.length:next):null);
+  const left=Math.max(-5,Math.min(5,x-drag.startX));
+  const top=Math.max(bounds.top,Math.min(bounds.bottom-drag.height,y-drag.pointerOffset));
+  drag.ghost.style.transform=`translate3d(${left}px,${top}px,0)`;
+  drag.scroll=!inside?0:y<bounds.top+24?-6:y>bounds.bottom-24?6:0;
+}
+function scrollDrag(list){
+  if(dragFrame!==null||!drag?.scroll)return;
+  const scroll=()=>{dragFrame=null;if(!drag?.scroll)return;const before=list.scrollTop;list.scrollTop+=drag.scroll;if(list.scrollTop!==before){dragPosition(list,drag.x,drag.y);if(drag?.scroll)dragFrame=requestAnimationFrame(scroll);}};
+  dragFrame=requestAnimationFrame(scroll);
+}
+function movePointer(event){
+  if(!drag||event.pointerId!==drag.pointerId)return;
+  if(!drag.moved&&Math.hypot(event.clientX-drag.startX,event.clientY-drag.startY)<5)return;
+  event.preventDefault();
+  event.stopPropagation();
+  if(!drag.moved){
+    drag.moved=true;
+    liftRow(drag);
+  }
+  dragPosition(drag.list,event.clientX,event.clientY);scrollDrag(drag.list);
+}
+function finishPointer(event){
+  if(!drag||event.pointerId!==drag.pointerId)return;
+  event.preventDefault();event.stopPropagation();if(drag.moved)dragPosition(drag.list,event.clientX,event.clientY);
+  const {id,target,after,moved,move,list}=drag;endDrag();
+  if((!moved||!target||!move(id,target.dataset.orderItem,after))&&list.matches('.widget-device-list'))redraw(id);
+}
+function cancelPointer(){if(drag){const {id,list}=drag;endDrag();if(list.matches('.widget-device-list'))redraw(id);}}
+function leaveWidget(event){if(!event.relatedTarget)cancelPointer();}
+function bindOrder(list,move,disabled){
+  if(!list)return;
+  for(const handle of list.querySelectorAll('[data-order-handle]')){
+    handle.addEventListener('keydown',event=>{
+      if(event.key==='Escape'&&drag){event.preventDefault();event.stopPropagation();cancelPointer();return;}
+      if(disabled()||event.isComposing||event.altKey||event.ctrlKey||event.metaKey||event.shiftKey)return;
+      if(!['ArrowUp','ArrowDown','Home','End'].includes(event.key))return;
+      event.preventDefault();event.stopPropagation();
+      if(event.repeat)return;
+      const keys=[...list.querySelectorAll('[data-order-item]')].map(el=>el.dataset.orderItem),id=handle.dataset.orderHandle,index=keys.indexOf(id);
+      const target=event.key==='Home'?0:event.key==='End'?keys.length-1:event.key==='ArrowUp'?index-1:index+1;
+      if(keys[target])move(id,keys[target],event.key==='ArrowDown'||event.key==='End',true);
+    });
+    handle.addEventListener('pointerdown',event=>{
+      if(disabled()||drag||event.button!==0||!event.isPrimary)return;
+      event.preventDefault();event.stopPropagation();handle.focus({preventScroll:true});
+      drag={
+        id:handle.dataset.orderHandle,handle,list,move,sourceRow:handle.closest('[data-order-item]'),
+        pointerId:event.pointerId,startX:event.clientX,startY:event.clientY,
+        target:null,after:false,scroll:0,moved:false
+      };
+      handle.setPointerCapture(event.pointerId);
+    });
+    for(const type of ['pointercancel','lostpointercapture'])handle.addEventListener(type,cancelPointer);
+    handle.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();});
+  }
+}
 async function refresh(force=false){
   if(done||loading)return;
   loading=true;
-  try{const next=await rpc(force?'refresh':'snapshot');if(!done&&Array.isArray(next.devices)){data=next;redraw();}}
+  try{const next=await rpc(force?'refresh':'snapshot');if(!done&&Array.isArray(next.devices)){
+    data=next;
+    if(modeReading&&!keyboardCandidates().some(device=>device.id===modeReading.id))modeReading=null;
+    redraw();
+    if(!modeReading)void refreshKeyboardMode(true);
+  }}
   catch(err){if(!done){data={...data,error:String(err),stale:true};redraw();}}
   finally{loading=false;}
 }
 function startPolling(){
   clearInterval(poll);
-  if(surface==='editor'||preview)return;
+  clearInterval(modePoll);
+  clearTimeout(modeRetry);
+  if(done||surface==='editor'||preview||!widgetActive)return;
   poll=setInterval(()=>{if(!document.hidden&&(!isWidget||widgetReady))void refresh();},powerInterval()*1000);
+  if(surface==='card'&&cards().some(card=>card.id==='keyboard'&&card.visible))modePoll=setInterval(()=>void refreshKeyboardMode(),3000);
 }
 function receive(event){
   if(done||event.source!==window.parent)return;
   const msg=event.data;
   if(!msg||typeof msg!=='object'||isWidget&&widgetToken&&msg.token!==widgetToken)return;
+  if(surface==='card'&&msg.type==='flowhub:widget-lifecycle'){
+    widgetActive=msg.active===true;
+    if(!widgetActive){modeReading=null;startPolling();}
+    return;
+  }
   if(isWidget&&msg.type==='flowhub:widget-init'){
     widgetReady=true;widgetContext=msg.context||{};
-    redraw();startPolling();if(surface!=='editor')void refresh();return;
+    if(!cards().some(card=>card.id==='keyboard'&&card.visible))modeReading=null;
+    redraw();startPolling();
+    if(surface!=='editor')void refresh();
+    if(surface==='card'&&!preview&&!artworkRequested){
+      artworkRequested=true;
+      void rpc('device_icons').then(result=>{if(!done){artwork=result;redraw();}}).catch(()=>{});
+    }
+    return;
   }
-  if(isWidget&&msg.type==='flowhub:widget-save'){
+  if(surface==='editor'&&msg.type==='flowhub:widget-save'){
     const interval=Number(node.querySelector('#widget-interval')?.value||5);
-    const config={title:String(node.querySelector('#widget-title')?.value||'外设中心').slice(0,40),limit:widgetLimit(node.querySelector('#widget-limit')?.value??3),powerIntervalSeconds:powerIntervals.includes(interval)?interval:5};
+    const rows=[...node.querySelectorAll('[data-order-item]')];
+    const selected=rows.length?rows.map(row=>({id:row.dataset.orderItem,visible:row.querySelector('[data-card-visible]').checked})):cards();
+    const config={title:String(node.querySelector('#widget-title')?.value||'外设中心').slice(0,40),limit:'all',powerIntervalSeconds:powerIntervals.includes(interval)?interval:5,cards:selected};
     window.parent.postMessage({type:'flowhub:widget-config',id:msg.id,token:widgetToken,config},'*');return;
   }
   if(msg.type===(isWidget?'flowhub:widget-result':'flowhub:response')){
@@ -177,9 +474,13 @@ function receive(event){
   }
 }
 window.addEventListener('message',receive);
+document.addEventListener?.('pointermove',movePointer,true);
+document.addEventListener?.('pointerup',finishPointer,true);
+document.addEventListener?.('pointerout',leaveWidget);
+window.addEventListener('blur',cancelPointer);
 redraw();
 if(isWidget&&hostWindow&&widgetToken)window.parent.postMessage({type:'flowhub:widget-ready',token:widgetToken},'*');
 else if(!preview)void refresh();
 if(!isWidget)startPolling();
-window.addEventListener('pagehide',()=>{done=true;clearInterval(poll);window.removeEventListener('message',receive);for(const entry of pending.values()){clearTimeout(entry.timer);entry.reject(Error('页面已关闭'));}pending.clear();},{once:true});
+window.addEventListener('pagehide',()=>{done=true;endDrag();startPolling();window.removeEventListener('message',receive);window.removeEventListener('blur',cancelPointer);document.removeEventListener?.('pointermove',movePointer,true);document.removeEventListener?.('pointerup',finishPointer,true);document.removeEventListener?.('pointerout',leaveWidget);for(const entry of pending.values()){clearTimeout(entry.timer);entry.reject(Error('页面已关闭'));}pending.clear();},{once:true});
 })();

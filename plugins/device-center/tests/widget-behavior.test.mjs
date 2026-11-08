@@ -4,6 +4,8 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 
 const code=fs.readFileSync(new URL('../ui/app.js',import.meta.url),'utf8');
+const orderCode=fs.readFileSync(new URL('../ui/widget-order.js',import.meta.url),'utf8');
+const artCode=fs.readFileSync(new URL('../ui/device-art.js',import.meta.url),'utf8');
 
 // Exercise the shipped widget message protocol and rendering with host snapshots.
 async function mountWidget(data,config={},surface='card'){
@@ -13,8 +15,9 @@ async function mountWidget(data,config={},surface='card'){
   const window={parent,addEventListener:(name,fn)=>{listeners[name]=fn;},removeEventListener(){}};
   const document={body:{dataset:{surface},classList:{add(){}}},getElementById:()=>node,
     documentElement:{scrollHeight:440},hidden:false,createTextNode:text=>text};
-  vm.runInNewContext(code,{window,document,location:{hash:'#flowhubWidgetToken=test-token',search:''},
+  const context=vm.createContext({window,document,location:{hash:'#flowhubWidgetToken=test-token',search:''},
     URLSearchParams,structuredClone,setTimeout:()=>1,clearTimeout(){},setInterval:(fn,ms)=>{intervals.push(ms);return 1;},clearInterval(){}});
+  vm.runInContext(orderCode,context);vm.runInContext(artCode,context);vm.runInContext(code,context);
   listeners.message({source:parent,data:{type:'flowhub:widget-init',token:'test-token',context:{config}}});
   if(surface!=='editor'){
     const request=sent.find(message=>message.type==='flowhub:widget-rpc');
@@ -30,23 +33,43 @@ const devices=Array.from({length:8},(_,i)=>({id:`d${i}`,name:`Headset ${i}`,cate
   kind:'headphones',detail:'Headset',status:'connected',battery:i===0?'0%':i===1?'70%':null}));
 const snapshot={at:Date.now(),stale:false,error:null,devices,power:{adapterWatts:'68'},events:[]};
 
-test('widget honors configured limits and identifies connected rather than frequent devices',async()=>{
+test('ADB widget category keeps unauthorized and offline connections and labels failures as cached',async()=>{
+ const adbDevices=['device','unauthorized','offline'].map((state,i)=>({id:'adb-'+i,name:'Public Android '+i,category:'adb',kind:'phone',status:state==='device'?'connected':state,adb:{serial:'PUBLIC-'+i,state,transport:'usb'}}));
+ const ui=await mountWidget({...snapshot,devices:[...devices,...adbDevices],adb:{at:Date.now(),available:true,stale:false}});
+ ui.selectCategory('adb');assert.equal((ui.node.innerHTML.match(/data-device=/g)||[]).length,3);
+ for(const text of ['未授权','离线','PUBLIC-0'])assert.ok(ui.node.innerHTML.includes(text));
+ const failed=await mountWidget({...snapshot,devices:adbDevices,adb:{at:1000,available:true,stale:true,error:'ADB timeout'}});
+ failed.selectCategory('adb');assert.match(failed.node.innerHTML,/ADB timeout/);assert.match(failed.node.innerHTML,/上次设备记录/);
+});
+
+test('existing three/five/eight limits no longer hide devices and the widget labels current connections',async()=>{
   for(const limit of [3,5,8]){
     const html=await renderWidget(snapshot,{limit,title:'我的设备'});
-    assert.equal((html.match(/data-device=/g)||[]).length,limit);
+    assert.equal((html.match(/data-device=/g)||[]).length,8);
     assert.ok(html.includes('当前连接设备'));
     assert.ok(html.includes('我的设备'));
     assert.ok(!html.includes('常用设备'));
-    assert.equal(html.includes(`显示 ${limit}/8`),limit<8);
+    assert.ok(!html.includes('显示 3/8'));
   }
   const html=await renderWidget(snapshot,{limit:99,title:'<script>'});
-  assert.equal((html.match(/data-device=/g)||[]).length,3);
+  assert.equal((html.match(/data-device=/g)||[]).length,8);
   assert.ok(html.includes('&lt;script&gt;'));
 });
 test('widget excludes disconnected devices and shows an explicit empty state',async()=>{
   const html=await renderWidget({...snapshot,devices:[{...devices[0],status:'disconnected'}]});
   assert.ok(!html.includes('data-device='));
   assert.ok(html.includes('当前没有检测到已连接设备'));
+});
+test('card settings retain visibility and order, ignoring duplicate and unknown IDs',async()=>{
+  const cards=[{id:{toString:0},visible:true},{id:'unknown',visible:true},{id:'devices',visible:false},{id:'devices',visible:true},
+    {id:'keyboard',visible:true},{id:'power',visible:false}];
+  const mounted=await mountWidget(snapshot,{cards});
+  assert.deepEqual([...mounted.node.innerHTML.matchAll(/data-widget-card="([^"]+)"/g)].map(match=>match[1]),['keyboard']);
+  assert.match(mounted.node.innerHTML,/未检测到有线 K75/);
+  assert.ok(!mounted.sent.some(message=>message.params?.method==='keyboard_mode'));
+  const hidden=await renderWidget(snapshot,{cards:cards.map(card=>({...card,visible:false}))});
+  assert.match(hidden,/可在组件编辑中选择要显示的卡片/);
+  assert.doesNotMatch(hidden,/data-widget-card=/);
 });
 test('display badges are visible and Retina logical size stays in device details',async()=>{
   const internal={id:'display-1',name:'Color LCD',category:'display',kind:'monitor',status:'connected',
@@ -99,20 +122,20 @@ test('desktop supply stays visible when wattage and battery telemetry are unavai
   assert.ok(html.includes('系统未提供实时功率读数'));
   assert.ok(!html.includes('0.0W'));
 });
-test('USB category reveals devices beyond the default first three and survives context refresh',async()=>{
+test('all categories remain complete even with legacy three-device config and survive context refresh',async()=>{
   const usb=Array.from({length:7},(_,i)=>({id:`usb-${i}`,name:`USB ${i}`,category:'usb',kind:'hub',status:'connected'}));
   const mixed={...snapshot,devices:[...devices.slice(0,2),{id:'display',name:'Display',category:'display',status:'connected'},...usb]};
   const mounted=await mountWidget(mixed,{limit:3});
-  assert.ok(mounted.node.innerHTML.includes('显示 3/10'));
-  assert.ok(!mounted.node.innerHTML.includes('data-device="usb-0"'));
-  mounted.selectCategory('usb');
-  assert.equal((mounted.node.innerHTML.match(/data-device=/g)||[]).length,3);
+  assert.equal((mounted.node.innerHTML.match(/data-device=/g)||[]).length,10);
   assert.ok(mounted.node.innerHTML.includes('data-device="usb-0"'));
-  assert.ok(mounted.node.innerHTML.includes('显示 3/7'));
+  mounted.selectCategory('usb');
+  assert.equal((mounted.node.innerHTML.match(/data-device=/g)||[]).length,7);
+  assert.ok(mounted.node.innerHTML.includes('data-device="usb-0"'));
+  assert.ok(mounted.node.innerHTML.includes('7 个'));
   mounted.receive({type:'flowhub:widget-init',context:{config:{limit:3}}});
   assert.ok(mounted.node.innerHTML.includes('data-widget-category="usb" aria-pressed="true"'));
   mounted.selectCategory('overview');
-  assert.ok(mounted.node.innerHTML.includes('显示 3/10'));
+  assert.equal((mounted.node.innerHTML.match(/data-device=/g)||[]).length,10);
 });
 test('all-device mode renders beyond eight and is preserved by the editor save protocol',async()=>{
   const full={...snapshot,devices:[...devices,...devices.slice(0,2).map(d=>({...d,id:d.id+'-extra'}))]};
@@ -120,10 +143,16 @@ test('all-device mode renders beyond eight and is preserved by the editor save p
   assert.equal((html.match(/data-device=/g)||[]).length,10);
   assert.ok(html.includes('widget-device-list'));assert.ok(!html.includes('显示 3/10'));
   const editor=await mountWidget(full,{limit:'all'},'editor');
-  assert.ok(editor.node.innerHTML.includes('value="all" selected'));
-  editor.controls['#widget-limit']={value:'all'};
+  assert.ok(!editor.node.innerHTML.includes('widget-limit'));
   editor.receive({type:'flowhub:widget-save',id:'all-save'});
   assert.equal(editor.sent.find(message=>message.type==='flowhub:widget-config').config.limit,'all');
+});
+test('saved device identities order every category while new devices append and separate handles preserve detail actions',async()=>{
+ const html=await renderWidget({...snapshot,widgetOrder:{ids:['d7','absent','d2'],revision:2}});
+ assert.deepEqual([...html.matchAll(/data-device="([^"]+)"/g)].map(match=>match[1]),['d7','d2','d0','d1','d3','d4','d5','d6']);
+ assert.equal((html.match(/data-order-handle=/g)||[]).length,8);
+ assert.ok(html.includes('aria-label="设备列表"'));
+ assert.ok(html.includes('aria-description="拖动排序'));
 });
 test('sampling interval is configured, saved and sent to the backend with matching polling',async()=>{
   const mounted=await mountWidget(snapshot,{powerIntervalSeconds:30});

@@ -20,6 +20,10 @@ dialog.command-react__manager { width: min(720px, calc(100vw - 24px)); height: m
 .command-react__manager .command-react__template-manager { border: 0; background: transparent; }
 .command-react__manager .command-react__template-manager > header { padding: 0 0 12px; }
 .command-react__connection-target { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; border-bottom: 1px solid var(--fh-border); padding-bottom: 14px; margin-bottom: 14px; }
+.command-react__feedback { display: flex; align-items: flex-start; gap: 8px; margin-block: 10px; }
+.command-react__feedback-text { display: grid; flex: 1; min-width: 0; gap: 6px; overflow-wrap: anywhere; }
+.command-react__feedback .command-react__notice, .command-react__feedback .command-react__error { margin: 0 !important; }
+.command-react__feedback > button { flex-shrink: 0; }
 @media (max-width: 760px) {
   .command-react__machine-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; max-height: 190px; }
   .command-react__machine-list > section { min-width: 0; }
