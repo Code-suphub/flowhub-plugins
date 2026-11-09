@@ -14,7 +14,7 @@ import {RequestDetails} from './RequestDetails';
 import {displayError,errorText,RequestError} from './errors';
 import type {DisplayError} from './errors';
 import type {ContextRow} from './model';
-import type {Api,ApplicationState,Context,Group,GroupDetail,GroupSummary,Instance,PageContexts,Plan,Process,QuitPlan,RankingSnapshot,Snapshot,Sort,SortOrder,TerminateResult} from './types';
+import type {Api,ApplicationState,Context,Group,GroupDetail,GroupSummary,Instance,PageContexts,Plan,Process,QuitPlan,RankingSnapshot,RankingSort,Snapshot,SortOrder,TerminateResult} from './types';
 
 export function Theme({children}:{children:React.ReactNode}) {
   const [dark,setDark]=useState(document.documentElement.dataset.theme!=='light');
@@ -46,7 +46,7 @@ export function App({api,context}:{api:Api;context:Context}) {
   const dataRef=useRef<RankingSnapshot|undefined>(undefined);
   const [error,setError]=useState<DisplayError>('');const [notice,setNotice]=useState('');
   const [query,setQuery]=useState('');const deferredQuery=useDeferredValue(query);
-  const [sorting,setSorting]=useState<{key:Sort;order:SortOrder}>({key:'footprint',order:'descend'});const [system,setSystem]=useState(false);
+  const [sorting,setSorting]=useState<{key:RankingSort;order:SortOrder}>({key:'cpu',order:'descend'});const [system,setSystem]=useState(false);
   const [detail,setDetail]=useState<Group>();const [detailId,setDetailId]=useState<string>();const [processQuery,setProcessQuery]=useState('');
   const [contextProcesses,setContextProcesses]=useState<Process[]>([]);
   const detailRef=useRef<Group|undefined>(undefined);const detailSelection=useRef<{id:string;generation:number;sample?:Pick<GroupDetail,'at'|'revision'>;request:number;initialSearch:string}>({id:'',generation:0,request:0,initialSearch:''});
@@ -274,9 +274,9 @@ export function App({api,context}:{api:Api;context:Context}) {
     if(extra.action!=='sort')return;
     const active=Array.isArray(sorter)?sorter[0]:sorter;
     const key=active?.columnKey;
-    if(key==='footprint'||key==='memory'||key==='cpu'||key==='accounting')setSorting({key,order:active.order==='ascend'?'ascend':'descend'});
+    if(key==='footprint'||key==='memory'||key==='cpu'||key==='accounting'||key==='processCount')setSorting({key,order:active.order==='ascend'?'ascend':'descend'});
   };
-  const sortable=(key:Sort)=>({sorter:true,sortOrder:sorting.key===key?sorting.order:null});
+  const sortable=(key:RankingSort)=>({sorter:true,sortOrder:sorting.key===key?sorting.order:null});
   const linkedRows=useMemo(()=>contexts?contextRows(contexts,{groups:[{processes:[...(detail?.processes??[]).filter(p=>!p.exited&&!p.moved),...contextProcesses]}]}):[],[contexts,detail,contextProcesses]);
   const rowDetail=linkedRows.find(row=>row.id===contextDetail);
   const processLabels=useMemo(()=>{
@@ -306,14 +306,27 @@ export function App({api,context}:{api:Api;context:Context}) {
   const detailServices=detail?(background.data?.services??[]).filter(service=>
     (!!detailAppPath&&service.appPath===detailAppPath)||detail.processes.some(process=>!process.exited&&!process.moved&&sameServiceProcess(service,process))):[];
   const detailHint=controls.stopHint||(detail?.appPath&&!controls.canQuit?(selectedInstance&&(applicationState?.quitInstances?.length??0)>0?'当前选择的是后台或辅助实例，可按此实例单独结束。':applicationState?.message):'');
-  const maxMemory=Math.max(1,...groups.map(g=>g.footprint??0));
   const columns:TableColumnsType<GroupSummary>=[
-    {title:'应用 / 工具',key:'name',render:(_,g)=><div className="app-identity"><AppMark name={applicationIdentity(g,applications).name} iconKey={g.iconKey} application={g.appPath?applications[g.appPath]:undefined}/><div className="min-w-0"><button className="name-link" aria-label={`查看 ${applicationIdentity(g,applications).name} 进程`} onClick={()=>openDetail(g,query)}>{applicationIdentity(g,applications).name}</button><div className="muted text-xs mt-1">{g.processCount} 个进程{g.instanceCount>1?` · ${g.instanceCount} 个实例`:''} · {g.source}</div></div></div>},
-    {title:'活跃进程足迹',key:'footprint',...sortable('footprint'),width:120,align:'right',render:(_,g)=><div className="memory-cell"><strong>{bytes(g.footprint)}</strong><div className="meter" aria-hidden="true"><i style={{width:`${(g.footprint??0)/maxMemory*100}%`}}/></div>{g.footprintIncomplete?<span className="muted text-xs">部分不可读取</span>:null}</div>},
-    {title:'系统归属记账',key:'accounting',...sortable('accounting'),width:130,align:'right',render:(_,g)=>{const accounting=accountingDisplay(g);return <div className={accounting.available?'numeric':'muted text-xs'} title={accounting.hint}>{accounting.text}{accounting.available&&g.systemAccounting?.shared?<div className="muted text-xs">共享资源组</div>:null}</div>;}},
-    {title:'RSS',key:'memory',...sortable('memory'),width:85,align:'right',render:(_,g)=><span className="numeric">{bytes(g.memory)}{g.incomplete?' *':''}</span>},
-    {title:'CPU',key:'cpu',...sortable('cpu'),width:65,align:'right',render:(_,g)=><span className="numeric">{g.permissionLimited?'—':cpu(g.cpu)}</span>},
-    {title:'操作',key:'actions',width:90,render:(_,g)=>g.instanceCount>1?<Button size="sm" className="compact-button" onClick={()=>openDetail(g)}>选择实例</Button>:<Button size="sm" className="compact-button" disabled={api.preview||busy||!!plan||!g.canTerminate} title={!g.canTerminate?'含受保护进程，请从所属应用正常退出':undefined} onClick={()=>void prepare(g)}>结束实例</Button>}
+    {
+      title:'应用 / 工具',key:'name',fixed:'left',width:138,
+      render:(_,group)=>{
+        const name=applicationIdentity(group,applications).name;
+        return <div className="app-identity">
+          <AppMark name={name} iconKey={group.iconKey} application={group.appPath?applications[group.appPath]:undefined}/>
+          <button type="button" className="name-link" aria-label={`查看 ${name} 进程`} onClick={()=>openDetail(group,query)}>{name}</button>
+        </div>;
+      }
+    },
+    {title:'进程数',key:'processCount',...sortable('processCount'),width:64,align:'right',render:(_,group)=><span className="numeric">{group.processCount}</span>},
+    {title:'活跃足迹',key:'footprint',...sortable('footprint'),width:86,align:'right',render:(_,group)=><span className="numeric" title={group.footprintIncomplete?'部分不可读取':undefined}>{bytes(group.footprint)}{group.footprintIncomplete?' *':''}</span>},
+    {title:'RSS',key:'memory',...sortable('memory'),width:78,align:'right',render:(_,group)=><span className="numeric" title={group.incomplete?'部分不可读取':undefined}>{bytes(group.memory)}{group.incomplete?' *':''}</span>},
+    {title:'系统归属记账',key:'accounting',...sortable('accounting'),width:105,align:'right',render:(_,group)=>{
+      const accounting=accountingDisplay(group);
+      return <span className={accounting.available?'numeric':'muted text-xs'} title={accounting.hint}>
+        {accounting.text}{accounting.available&&group.systemAccounting?.shared?<small className="block muted text-xs">共享</small>:null}
+      </span>;
+    }},
+    {title:'CPU',key:'cpu',...sortable('cpu'),width:63,align:'right',render:(_,group)=><span className="numeric">{group.permissionLimited?'—':cpu(group.cpu)}</span>},
   ];
   const instanceColumns:TableColumnsType<Instance>=[
     {title:'运行实例',key:'root',render:(_,instance)=>{
@@ -373,8 +386,8 @@ export function App({api,context}:{api:Api;context:Context}) {
       <label className="flex items-center gap-2 muted text-xs"><Switch size="small" checked={system} onChange={setSystem}/>包含系统进程</label>
       <span className="muted text-xs ml-auto">{groups.length} 个应用与工具</span>
     </div>
-    <Table<GroupSummary> size="small" rowKey="id" columns={columns} dataSource={groups} onChange={changeSort} sortDirections={['descend','ascend','descend']} showSorterTooltip={{target:'sorter-icon'}} loading={!data&&!error} scroll={{x:700}} pagination={{pageSize:20,hideOnSinglePage:true,showSizeChanger:false,size:'small'}} locale={{emptyText:query?'没有匹配的应用或进程':'暂无应用数据',triggerDesc:'点击降序',triggerAsc:'点击升序'}}/>
-    <p className="muted text-xs mt-3">每 5 秒采样 · 活跃足迹与 RSS 不相加 · 系统归属记账仅供参考，可能与其他行重叠</p>
+    <Table<GroupSummary> className="ranking-table" size="small" rowKey="id" columns={columns} dataSource={groups} onChange={changeSort} sortDirections={['descend','ascend','descend']} showSorterTooltip={{target:'sorter-icon'}} loading={!data&&!error} scroll={{x:534}} pagination={{pageSize:20,hideOnSinglePage:true,showSizeChanger:false,size:'small'}} locale={{emptyText:query?'没有匹配的应用或进程':'暂无应用数据',triggerDesc:'点击降序',triggerAsc:'点击升序'}}/>
+    <p className="muted text-xs mt-3">每 5 秒采样 · * 表示部分可读 · 系统归属记账与活跃足迹、RSS 分别统计</p>
 
     <Modal title={detail?<div className="app-identity"><AppMark name={applicationIdentity(detail,applications).name} iconKey={detail.iconKey} application={detail.appPath?applications[detail.appPath]:undefined}/><span>{applicationIdentity(detail,applications).name} · 进程详情</span></div>:'进程详情'} open={!!detailId} onCancel={closeDetail} footer={<Button size="sm" className="compact-button" onClick={closeDetail}>关闭详情</Button>} width={1000} className="detail-modal" styles={{body:{height:'min(620px,calc(100dvh - 210px))',overflow:'auto'}}}>
       {!detail&&detailId?<p className="muted">{error?'详情读取失败，请重试。':detailSelection.current.sample?'应用已退出。':'正在读取进程详情…'}</p>:null}

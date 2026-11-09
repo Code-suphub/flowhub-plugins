@@ -12,7 +12,7 @@
 @layer components {
   .monitor {max-width:1480px;margin:auto;min-width:0}
   .muted {color:var(--fh-muted)} .danger {color:var(--fh-danger)} .warning {color:var(--fh-warning)}
-  .numeric,.memory-cell {font-variant-numeric:tabular-nums;font-family:ui-monospace,"SF Mono",Menlo,monospace}
+  .numeric {font-variant-numeric:tabular-nums;font-family:ui-monospace,"SF Mono",Menlo,monospace}
   .live-dot {width:7px;height:7px;border-radius:50%;background:var(--fh-positive)} .live-dot.stale {background:var(--fh-warning)}
   .system-strip {padding:10px 0;border-top:1px solid var(--fh-border);border-bottom:1px solid var(--fh-border)}
   .system-strip>div {display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px}
@@ -22,9 +22,8 @@
   .app-mark {display:grid;place-items:center;flex-shrink:0;width:26px;height:26px;border:1px solid var(--fh-border);border-radius:7px;color:var(--fh-accent);background:var(--fh-surface-soft);font-size:12px}
   .app-mark.has-icon {border-color:transparent;background:transparent}
   .app-mark img {display:block;width:100%;height:100%;object-fit:contain}
-  .memory-cell strong {font-size:12px;font-weight:600}
-  .meter {margin-top:7px;margin-left:auto;max-width:100px;height:3px;background:var(--fh-surface-soft);border-radius:2px;overflow:hidden}
-  .meter i {display:block;height:100%;background:var(--fh-accent);border-radius:2px}
+  .ranking-table .app-identity {gap:8px}
+  .ranking-table :is(th,td):not(:first-child) {white-space:nowrap}
   .compact-button {min-height:28px;padding:5px 8px;font-size:12px;letter-spacing:0;box-shadow:none}
   .name-link {border:0;background:transparent;color:var(--fh-text);font:inherit;font-weight:600;padding:2px 0;text-align:left;overflow-wrap:anywhere}
   .name-link:hover {color:var(--fh-accent)}

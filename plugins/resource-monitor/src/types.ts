@@ -43,6 +43,7 @@ export interface GroupDetail extends SnapshotState {groupId:string;group:Group|n
 export interface StatusRow {id:string;name:string;systemAccounting?:SystemAccounting|null;appPath?:string|null;origin?:SourceOrigin|null;presentation?:Presentation|null;iconKey?:ToolIconKey|null;at:number;status:string;summary:string;values:{memory:number|null;footprint:number|null;rss:number|null;cpu:number|null};count:number;instanceCount?:number;incomplete:boolean}
 export interface StatusSnapshot {at:number;rows:StatusRow[];system:SystemInfo;error?:string|null}
 export type Sort = 'footprint'|'memory'|'cpu'|'accounting';
+export type RankingSort = Sort|'processCount';
 export type SortOrder = 'ascend'|'descend';
 export interface Config {title?:string;sort?:Sort;display?:'all'|'top';limit?:number;groupId?:string;selection?:{groupId?:string};sourceView?:string;scriptEventId?:string}
 export interface ApplicationState {canQuit:boolean;message:string;instances?:number;quitInstances?:string[];contextKind?:'arc'|'codex'|null}

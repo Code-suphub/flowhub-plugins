@@ -1,4 +1,4 @@
-import type {ApplicationState,Config,ContextEntry,Group,GroupDetail,GroupSummary,Identity,PageContexts,Process,RankingSnapshot,ScriptActivity,Snapshot,StatusSnapshot,Sort} from './types';
+import type {ApplicationState,Config,ContextEntry,Group,GroupDetail,GroupSummary,Identity,PageContexts,Process,RankingSnapshot,RankingSort,ScriptActivity,Snapshot,StatusSnapshot,Sort} from './types';
 
 export function instanceStopReason(group:Group,instance:NonNullable<Group['instances']>[number]) {
   if(instance.canTerminate)return '';
@@ -80,7 +80,7 @@ export function matchesProcess(p:Process,q:string) {
 export function matchesGroup(g:Omit<Group,'processes'|'instances'>,q:string) {
   return [g.name,g.source,g.appPath??'',g.origin?.name??'',g.origin?.appPath??'',g.presentation?.name??'',...(g.presentation?.sources??[]).flatMap(source=>[source.name,source.appPath??'']),...(g.presentation?.services??[]).flatMap(service=>[service.name,service.label])].some(s=>s.toLocaleLowerCase().includes(q));
 }
-function sortGroups<T extends Pick<Group,'id'|'memory'|'footprint'|'cpu'|'systemAccounting'>>(groups:T[],sort:Sort,order:'ascend'|'descend') {
+function sortGroups<T extends Pick<Group,'id'|'memory'|'footprint'|'cpu'|'systemAccounting'>&{processCount?:number}>(groups:T[],sort:RankingSort,order:'ascend'|'descend') {
   const value=(g:T)=>sort==='accounting'?g.systemAccounting?.footprint:g[sort];
   return groups.sort((a,b)=>{const left=value(a),right=value(b);if(left==null||right==null)return left==null?(right==null?a.id.localeCompare(b.id):1):-1;return (order==='ascend'?left-right:right-left)||a.id.localeCompare(b.id);});
 }
@@ -88,7 +88,7 @@ export function filterGroups(groups:Group[],query:string,system:boolean,sort:Sor
   const q=query.trim().toLocaleLowerCase();
   return sortGroups(groups.filter(g=>(system||!g.system)&&(!q||matchesGroup(g,q)||g.processes.some(p=>matchesProcess(p,q)))),sort,order);
 }
-export function filterRanking(groups:GroupSummary[],query:string,matchedGroupIds:readonly string[],system:boolean,sort:Sort,order:'ascend'|'descend'='descend') {
+export function filterRanking(groups:GroupSummary[],query:string,matchedGroupIds:readonly string[],system:boolean,sort:RankingSort,order:'ascend'|'descend'='descend') {
   const q=query.trim().toLocaleLowerCase(),matched=new Set(matchedGroupIds);
   // Backend matches include all process/project/service fields. Locally resolved
   // application names and descriptions remain searchable as well.
