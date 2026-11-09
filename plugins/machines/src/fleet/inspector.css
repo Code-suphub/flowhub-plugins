@@ -27,7 +27,9 @@
 .machine-inspector__chart-tools .fh-select { width: 125px; }
 .machine-inspector__history { margin: 16px 0; }
 .machine-inspector__history > p, .machine-inspector [role="tabpanel"] > p { margin: 10px 0; color: var(--fh-muted); font-size: 12px; }
-.machine-inspector__records > div:not(.fh-empty-state) { display: grid; gap: 5px; padding: 12px 0; border-bottom: 1px solid var(--fleet-line); }
+.machine-inspector__records > section { display: grid; gap: 5px; padding: 12px 0; border-bottom: 1px solid var(--fleet-line); }
+.machine-inspector__records > section > div { display: flex; flex-wrap: wrap; gap: 6px 12px; }
+.machine-inspector__records .machine-inspector__error { margin: 0; font-size: 12px; overflow-wrap: anywhere; }
 .machine-inspector__records time { color: var(--fh-muted); font-size: 11px; }
 .machine-inspector__actions { display: flex; flex-wrap: wrap; gap: 8px; border-top: 1px solid var(--fleet-line); padding-top: 16px; margin-top: 16px; }
 .machine-inspector__actions > button { flex: 1; }

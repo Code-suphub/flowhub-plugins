@@ -19,6 +19,7 @@ interface Props {
   onAction: (action: FleetHostAction) => void;
 }
 type History = { data?: [number, number | null][]; unit?: string };
+type CollectionSample = { id: string; at: number; status: string; error?: string | null };
 const labels: Record<string, string> = { success: '采集成功', failed: '采集失败', timeout: '采集超时', stale: '采集已过期', unknown: '未采集', cancelled: '采集已取消', interrupted: '采集结果未知', queued: '排队中', running: '采集中' };
 
 /** Reads saved history only. Inspecting a machine never probes or opens SSH. */
@@ -48,9 +49,22 @@ function InspectorHistory({ api, hostId, active }: { api: MachinesApi | null; ho
 
 export function MachineInspector({ host, metric, interval, now, api, active, jobs, disabled, onClose, onAction }: Props) {
   const [tab, setTab] = useState('overview');
+  const [saved, setSaved] = useState<{ hostId: string; items?: CollectionSample[]; error?: string }>();
+  const hostId = host?.id;
+  useEffect(() => {
+    if (!api || !active || tab !== 'collections' || !hostId) return;
+    let disposed = false;
+    void api('collectionHistory', { hostId }).then(items => {
+      if (!disposed) setSaved({ hostId, items: items as CollectionSample[] });
+    }).catch(error => {
+      if (!disposed) setSaved({ hostId, error: String(error instanceof Error ? error.message : error) });
+    });
+    return () => { disposed = true; };
+  }, [api, active, tab, hostId, metric?.at]);
   const status = fleetMetricStatus(metric, interval, now);
   const values = status === 'success' ? metric?.values : undefined;
-  const records = host ? jobs.filter(job => job.hostId === host.id && job.kind === 'collect').slice(0, 10) : [];
+  const stored = saved?.hostId === hostId ? saved : undefined;
+  const records: CollectionSample[] = stored?.items ?? jobs.filter(job => job.hostId === hostId && job.kind === 'collect').slice(0, 10).map(job => ({ id: job.id, status: job.status, at: job.finishedAt ?? job.startedAt }));
   return <aside className="machine-inspector" aria-label="机器详情">
     <header className="machine-inspector__header"><Button size="sm" variant="ghost" onClick={onClose} aria-label="返回机器列表">← 返回机器</Button><span>{host?.group || '未分组'}</span><Button size="sm" variant="ghost" onClick={onClose} aria-label="收起详情">收起</Button></header>
     {!host ? <EmptyState title="目标机器已移除" description="返回列表重新选择；不会将操作转移到另一台机器。" /> : <>
@@ -65,7 +79,14 @@ export function MachineInspector({ host, metric, interval, now, api, active, job
           <InspectorHistory api={api} hostId={host.id} active={active && tab === 'overview'} />
         </Tabs.Panel>
         <Tabs.Panel value="connection" forceMount><dl className="machine-inspector__facts"><div><dt>连接标识</dt><dd>{host.alias}</dd></div><div><dt>方式</dt><dd>{host.bastion ? '堡垒机 / 共享会话' : 'SSH'}</dd></div><div><dt>权限</dt><dd>{host.readOnly ? '仅查询' : '按配置授权'}</dd></div></dl><p>查看详情不会建立连接；可打开现有配置查看和测试。</p><Button size="sm" disabled={disabled} onClick={() => onAction('connection')}>管理连接配置</Button></Tabs.Panel>
-        <Tabs.Panel value="collections" forceMount><div className="machine-inspector__records">{records.length ? records.map(job => <div key={job.id}><span>{labels[job.status] ?? job.status}</span><time>{new Date(job.startedAt).toLocaleString()}</time></div>) : <EmptyState size="compact" title="暂无近期采集记录" />}<Button size="sm" variant="ghost" onClick={() => onAction('collections')}>查看采集输出</Button></div></Tabs.Panel>
+        <Tabs.Panel value="collections" forceMount><div className="machine-inspector__records">
+          {stored?.error ? <p className="machine-inspector__error" role="alert">{stored.error}</p> : null}
+          {records.length ? records.map(sample => <section key={sample.id}>
+            <div><span>{labels[sample.status] ?? sample.status}</span><time>{new Date(sample.at).toLocaleString()}</time></div>
+            {sample.error ? <p className="machine-inspector__error">{sample.error}</p> : null}
+          </section>) : <EmptyState size="compact" title="暂无近期采集记录" />}
+          <Button size="sm" variant="ghost" onClick={() => onAction('collections')}>查看采集输出</Button>
+        </div></Tabs.Panel>
       </Tabs>
       <footer className="machine-inspector__actions"><Button variant="primary" disabled={disabled} onClick={() => onAction('command')}>执行命令</Button><Button disabled={disabled} onClick={() => onAction('edit')}>编辑配置</Button></footer>
     </>}

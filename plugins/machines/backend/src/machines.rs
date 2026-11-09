@@ -410,14 +410,21 @@ impl Runtime {
             config.enabled = false;
             config.monitoring = false;
         }
+        let history_store = machine_history::Store::open(&root.join("commands.sqlite3"))?;
+        let mut metrics = HashMap::new();
+        for host in &config.hosts {
+            if let Some(latest) = history_store.collection_samples(&host.id, 1)?.pop() {
+                metrics.insert(host.id.clone(), latest);
+            }
+        }
         Ok(Self {
-            history_store: machine_history::Store::open(&root.join("commands.sqlite3"))?,
+            history_store,
             path,
             config: Mutex::new(config),
             pending: Mutex::new(None),
             active: Mutex::new(HashMap::new()),
             history: Mutex::new(Vec::new()),
-            metrics: Mutex::new(HashMap::new()),
+            metrics: Mutex::new(metrics),
             netdata_cache: Mutex::new(HashMap::new()),
             traffic_cache: Mutex::new(HashMap::new()),
             slots: Semaphore::new(4),
@@ -445,7 +452,7 @@ impl Runtime {
         let traffic=self.traffic_cache.lock().unwrap();
         for row in status["rows"].as_array_mut().unwrap() {
             if let Some(value)=row["id"].as_str().and_then(|id|traffic.get(id)){row["traffic"]=value.clone();}
-            let summary=if row["status"]=="healthy" {let v=&row["values"];let value=|key:&str|v[key].as_f64().map(|n|format!("{n:.0}%")).unwrap_or("—".into());format!("CPU {} / 内存 {} / 磁盘 {}",value("cpu"),value("memory"),value("disk"))}else {match row["status"].as_str(){Some("error")=>"异常",Some("stale")=>"已过期",_=>"未采集"}.into()};
+            let summary=if row["status"]=="healthy" {let v=&row["values"];let value=|key:&str|v[key].as_f64().map(|n|format!("{n:.0}%")).unwrap_or("—".into());format!("CPU {} / 内存 {} / 磁盘 {}",value("cpu"),value("memory"),value("disk"))}else {row["statusLabel"].as_str().unwrap_or_else(||match row["status"].as_str(){Some("error")=>"异常",Some("stale")=>"已过期",_=>"未采集"}).into()};
             row["summary"]=json!(summary);
         }
         status
@@ -466,6 +473,23 @@ impl Runtime {
     }
 }
 
+fn collection_failure_label(status: &str, error: &str, bastion: bool) -> &'static str {
+    let error = error.to_ascii_lowercase();
+    if error.contains("host key verification failed") || error.contains("remote host identification has changed") {
+        "需核对 SSH 指纹"
+    } else if (bastion && error.contains("请使用 console 完成认证")) || error.contains("permission denied (") || error.contains("authentication failed") {
+        "需重新认证"
+    } else if error.contains("已退出") || error.contains("connection reset") || error.contains("connection closed") || error.contains("broken pipe") {
+        "SSH 已断开"
+    } else if status == "timeout" || error.contains("超时") || error.contains("timed out") {
+        "采集超时"
+    } else if status == "cancelled" {
+        "采集已取消"
+    } else {
+        "采集失败"
+    }
+}
+
 fn status_summary(snapshot: &Value, now: i64) -> Value {
     let config = &snapshot["config"];
     let stale_ms = config["interval"].as_i64().unwrap_or(60).max(30) * 3000;
@@ -475,7 +499,10 @@ fn status_summary(snapshot: &Value, now: i64) -> Value {
         let at = m["at"].as_i64();
         let status = if at.is_none() { "unknown" } else if now - at.unwrap() > stale_ms { "stale" }
             else if m["status"] == "success" { "healthy" } else { "error" };
+        let status_label = m["status"].as_str().filter(|s| *s != "success" && at.is_some())
+            .map(|s| collection_failure_label(s, m["error"].as_str().unwrap_or(""), h["bastion"].is_object()));
         json!({"id":id,"name":h["name"],"kind":"machine","source":if config["exporters"].get(id).is_some(){"Node Exporter"}else{"SSH"},"status":status,"at":at,"countryCode":h["countryCode"],"expiresAt":h["expiresAt"],
+            "statusLabel":status_label,
             "values": if status == "healthy" {m["values"].clone()} else {Value::Null}})
     }).collect();
     json!({"title":"机器状态","monitoring":config["monitoring"],"rows":rows,"updatedAt":now})
@@ -570,6 +597,15 @@ mod status_tests {
         assert_eq!(out["rows"][2]["status"],"error");
         assert_eq!(out["rows"][3]["status"],"unknown");
         assert!(!out.to_string().contains("private"));assert!(!out.to_string().contains("secret"));
+    }
+    #[test]
+    fn stale_bastion_failure_keeps_the_authentication_label() {
+        let snapshot = json!({"config":{"interval":60,"hosts":[{"id":"b","name":"B","bastion":{}}]},
+            "metrics":{"b":{"at":1000,"status":"failed","error":"连接尚未就绪；请使用 console 完成认证"}}});
+        let status = status_summary(&snapshot, 1_000_000);
+        assert_eq!(status["rows"][0]["status"], "stale");
+        assert_eq!(status["rows"][0]["statusLabel"], "需重新认证");
+        assert!(status["rows"][0].get("error").is_none());
     }
 }
 fn valid_alias(s: &str) -> bool {
@@ -815,6 +851,7 @@ pub(crate) async fn machines_api(
             rt.save(|c|{authorize(c,"ssh:configure")?;set_exporter(c,host_id,endpoint)})
         },
         "metricHistory" => {let interval=rt.config.lock().unwrap().interval.max(30);rt.history_store.metric_page(payload["hostId"].as_str().unwrap_or(""),payload["metric"].as_str().unwrap_or("cpu"),payload["seconds"].as_u64().unwrap_or(86400),interval)},
+        "collectionHistory" => Ok(json!(rt.history_store.collection_samples(payload["hostId"].as_str().ok_or("缺少机器 ID")?, 10)?)),
         "exporterTest" => {let e:crate::monitoring::exporter::Endpoint=serde_json::from_value(payload).map_err(|e|e.to_string())?;crate::monitoring::exporter::collect(&e).await},
         "netdataTest" => {let instance:crate::monitoring::netdata::Instance=serde_json::from_value(payload).map_err(|e|e.to_string())?;crate::monitoring::netdata::fetch(&instance).await},
         "netdataHistory" => {let instance={let c=rt.config.lock().unwrap();c.netdata.iter().find(|i|Some(i.id.as_str())==payload["id"].as_str()).cloned().ok_or("Netdata 节点不存在")?};crate::monitoring::netdata::history(&instance,payload["chart"].as_str().unwrap_or("system.cpu"),payload["seconds"].as_u64().unwrap_or(86400)).await},
@@ -1665,11 +1702,13 @@ async fn execute(
             match crate::monitoring::exporter::collect(endpoint).await {Ok(values)=>{job.stdout=values.to_string();job.status="success".into();job.exit_code=Some(0);},Err(e)=>{job.status="failed".into();job.stderr=e;}}
             if cancel.load(Ordering::Acquire){job.status="cancelled".into();}
         } else if let Some(path)=crate::ssh::shared::path(rt.path.parent().unwrap()) {
-            let request=crate::ssh::shared::request(path,json!({"action":"exec","alias":job.alias,"command":command,"isolated":job.kind=="collect","timeout":if job.kind=="collect"{20}else{60}}));
+            let collect = job.kind == "collect";
+            let request=crate::ssh::shared::request(path,json!({"action":if collect {"collect"} else {"exec"},"alias":job.alias,"command":command,"isolated":collect,"timeout":if collect {20}else{60}}));
             tokio::pin!(request);
             let response=loop {tokio::select!{result=&mut request=>break Some(result),_=tokio::time::sleep(Duration::from_millis(100))=>{if cancel.load(Ordering::Acquire){break None;}}}};
             match response {
-                Some(Ok(data))=>{job.stdout=data["output"].as_str().unwrap_or("").into();job.exit_code=data["exit_code"].as_i64().map(|n|n as i32);job.status=if job.exit_code==Some(0){"success"}else{"failed"}.into();},
+                Some(Ok(data))=>{job.stdout=data["output"].as_str().unwrap_or("").into();job.exit_code=data["exit_code"].as_i64().map(|n|n as i32);job.status=if job.exit_code==Some(0){"success"}else{"failed"}.into();
+                    if collect && job.status=="failed" {job.stderr=data["error_detail"].as_str().unwrap_or("").into();}},
                 Some(Err(error))=>{job.status="failed".into();job.stderr=error;},
                 None=>{job.status="cancelled".into();job.stderr="已停止等待；共享会话中的远端命令可能仍在执行".into();}
             }
@@ -1718,8 +1757,16 @@ async fn execute(
                     .is_ok_and(|connection| execution_target(h, &connection, &endpoint) == target)
             })
         {
-            if let Err(e)=rt.history_store.sample(&job.id,&job.host_id,job.finished_at.unwrap(),&job.status,if exporter.is_some(){"node_exporter"}else{"ssh"},&parsed.clone().unwrap_or(Value::Null)){job.status="failed".into();job.stderr.push_str(&format!("历史保存失败：{e}"));}
-            rt.metrics.lock().unwrap().insert(job.host_id.clone(), json!({"at": job.finished_at, "status": job.status, "values": parsed, "error": job.stderr.chars().take(1000).collect::<String>()}));
+            if job.status != "success" && job.stderr.trim().is_empty() {
+                job.stderr = match job.exit_code {
+                    Some(code) => format!("采集命令退出码 {code}，远端未提供错误信息"),
+                    None => "采集未完成，未返回错误信息".into(),
+                };
+            }
+            let error = machine_history::redact(&job.stderr).chars().filter(|c| !c.is_control() || *c == '\n').take(1000).collect::<String>();
+            let sample = parsed.clone().unwrap_or_else(|| json!({"error":error}));
+            if let Err(e)=rt.history_store.sample(&job.id,&job.host_id,job.finished_at.unwrap(),&job.status,if exporter.is_some(){"node_exporter"}else{"ssh"},&sample){job.status="failed".into();job.stderr.push_str(&format!("历史保存失败：{e}"));}
+            rt.metrics.lock().unwrap().insert(job.host_id.clone(), json!({"at": job.finished_at, "status": job.status, "values": parsed, "error": error}));
         }
     }
     let persisted = rt.history_store.save(&job);

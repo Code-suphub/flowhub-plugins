@@ -54,6 +54,19 @@ fn protected_job(job: &Job) -> Job {
 pub(super) struct Store(Mutex<Connection>);
 impl Store {
     pub(super) fn sample(&self,id:&str,host:&str,at:i64,status:&str,source:&str,value:&Value)->Result<(),String>{self.0.lock().unwrap().execute("INSERT OR REPLACE INTO metric_samples VALUES(?1,?2,?3,?4,?5,?6)",params![id,host,at,status,source,value.to_string()]).map_err(|e|e.to_string())?;Ok(())}
+    pub(super) fn collection_samples(&self, host: &str, limit: u32) -> Result<Vec<Value>, String> {
+        let db = self.0.lock().unwrap();
+        let mut stmt = db.prepare("SELECT id,at,status,data FROM metric_samples WHERE host=?1 ORDER BY at DESC,id DESC LIMIT ?2").map_err(|e| e.to_string())?;
+        let rows = stmt.query_map(params![host, limit], |r| Ok((r.get::<_,String>(0)?, r.get::<_,i64>(1)?, r.get::<_,String>(2)?, r.get::<_,String>(3)?))).map_err(|e| e.to_string())?;
+        rows.map(|row| {
+            let (id, at, status, data) = row.map_err(|e| e.to_string())?;
+            let data = serde_json::from_str::<Value>(&data).unwrap_or(Value::Null);
+            let success = status == "success";
+            Ok(json!({"id":id,"at":at,"status":status,
+                "error":if success {Value::Null} else {data["error"].clone()},
+                "values":if success {data} else {Value::Null}}))
+        }).collect()
+    }
     pub(super) fn prune_metrics(&self, days: u64) -> Result<(), String> {
         let cutoff = chrono::Utc::now().timestamp_millis() - days.clamp(1,365) as i64 * 86400000;
         let command_cutoff = chrono::Utc::now().timestamp_millis() - COMMAND_DAYS * 86400000;
@@ -192,9 +205,15 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();let path=root.join("history.db");
         let store=Store::open(&path).unwrap();let now=chrono::Utc::now().timestamp_millis();
         store.sample("old","host",now-3*86400000,"success","ssh",&json!({"cpu":50})).unwrap();
-        store.sample("new","host",now-1000,"success","node_exporter",&json!({"cpu":25})).unwrap();drop(store);
+        store.sample("new","host",now-1000,"success","node_exporter",&json!({"cpu":25})).unwrap();
+        store.sample("failure","host",now,"failed","ssh",&json!({"error":redact("连接失败 token=fixture-secret")})).unwrap();
+        drop(store);
         let store=Store::open(&path).unwrap();store.prune_metrics(1).unwrap();
-        let count:i64=store.0.lock().unwrap().query_row("SELECT count(*) FROM metric_samples",[],|r|r.get(0)).unwrap();assert_eq!(count,1);
+        let count:i64=store.0.lock().unwrap().query_row("SELECT count(*) FROM metric_samples",[],|r|r.get(0)).unwrap();assert_eq!(count,2);
+        let samples=store.collection_samples("host",10).unwrap();
+        assert_eq!(samples[0]["status"],"failed");
+        assert_eq!(samples[0]["error"],"连接失败 token=[已隐藏]");
+        assert_eq!(samples[1]["values"]["cpu"],25);
         let page=store.metric_page("host","cpu",3600,60).unwrap();let rows=page["data"].as_array().unwrap();assert!(rows.iter().any(|r|r[1]==25.0));assert!(rows.iter().any(|r|r[1].is_null()));
         assert!(store.metric_page("host","invalid",3600,60).is_err());
         drop(store);std::fs::remove_dir_all(root).unwrap();
