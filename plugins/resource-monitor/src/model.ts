@@ -25,7 +25,7 @@ export function detailControls(group:Group|undefined,state?:ApplicationState,sel
     contextKind,contextLabel:contextKind==='arc'?'标签页':contextKind==='codex'?'对话与任务':undefined};
 }
 export function widgetRows(snapshot:StatusSnapshot|undefined,config:Config={}) {
-  const sort=config.sort==='cpu'?'cpu':config.sort==='memory'?'rss':'footprint';
+  const sort=config.sort==='footprint'?'footprint':config.sort==='memory'?'rss':'cpu';
   const value=(row:StatusSnapshot['rows'][number])=>config.sort==='accounting'?row.systemAccounting?.footprint:row.values[sort];
   const rows=[...(snapshot?.rows??[])].filter(row=>!config.groupId||row.id===config.groupId)
     .sort((a,b)=>(value(b)??-1)-(value(a)??-1)||a.id.localeCompare(b.id));

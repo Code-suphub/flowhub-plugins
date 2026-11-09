@@ -211,8 +211,10 @@ test('cards default to the complete ranked list, with explicit top-N and focus o
   const rows=Array.from({length:28},(_,i)=>({...seed,id:String(i),values:{...seed.values,footprint:i,cpu:i===27?null:i}}));
   const original=rows.map(row=>row.id),status={...snapshot,rows};
   assert.equal(model.widgetRows(status).length,28);
+  assert.equal(model.widgetRows(status)[0].id,'26','new cards rank by CPU by default');
   assert.equal(model.widgetRows(status,{limit:5}).length,28,'old top-five defaults must not truncate the new complete list');
-  assert.deepEqual(model.widgetRows(status,{display:'top',limit:3}).map(row=>row.id),['27','26','25']);
+  assert.deepEqual(model.widgetRows(status,{display:'top',limit:3}).map(row=>row.id),['26','25','24']);
+  assert.deepEqual(model.widgetRows(status,{sort:'footprint',display:'top',limit:3}).map(row=>row.id),['27','26','25']);
   assert.equal(model.widgetRows(status,{display:'top',limit:999}).length,10);
   assert.equal(model.widgetRows(status,{groupId:'12'}).length,1);
   assert.equal(model.widgetRows(status,{sort:'cpu'}).at(-1).id,'27');

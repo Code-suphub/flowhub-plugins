@@ -111,9 +111,8 @@
     assert(doc(host).querySelector('.widget-header strong').textContent==='Configured title','configured title lost');
     assert(rows(host).every(row=>!row.disabled),'live card navigation disabled');
     assert(rows(host)[0].querySelector('img')?.src===nativeIcon,'native application icon missing');
-    assert(rows(host)[0].querySelector('.widget-memory').textContent.includes('活跃'),'active footprint label missing');
-    assert(rows(host)[0].querySelector('.widget-memory').textContent.includes('记账 84.00 GiB'),'system ledger missing or replaced active footprint');
-    assert(!rows(host).find(row=>row.textContent.includes('Application 25')).querySelector('.widget-memory').textContent.includes('记账'),'unavailable accounting should not leave a dash on the card');
+    assert(rows(host)[0].querySelectorAll('.numeric').length===1&&rows(host)[0].textContent.includes('27.0%'),'default card must show only CPU');
+    assert(!rows(host)[0].textContent.includes('进程'),'default card retained process counts');
     assert(rows(host)[1].querySelector('img')?.src.startsWith('data:image/svg+xml'),'bundled runtime icon missing');
     assert(rows(host).at(-1).querySelector('.app-mark').textContent==='A','initial fallback missing');
     const list=doc(host).querySelector('.widget-list');
@@ -125,6 +124,27 @@
     const navigation=host.messages.filter(message=>message.type==='flowhub:widget-navigate');
     assert(navigation[0].selection.groupId==='app:27'&&Object.keys(navigation[1].selection).length===0,'detail selection changed');
     checks.push('handshake/token/context; 28-row scroll; metadata/runtime/fallback icons; detail navigation');
+
+    host.element.scrollIntoView({block:'center'});
+    const settingsButton=doc(host).querySelector('.widget-settings-trigger');
+    settingsButton.click();
+    const settings=()=>doc(host).querySelector('dialog.widget-settings-dialog[open]');
+    await wait(settings,'display settings did not open');
+    const settingButton=label=>[...settings().querySelectorAll('button')].find(button=>button.textContent===label);
+    settingButton('系统归属记账').click();
+    await wait(()=>rows(host)[0].textContent.includes('84.00 GiB'),'saved accounting sort and column no longer available');
+    settingButton('前 3').click();
+    await wait(()=>rows(host).length===3,'quick range did not select top three');
+    settingButton('完整列表').click();
+    await wait(()=>rows(host).length===28,'quick range did not restore complete list');
+    settingButton('活跃足迹').click();
+    await wait(()=>doc(host).querySelector('.widget-columns').textContent.includes('活跃足迹 ↓'),'sort did not reveal the selected metric');
+    settings().querySelector('input').click();
+    await wait(()=>doc(host).querySelector('.widget-columns').textContent.includes('CPU ↓'),'hiding sorted metric did not reset to CPU');
+    settingButton('编辑默认设置').click();
+    await wait(()=>host.messages.some(message=>message.type==='flowhub:widget-navigate'&&message.action==='editor'),'card could not open its existing host editor');
+    await wait(()=>!settings(),'display settings did not dismiss');
+    checks.push('CPU default; direct card metrics, sort and scope; host editor navigation');
 
     host.send({type:'flowhub:theme',theme:'light'});
     await wait(()=>doc(host).documentElement.dataset.theme==='light','light theme missing');
@@ -171,12 +191,12 @@
     editor.send({type:'flowhub:widget-save',id:'before-init'});
     await wait(()=>editor.messages.some(message=>message.id==='before-init'),'save callback was not registered before ready');
     assert(!editor.messages.find(message=>message.id==='before-init').error,'early editor save failed');
-    editor.send({type:'flowhub:widget-init',context:{preview:true,config:{title:'Saved title',sort:'cpu',display:'top',limit:3,groupId:'app:5'},snapshot}});
+    editor.send({type:'flowhub:widget-init',context:{preview:true,config:{title:'Saved title',sort:'cpu',display:'top',limit:3,showFootprint:true,showRss:true,groupId:'app:5'},snapshot}});
     await wait(()=>doc(editor).querySelector('input')?.value==='Saved title','editor context missing');
     editor.send({type:'flowhub:widget-save',id:'configured'});
     await wait(()=>editor.messages.some(message=>message.id==='configured'),'configured editor save missing');
     const saved=editor.messages.find(message=>message.id==='configured').config;
-    assert(saved.title==='Saved title'&&saved.sort==='cpu'&&saved.display==='top'&&saved.limit===3&&saved.groupId==='app:5','saved configuration changed');
+    assert(saved.title==='Saved title'&&saved.sort==='cpu'&&saved.display==='top'&&saved.limit===3&&saved.showFootprint&&saved.showRss&&saved.groupId==='app:5','saved configuration changed');
     checks.push('editor early save registration and initialized configuration');
 
     const main=await frame('index.html');

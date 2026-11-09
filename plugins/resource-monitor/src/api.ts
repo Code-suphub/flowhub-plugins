@@ -96,9 +96,10 @@ export function createApi(host:Window):Api {
     ready(){
       if(!widget)return;
       if(hosted&&token)send({type:'flowhub:widget-ready'});
-      else {context={preview:true,config:{sort:'memory',limit:5},snapshot:statusFrom(sampleSnapshot())};listeners.forEach(fn=>fn(context!));}
+      else {context={preview:true,config:{limit:5},snapshot:statusFrom(sampleSnapshot())};listeners.forEach(fn=>fn(context!));}
     },
     navigate(groupId){if(!api.preview&&widget)send({type:'flowhub:widget-navigate',action:'detail',selection:groupId?{groupId}:{}});},
+    openEditor(){if(!api.preview&&surface==='card')send({type:'flowhub:widget-navigate',action:'editor'});},
     dispose(){disposed=true;host.removeEventListener('message',receive);listeners.clear();for(const p of pending.values()){clearTimeout(p.timer);p.reject(new Error('插件连接已关闭'));}pending.clear();expired.clear();failed.clear();}
   };
   return api;
