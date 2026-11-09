@@ -66,6 +66,26 @@ test('manual sampling does not stop summary polls and an older manual response c
  const last=view.calls.at(-1);last.resolve(model.rankingFrom(latest,'',false));await view.settle();assert.equal(view.nodes('Alert').some(node=>node.props.title==='newest collection failure'),true);
 });
 
+test('open ranking and process detail recover automatically after backend reload resets revision',async t=>{
+ const view=fixture(t);
+ const old={...snapshot(240),at:Date.now()-21000,stale:true,sampling:true};
+ view.calls.find(call=>call.method==='ranking_snapshot').resolve(model.rankingFrom(old,'',false));await view.settle();
+ assert.ok(view.nodes('Alert').some(node=>node.props.title==='数据已过期，请刷新后再操作。'));
+ const row=view.table().props.dataSource[0];
+ view.open(row);
+ view.calls.find(call=>call.method==='group_detail').resolve(model.detailFrom(old,row.id));await view.settle();
+ await view.advance(5000);
+ const reads=view.calls.slice(-2);
+ const fresh={...snapshot(2),at:Date.now()};
+ const group=fresh.groups.find(group=>group.id===row.id);
+ group.processes[0].memory=1234;
+ reads.find(call=>call.method==='ranking_snapshot').resolve(model.rankingFrom(fresh,'',false));
+ reads.find(call=>call.method==='group_detail').resolve(model.detailFrom(fresh,row.id));await view.settle();
+ assert.equal(view.nodes('Alert').some(node=>node.props.title==='数据已过期，请刷新后再操作。'),false);
+ assert.equal(view.nodes('Table').find(node=>node.props.pagination.pageSize===12).props.dataSource[0].memory,1234);
+ assert.equal(view.calls.some(call=>call.method==='refresh_summary'),false);
+});
+
 test('detail bulk action switches from all operable instances to explicit checkbox selection',async t=>{
  const view=fixture(t),full=snapshot(),group=full.groups[0];
  group.instances=group.processes.slice(0,3).map((p,index)=>({id:`instance-${index}`,root:p,count:1,canTerminate:index<2}));
@@ -75,6 +95,9 @@ test('detail bulk action switches from all operable instances to explicit checkb
  view.calls.find(call=>call.method==='group_detail').resolve(model.detailFrom(full,group.id));await view.settle();
  const instances=()=>view.nodes('Table').find(node=>node.props.rowSelection);
  assert.equal(instances().props.rowSelection.getCheckboxProps(group.instances[2]).disabled,true);
+ const services=view.calls.find(call=>call.method==='services_snapshot');
+ services.resolve({at:Date.now(),supported:true,services:[{id:'unrelated',appPath:'/Applications/Other.app'}]});await view.settle();
+ assert.equal(view.nodes('Button').filter(node=>Array.isArray(node.props.children)&&node.props.children.includes('后台服务 (')).length,0);
  view.nodes('Button').find(node=>node.props.children==='结束全部实例').props.onClick();view.render();
  let request=view.calls.at(-1);assert.equal(request.method,'terminate_preview');assert.deepEqual(request.params.instanceIds,['instance-0','instance-1']);
  request.reject(Error('fixture cancelled'));await view.settle();

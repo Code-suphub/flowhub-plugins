@@ -67,6 +67,10 @@ test('main status uses the private status protocol and summary/detail requests s
 });
 test('browser preview implements summary and selected group reads while keeping mutations disabled',async()=>{
  const h=host();h.window.parent=h.window;const api=createApi(h.window);
+ const startup=await api.invoke('startup_snapshot');
+ assert.deepEqual(startup.rows.map(row=>row.kind),['mysql','onedrive']);
+ await assert.rejects(api.invoke('startup_set',{id:'homebrew.mxcl.mysql',confirmed:true,enabled:false}),/预览/);
+ await assert.rejects(api.invoke('login_items_settings'),/预览/);
  const summary=await api.invoke('ranking_snapshot',{query:'401',includeSystem:false});
  assert.equal(summary.groups.some(g=>g.processes),false);assert.ok(summary.matchedGroupIds.includes('app:codex'));
  const detail=await api.invoke('group_detail',{groupId:'app:codex'});assert.ok(detail.group.processes.length);assert.equal(detail.group.id,'app:codex');

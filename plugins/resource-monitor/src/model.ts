@@ -109,7 +109,10 @@ export function detailFrom(snapshot:Snapshot,groupId:string,trackedPids:readonly
     groupId,group:snapshot.groups.find(g=>g.id===groupId)??null,elsewhere:other.filter(p=>tracked.has(p.pid)).map(({pid,started,uid,executable})=>({pid,started,uid,executable})),contextProcesses:other.filter(p=>contexts.has(p.pid))};
 }
 export function newerSnapshot(next:{at:number;revision?:number},previous:{at:number;revision?:number}|undefined) {
-  return !previous||(next.revision!=null&&previous.revision!=null?next.revision>=previous.revision:next.at>=previous.at);
+  if(!previous||next.at>previous.at)return true;
+  if(next.at<previous.at)return false;
+  // A reload resets the backend revision, but new samples still have a newer timestamp.
+  return next.revision==null||previous.revision==null||next.revision>=previous.revision;
 }
 export function updateDetail(previous:Group,latest:Group|undefined,live:readonly (Identity&{groupId?:string})[]=[]):Group {
   const key=processKey;

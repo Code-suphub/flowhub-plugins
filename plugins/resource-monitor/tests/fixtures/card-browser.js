@@ -14,6 +14,15 @@
   const fixtureGroup={id:'app:codex',name:'Codex',source:'fixture',memory:3145728,footprint:6291456,cpu:0,appPath:'/Applications/Codex.app',processes:fixtureProcesses,instances:fixtureProcesses.map(p=>({id:p.instanceId,root:p,count:1,memory:p.memory,footprint:p.footprint,cpu:0,canTerminate:!p.protected})),system:false,canTerminate:false,incomplete:false};
   const {processes:unusedProcesses,instances:unusedInstances,...fixtureSummary}=fixtureGroup;
   const fixtureService={id:'a'.repeat(64),label:'test.fixture-service',name:'Fixture service',domain:'gui/501',plistPath:'/Library/LaunchAgents/test.fixture-service.plist',program:fixtureProcesses[0].executable,appPath:'/Applications/Codex.app',restart:'always',restartHint:'服务会自动重新启动',loaded:true,paused:false,identity:fixtureProcesses[0],canStop:true,canResume:false,blockedReason:''};
+  const mysqlStartup={id:'homebrew.mxcl.mysql',name:'MySQL',kind:'mysql',state:'enabled',revision:'a'.repeat(64),loaded:true};
+  const postgresStartup={id:'homebrew.mxcl.postgresql@14',name:'PostgreSQL 14',kind:'postgresql',state:'enabled',revision:'1'.repeat(64),loaded:true,keepAlive:true,pid:63742};
+  const postgresProcess={...fixtureProcesses[0],pid:63742,name:'postgres',executable:'/opt/homebrew/Cellar/postgresql@14/14.19/bin/postgres',groupId:'postgres',instanceId:'instance-63742'};
+  const postgresSummary={...fixtureSummary,id:'postgres',name:'PostgreSQL 14',appPath:null,processCount:1,instanceCount:1};
+  const postgresGroup={...postgresSummary,processes:[postgresProcess],instances:[{...fixtureGroup.instances[0],id:postgresProcess.instanceId,root:postgresProcess}]};
+  const onedriveStartup={id:'com.microsoft.OneDriveLauncher',name:'OneDrive',kind:'onedrive',state:'enabled',revision:null};
+  const vivoAgent={id:'com.vivo.pcsuite.SyncService',name:'vivo 同步服务',kind:'vivo',state:'enabled',revision:'c'.repeat(64)};
+  const vivoWatch={id:'com.vivo.control.watch',name:'vivo 远控守护服务',kind:'vivo',state:'enabled',revision:'d'.repeat(64),system:true};
+  const vivoLogin={id:'com.vivo.control.serviceAgentLogin',name:'vivo 登录窗口远控服务',kind:'vivo',state:'unknown',revision:null,blockedReason:'此服务在 macOS 登录窗口运行，当前用户会话无法配置。'};
   let servicePlan;
   const hosts=new Map();
   addEventListener('message',event=>{
@@ -21,6 +30,27 @@
     const data=event.data;host.messages.push(data);
     if(data.type==='flowhub:request') {
       if(data.method===host.failMethod){delete host.failMethod;event.source.postMessage({type:'flowhub:response',id:data.id,error:'Error: fixture request failure'},'*');return;}
+      if(data.method==='privileged_status'){
+        event.source.postMessage({type:'flowhub:response',id:data.id,result:{ok:true,status:'enabled',message:'已授权',checking:true,vivoStartupSupported:true,vivoStartupControl:true}},'*');return;
+      }
+      if(['startup_snapshot','startup_set','startup_stop','login_items_settings'].includes(data.method)){
+        let result={ok:true};
+        if(data.method==='startup_snapshot')result={rows:[mysqlStartup,postgresStartup,onedriveStartup,vivoAgent,vivoWatch,vivoLogin]};
+        if(data.method==='startup_set'){
+          const row=[mysqlStartup,postgresStartup,vivoAgent,vivoWatch].find(row=>row.id===data.params.id);
+          assert(data.params.confirmed&&row&&data.params.revision===row.revision,'startup confirmation lost its exact service and revision');
+          row.state=data.params.enabled?'enabled':'disabled';
+          row.revision=(data.params.enabled?'a':'b').repeat(64);
+          if(row===mysqlStartup||row===postgresStartup)row.stopRevision=row.loaded&&!data.params.enabled?(row===mysqlStartup?'e':'f').repeat(64):undefined;
+          result={enabled:data.params.enabled,processChanged:false};
+        }
+        if(data.method==='startup_stop'){
+          const row=[mysqlStartup,postgresStartup].find(row=>row.id===data.params.id);
+          assert(data.params.confirmed&&row&&data.params.revision===row.stopRevision&&row.loaded&&row.state==='disabled','stop lost the exact disabled, loaded database service');
+          row.loaded=false;delete row.stopRevision;delete row.keepAlive;delete row.pid;
+        }
+        event.source.postMessage({type:'flowhub:response',id:data.id,result},'*');return;
+      }
       if(['services_snapshot','service_preview','service_confirm'].includes(data.method)){
         if(data.method==='services_snapshot'){
           assert(!host.serviceReading,'duplicate background-service reads');host.serviceReading=true;
@@ -45,7 +75,8 @@
         event.source.postMessage({type:'flowhub:response',id:data.id,result},'*');return;
       }
       const result=data.method==='script_activity'?{at,records:scriptRecords}:data.method==='application_metadata'?{applications:[]}:{at,groups:[{id:'app:codex',name:'Codex',source:'fixture',memory:1048576,footprint:2097152,cpu:1,processes:[],processCount:0,instanceCount:0,system:false,canTerminate:false,incomplete:false}],query:data.params?.query??'',includeSystem:data.params?.includeSystem??true,hasRestrictedProcesses:false,matchedGroupIds:[],system:{},interval:5,memoryMetric:'footprint'};
-      const payload=data.method==='group_detail'?{at,groupId:'app:codex',group:fixtureGroup,elsewhere:[],contextProcesses:[]}:data.method==='application_state'?{canQuit:false,message:'fixture'}:data.method==='terminate_preview'?{token:'fixture-review-only',expiresIn:30,targets:fixtureProcesses.filter(p=>data.params.instanceIds.includes(p.instanceId)),scope:{kind:'instances',name:'Codex',instances:fixtureGroup.instances.filter(i=>data.params.instanceIds.includes(i.id))}}:data.method==='ranking_snapshot'?{...result,groups:[{...fixtureSummary,processCount:3,instanceCount:3}]}:result;
+      const group=data.params?.groupId==='postgres'?postgresGroup:fixtureGroup;
+      const payload=data.method==='group_detail'?{at,groupId:group.id,group,elsewhere:[],contextProcesses:[]}:data.method==='application_state'?{canQuit:false,message:'fixture'}:data.method==='terminate_preview'?{token:'fixture-review-only',expiresIn:30,targets:fixtureProcesses.filter(p=>data.params.instanceIds.includes(p.instanceId)),scope:{kind:'instances',name:'Codex',instances:fixtureGroup.instances.filter(i=>data.params.instanceIds.includes(i.id))}}:data.method==='ranking_snapshot'?{...result,groups:[{...fixtureSummary,processCount:3,instanceCount:3},postgresSummary]}:result;
       if(data.method==='terminate_confirm')throw Error('browser fixture must never execute termination');
       event.source.postMessage({type:'flowhub:response',id:data.id,result:payload},'*');return;
     }
@@ -189,6 +220,7 @@
     const rootCheckbox=doc(main).querySelector('input[aria-label="选择实例 PID 103"]');
     assert(rootCheckbox.disabled,'root instance must remain protected');
     assert(doc(main).body.textContent.includes('root 进程：当前授权仅用于采集，不支持结束。'),'root protection reason missing');
+    assert([...doc(main).querySelectorAll('.detail-modal button')].some(button=>button.textContent==='后台服务 (1)'),'matched application service shortcut missing');
     assert([...doc(main).querySelectorAll('button')].some(button=>button.textContent==='结束全部实例'),'initial bulk label missing');
     doc(main).querySelector('.ant-modal .ant-table-thead input[type="checkbox"]').click();
     await wait(()=>[...doc(main).querySelectorAll('button')].some(button=>button.textContent==='结束所选实例'),'checkbox selection did not change bulk action');
@@ -240,6 +272,65 @@
     assert(!main.messages.some(message=>message.method==='terminate_confirm'),'service control used process termination');
     serviceDrawer().querySelector('.ant-drawer-close').click();await wait(()=>!serviceDrawer(),'service drawer did not close after resume');
     checks.push('service restart hints; explicit stop/resume reviews; paused rows survive closing; exact service tokens; no PID termination');
+    const startupStart=main.messages.length;
+    [...doc(main).querySelectorAll('button')].find(button=>button.textContent==='自启动').click();
+    const startupDrawer=()=>doc(main).querySelector('.startup-drawer');
+    const startupAction=label=>[...(startupDrawer()?.querySelectorAll('button')??[])].find(button=>button.textContent===label);
+    const startupRow=name=>[...(startupDrawer()?.querySelectorAll('article')??[])].find(row=>row.querySelector('strong')?.textContent===name);
+    const startupConfirm=label=>[...doc(main).querySelectorAll('.ant-modal-footer button')].find(button=>button.textContent.replace(/\s/g,'')===label);
+    await wait(()=>startupAction('关闭自启动'),'startup state missing');
+    assert(startupDrawer().textContent.includes('MySQL已开启')&&startupDrawer().textContent.includes('OneDrive已开启'),'startup statuses missing');
+    assert(startupRow(vivoLogin.name).textContent.includes(vivoLogin.blockedReason)&&!startupRow(vivoLogin.name).querySelector('button'),'pre-login vivo agent should be read-only');
+    startupAction('关闭自启动').click();
+    await wait(()=>startupConfirm('确认关闭'),'startup confirmation missing');
+    assert(!main.messages.slice(startupStart).some(message=>message.method==='startup_set'),'opening startup confirmation changed policy');
+    startupConfirm('确认关闭').click();
+    await wait(()=>startupAction('恢复自启动')&&!startupAction('恢复自启动').disabled,'disabled startup did not expose restore');
+    assert(startupRow('MySQL').textContent.includes('结束实例后仍可能被重新拉起')&&!main.messages.slice(startupStart).some(message=>message.method==='startup_stop'),'policy change stopped the running service or omitted the restart warning');
+    startupAction('停止后台服务').click();
+    await wait(()=>startupConfirm('确认停止'),'separate MySQL stop confirmation missing');
+    assert(!main.messages.slice(startupStart).some(message=>message.method==='startup_stop'),'opening the confirmation stopped the service');
+    startupConfirm('确认停止').click();
+    await wait(()=>startupRow('MySQL').textContent.includes('已关闭服务未加载')&&!startupAction('停止后台服务'),'MySQL stop changed startup policy or did not confirm unload');
+    startupAction('恢复自启动').click();
+    await wait(()=>startupConfirm('确认恢复'),'restore startup confirmation missing');
+    startupConfirm('确认恢复').click();
+    await wait(()=>startupAction('关闭自启动')&&!startupAction('关闭自启动').disabled,'startup restore did not refresh state');
+    startupAction('前往登录项设置').click();
+    await wait(()=>main.messages.some(message=>message.method==='login_items_settings'),'OneDrive settings link missing');
+    const rootButton=()=>startupRow('vivo 远控守护服务')?.querySelector('button');
+    await wait(()=>rootButton()&&!rootButton().disabled,'authorized vivo root row cannot be configured');
+    rootButton().click();
+    await wait(()=>startupConfirm('确认关闭'),'vivo root confirmation missing');
+    startupConfirm('确认关闭').click();
+    await wait(()=>rootButton()?.textContent==='恢复自启动','vivo root policy did not update');
+    assert(startupRow('vivo 同步服务').textContent.includes('已开启'),'root change affected a different vivo service');
+    const startupMessages=main.messages.slice(startupStart);
+    assert(startupMessages.filter(message=>message.method==='startup_set').length===3&&startupMessages.filter(message=>message.method==='startup_stop').length===1,'startup or stop changes were duplicated');
+    assert(!startupMessages.some(message=>['terminate_confirm','service_preview','service_confirm'].includes(message.method)),'startup settings touched running services');
+    startupDrawer().querySelector('.ant-drawer-close').click();await wait(()=>!startupDrawer(),'startup drawer did not close');
+    checks.push('MySQL startup status and separate confirmed stop; individual vivo root service; OneDrive settings navigation');
+    doc(main).querySelector('button[aria-label="查看 PostgreSQL 14 进程"]').click();
+    const postgresShortcut=()=>[...doc(main).querySelectorAll('.detail-modal button')].find(button=>button.textContent==='自启动 / 后台服务');
+    await wait(postgresShortcut,'PostgreSQL service shortcut missing without privileged match');
+    postgresShortcut().click();
+    await wait(()=>startupRow(postgresStartup.name),'scoped PostgreSQL startup row missing');
+    assert(startupDrawer().querySelectorAll('article').length===1,'PostgreSQL shortcut exposed an unrelated service');
+    assert(startupDrawer().textContent.includes('PID 63742')&&startupDrawer().textContent.includes('KeepAlive'),'live PostgreSQL PID or restart warning missing');
+    const postgresStart=main.messages.length;
+    startupAction('关闭自启动').click();
+    await wait(()=>startupConfirm('确认关闭'),'PostgreSQL policy confirmation missing');
+    startupConfirm('确认关闭').click();
+    await wait(()=>startupAction('停止后台服务')&&!startupAction('停止后台服务').disabled,'loaded PostgreSQL service cannot be stopped separately');
+    assert(startupDrawer().textContent.includes('PID 63742')&&!main.messages.slice(postgresStart).some(message=>message.method==='startup_stop'),'disabling PostgreSQL startup also stopped the process');
+    startupAction('停止后台服务').click();
+    await wait(()=>startupConfirm('确认停止'),'PostgreSQL stop confirmation missing');
+    startupConfirm('确认停止').click();
+    await wait(()=>startupDrawer().textContent.includes('已关闭服务未加载')&&!startupAction('停止后台服务'),'PostgreSQL stop did not confirm unload or retain startup policy');
+    assert(main.messages.slice(postgresStart).filter(message=>message.method==='startup_stop').length===1,'PostgreSQL stop was repeated');
+    startupDrawer().querySelector('.ant-drawer-close').click();await wait(()=>!startupDrawer(),'PostgreSQL startup drawer did not close');
+    doc(main).querySelector('.detail-modal .ant-modal-close').click();
+    checks.push('PostgreSQL detail shortcut without privileged match; KeepAlive hint; policy and stop target the exact service');
     const detail=await frame('widget-detail.html',true);
     await wait(()=>detail.messages.some(message=>message.type==='flowhub:widget-ready'),'detail ready missing');
     detail.send({type:'flowhub:widget-init',context:{preview:true,config:{selection:{groupId:'app:codex'}}}});

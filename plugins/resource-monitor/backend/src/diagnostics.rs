@@ -345,6 +345,10 @@ pub fn method(name: &str) -> &str {
         | "services_snapshot"
         | "service_preview"
         | "service_confirm"
+        | "startup_snapshot"
+        | "startup_set"
+        | "startup_stop"
+        | "login_items_settings"
         | "diagnostic_event" => name,
         _ => "unknown",
     }

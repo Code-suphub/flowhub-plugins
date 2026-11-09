@@ -166,6 +166,12 @@ pub fn service_request(method:&str,params:&Value)->Result<Value,String> {
             if params["confirmed"]!=true{return Err("请明确确认后台服务操作".into());}
             request["token"]=json!(token);request["confirmed"]=json!(true);
         },
+        "vivo_startup_set"=>{
+            if params["id"]!=crate::startup::VIVO_WATCH||params["confirmed"]!=true{return Err("请确认所选 vivo 远控守护服务".into());}
+            let revision=params["revision"].as_str().filter(|s|s.len()==64&&s.bytes().all(|c|c.is_ascii_hexdigit())).ok_or("请刷新 vivo 自启动状态")?;
+            let enabled=params["enabled"].as_bool().ok_or("自启动设置无效")?;
+            request["id"]=json!(crate::startup::VIVO_WATCH);request["revision"]=json!(revision);request["enabled"]=json!(enabled);request["confirmed"]=json!(true);
+        },
         _=>return Err("不支持的后台服务操作".into()),
     }
     let mut stream=UnixStream::connect("/var/run/cn.ac.camellia.flowhub.resource-monitor.sock").map_err(|_|"后台服务管理需要连接系统采集服务，请检查授权")?;

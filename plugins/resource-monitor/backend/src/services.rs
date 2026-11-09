@@ -25,8 +25,11 @@ struct Evidence {
     mux: HashMap<i32, Identity>,
 }
 
-fn command(program: &str, args: &[&str], deadline: Instant) -> Option<Vec<u8>> {
-    let deadline = deadline.min(Instant::now() + Duration::from_millis(600));
+pub(crate) fn command(program: &str, args: &[&str], deadline: Instant) -> Option<Vec<u8>> {
+    command_until(program, args, deadline.min(Instant::now() + Duration::from_millis(600)))
+}
+
+pub(crate) fn command_until(program: &str, args: &[&str], deadline: Instant) -> Option<Vec<u8>> {
     if Instant::now() >= deadline {
         return None;
     }

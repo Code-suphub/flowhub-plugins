@@ -14,6 +14,7 @@ mod instances;
 mod origins;
 mod terminals;
 mod services;
+mod startup;
 #[cfg(target_os = "macos")]
 mod native;
 mod surfaces;
@@ -273,6 +274,10 @@ impl Monitor {
             "script_activity" => Ok(self.snapshot.scripts()),
             "diagnostic_event" => diagnostics::client(params),
             "services_snapshot" | "service_preview" | "service_confirm" => native::service_request(method,params),
+            "startup_snapshot" => startup::snapshot(),
+            "startup_set" => startup::set(params),
+            "startup_stop" => startup::stop(params),
+            "login_items_settings" => startup::open_settings(),
             "refresh_summary" => {
                 self.refresh()?;
                 Ok(self.snapshot.ranking(params))
@@ -338,6 +343,10 @@ impl Monitor {
                         "services_snapshot",
                         "service_preview",
                         "service_confirm",
+                        "startup_snapshot",
+                        "startup_set",
+                        "startup_stop",
+                        "login_items_settings",
                         "refresh_summary",
                         "refresh",
                         "terminate_preview",

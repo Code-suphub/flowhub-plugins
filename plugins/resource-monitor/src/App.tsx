@@ -8,6 +8,7 @@ import {accountingDisplay,bytes,contextRows,cpu,detailControls,detailFrom,filter
 import {AppMark,applicationIdentity,useApplications} from './applications';
 import {readGroupDetail} from './api';
 import {ScriptDrawer} from './ScriptDrawer';
+import {StartupSettings} from './StartupSettings';
 import {BackgroundServices,restartLabel,sameServiceProcess,useBackgroundServices} from './BackgroundServices';
 import {RequestDetails} from './RequestDetails';
 import {displayError,errorText,RequestError} from './errors';
@@ -26,7 +27,18 @@ export function Theme({children}:{children:React.ReactNode}) {
 const searchStyle={width:'min(330px,100%)',minHeight:30};
 const identity=(p:Process)=>({pid:p.pid,started:p.started,executable:p.executable,uid:p.uid});
 const permissionLimited=(p:Process)=>p.protection.startsWith('当前用户权限不足');
-type PrivilegedStatus={ok:boolean;status:string;message:string;rootControl?:boolean;serviceControl?:boolean;checking?:boolean;warning?:string;stale?:boolean};
+function databaseStartupId(process:Process){
+  if(process.exited||process.moved)return;
+  const match=/^(?:\/opt\/homebrew|\/usr\/local)\/(opt|Cellar)\/([^/]+)\/(.+)$/.exec(process.executable);
+  if(!match)return;
+  const [,location,formula,path]=match;
+  const executable=location==='Cellar'?path.replace(/^[0-9][a-z\d._-]*\//i,''):path;
+  if((/^mysql(?:@8\.[04])?$/.test(formula)&&/^bin\/mysqld(?:_safe)?$/.test(executable))
+    ||(/^postgresql(?:@[1-9]\d?)?$/.test(formula)&&executable==='bin/postgres')){
+    return `homebrew.mxcl.${formula}`;
+  }
+}
+type PrivilegedStatus={ok:boolean;status:string;message:string;rootControl?:boolean;serviceControl?:boolean;vivoStartupSupported?:boolean;vivoStartupControl?:boolean;checking?:boolean;warning?:string;stale?:boolean};
 const settledPrivilege=(value:PrivilegedStatus,action:'enable'|'disable')=>!value.checking&&!value.stale&&!value.warning&&value.status===(action==='enable'?'enabled':'notRegistered');
 
 export function App({api,context}:{api:Api;context:Context}) {
@@ -37,7 +49,7 @@ export function App({api,context}:{api:Api;context:Context}) {
   const [sorting,setSorting]=useState<{key:Sort;order:SortOrder}>({key:'footprint',order:'descend'});const [system,setSystem]=useState(false);
   const [detail,setDetail]=useState<Group>();const [detailId,setDetailId]=useState<string>();const [processQuery,setProcessQuery]=useState('');
   const [contextProcesses,setContextProcesses]=useState<Process[]>([]);
-  const detailRef=useRef<Group|undefined>(undefined);const detailSelection=useRef({id:'',generation:0,revision:-1,request:0,initialSearch:''});
+  const detailRef=useRef<Group|undefined>(undefined);const detailSelection=useRef<{id:string;generation:number;sample?:Pick<GroupDetail,'at'|'revision'>;request:number;initialSearch:string}>({id:'',generation:0,request:0,initialSearch:''});
   const contextsRef=useRef<PageContexts|undefined>(undefined);
   const [source,setSource]=useState<Process>();const [tab,setTab]=useState('processes');
   const [selectedInstance,setSelectedInstance]=useState<string>();
@@ -47,6 +59,7 @@ export function App({api,context}:{api:Api;context:Context}) {
   const openedScriptEvent=useRef('');
   useEffect(()=>{if(context.config?.sourceView==='scripts'&&scriptEventId&&openedScriptEvent.current!==scriptEventId){openedScriptEvent.current=scriptEventId;setScriptsOpen(true);}},[scriptEventId,context.config?.sourceView]);
   const [servicesScope,setServicesScope]=useState<{appPath?:string;ids?:string[];name?:string}>();const [servicesOpen,setServicesOpen]=useState(false);
+  const [startupScope,setStartupScope]=useState<string>();
   const background=useBackgroundServices(api,!!detailId||servicesOpen);
   const serviceFor=(process:Process)=>background.data?.services.find(service=>!process.exited&&!process.moved&&sameServiceProcess(service,process));
   function openServices(scope?:{appPath?:string;ids?:string[];name?:string}){setServicesScope(scope);setServicesOpen(true);}
@@ -80,18 +93,18 @@ export function App({api,context}:{api:Api;context:Context}) {
   const sourceClues=sourcePresentation?applicationIdentity({name:detail?.name??source?.name??'',appPath:detail?.appPath,origin:detail?.origin,presentation:sourcePresentation},applications).sourceText:'';
 
   function openDetail(group:Group|GroupSummary,search=''){
-    detailSelection.current={id:group.id,generation:detailSelection.current.generation+1,revision:-1,request:0,initialSearch:search};
+    detailSelection.current={id:group.id,generation:detailSelection.current.generation+1,request:0,initialSearch:search};
     const full='processes' in group?{...group,processes:[...group.processes]}:undefined;
     detailRef.current=full;setDetail(full);setDetailId(group.id);setContextProcesses([]);
     contextGeneration.current++;setLinksBusy(false);
     setProcessQuery(search);setContexts(undefined);setContextError('');setTab('processes');setSelectedInstance(undefined);setCheckedInstances([]);setSource(undefined);setApplicationState(undefined);
     setContextQuery('');setLinkedOnly(false);setContextDetail(undefined);setUnmappedOnly(false);
   }
-  function closeDetail(){detailSelection.current={id:'',generation:detailSelection.current.generation+1,revision:-1,request:0,initialSearch:''};detailRef.current=undefined;contextGeneration.current++;setDetailId(undefined);setDetail(undefined);setContextProcesses([]);setSource(undefined);setContextDetail(undefined);setLinksBusy(false);}
+  function closeDetail(){detailSelection.current={id:'',generation:detailSelection.current.generation+1,request:0,initialSearch:''};detailRef.current=undefined;contextGeneration.current++;setDetailId(undefined);setDetail(undefined);setContextProcesses([]);setSource(undefined);setContextDetail(undefined);setLinksBusy(false);}
   function acceptDetail(next:GroupDetail,generation:number,request=detailSelection.current.request){
     const selection=detailSelection.current;
-    if(!alive.current||selection.id!==next.groupId||selection.generation!==generation||selection.request!==request||(next.revision??next.at)<selection.revision)return;
-    const first=selection.revision===-1;selection.revision=next.revision??next.at;
+    if(!alive.current||selection.id!==next.groupId||selection.generation!==generation||selection.request!==request||!newerSnapshot(next,selection.sample))return;
+    const first=!selection.sample;selection.sample={at:next.at,revision:next.revision};
     const previous=detailRef.current;
     const updated=previous?.id===next.groupId?updateDetail(previous,next.group??undefined,next.elsewhere):next.group??undefined;
     detailRef.current=updated;setDetail(updated);setContextProcesses(next.contextProcesses);
@@ -104,7 +117,7 @@ export function App({api,context}:{api:Api;context:Context}) {
     try{const next=await readGroupDetail(api,id,trackedPids,contextPids);acceptDetail(next,generation,request);if(alive.current&&generation===detailSelection.current.generation)setError(previous=>previous instanceof RequestError&&previous.method==='group_detail'?'':previous);}
     catch(reason){if(alive.current&&generation===detailSelection.current.generation)setError(displayError(reason));}
   }
-  useEffect(()=>{if(selected&&selected!==openedSelection.current&&data){openedSelection.current=selected;const group=data.groups.find(g=>g.id===selected);if(group)openDetail(group);else{detailSelection.current={id:selected,generation:detailSelection.current.generation+1,revision:-1,request:0,initialSearch:''};setDetailId(selected);}}},[selected,data]);
+  useEffect(()=>{if(selected&&selected!==openedSelection.current&&data){openedSelection.current=selected;const group=data.groups.find(g=>g.id===selected);if(group)openDetail(group);else{detailSelection.current={id:selected,generation:detailSelection.current.generation+1,request:0,initialSearch:''};setDetailId(selected);}}},[selected,data]);
   useEffect(()=>{if(detailId)void readDetail();},[api,detailId,contexts]);
   useEffect(()=>{
     const groupId=detail?.id;if(!groupId)return;
@@ -114,7 +127,7 @@ export function App({api,context}:{api:Api;context:Context}) {
     return()=>{current=false;};
   },[api,detail?.id,data?.at]);
   useEffect(()=>{
-    if(api.preview||!hasOtherUserProcesses&&!privilegedFailure)return;
+    if(api.preview||!hasOtherUserProcesses&&!privilegedFailure&&!startupScope)return;
     let current=true,timer:ReturnType<typeof setTimeout>|undefined;
     async function check(){
       clearTimeout(timer);
@@ -130,7 +143,7 @@ export function App({api,context}:{api:Api;context:Context}) {
     const visible=()=>{if(!document.hidden)void check();};
     privilegedCheck.current=check;void check();document.addEventListener('visibilitychange',visible);
     return()=>{current=false;clearTimeout(timer);document.removeEventListener('visibilitychange',visible);privilegedCheck.current=async()=>{};};
-  },[api,hasOtherUserProcesses,privilegedBusy,!!privilegedFailure]);
+  },[api,hasOtherUserProcesses,privilegedBusy,!!privilegedFailure,!!startupScope]);
 
   function rankingError(next:DisplayError){setError(previous=>previous instanceof RequestError&&previous.method!=='ranking_snapshot'&&previous.method!=='refresh_summary'?previous:next);}
   function accept(next:RankingSnapshot){
@@ -158,7 +171,7 @@ export function App({api,context}:{api:Api;context:Context}) {
     Modal.confirm({
       zIndex:2000,
       title:action==='enable'?'授权系统进程与后台服务控制？':'停用完整系统进程监控？',
-      content:action==='enable'?'macOS 将请求管理员授权安装或升级常驻进程服务。服务读取系统进程资源，允许已核验的 FlowHub 采集插件结束所选第三方 root 进程，并暂停或恢复你确认的第三方后台服务。暂停只影响当前登录或开机期间，不改变永久自启配置；系统核心服务、FlowHub 及采集服务自身继续受保护。不执行任意管理员命令，也不读取或保存密码。升级应用或采集插件后可能需要重新授权。服务随系统启动，可随时在此停用并卸载。':'macOS 将请求管理员认证，停止并卸载该系统服务。随后使用当前用户权限采集进程数据。已暂停的第三方服务不会自动恢复，请先在“后台服务”恢复，或重新登录、重启电脑。',
+      content:action==='enable'?`macOS 将请求管理员授权安装或升级常驻进程服务。服务读取系统进程资源，允许已核验的 FlowHub 采集插件结束所选第三方 root 进程，并暂停或恢复你确认的第三方后台服务。暂停只影响当前登录或开机期间。${privilegedStatus?.vivoStartupSupported?'服务也可按你的确认配置 vivo 远控守护服务的自启动，保留正在运行的进程。':''}系统核心服务、FlowHub 及采集服务自身继续受保护。不执行任意管理员命令，也不读取或保存密码。升级应用或采集插件后可能需要重新授权。服务随系统启动，可随时在此停用并卸载。`:'macOS 将请求管理员认证，停止并卸载该系统服务。随后使用当前用户权限采集进程数据。已暂停的第三方服务不会自动恢复，请先在“后台服务”恢复，或重新登录、重启电脑。',
       okText:action==='enable'?'继续并授权安装':'停用并卸载',cancelText:'取消',
       onOk:()=>managePrivileged(action)
     });
@@ -286,6 +299,12 @@ export function App({api,context}:{api:Api;context:Context}) {
   const isArc=controls.contextKind==='arc';
   const activeInstance=detail?.instances?.find(instance=>instance.id===selectedInstance);
   const shownStats=selectedInstance?activeInstance:detail;
+  const detailAppPath=detail?.appPath??undefined;
+  const detailStartup=detailAppPath==='/Applications/pcsuite.app'?'vivo':detailAppPath&&(detailAppPath.endsWith('/OneDrive.app')||applications[detailAppPath]?.bundleId==='com.microsoft.OneDrive')
+    ?'com.microsoft.OneDriveLauncher'
+    :detail?.processes.map(databaseStartupId).find(Boolean);
+  const detailServices=detail?(background.data?.services??[]).filter(service=>
+    (!!detailAppPath&&service.appPath===detailAppPath)||detail.processes.some(process=>!process.exited&&!process.moved&&sameServiceProcess(service,process))):[];
   const detailHint=controls.stopHint||(detail?.appPath&&!controls.canQuit?(selectedInstance&&(applicationState?.quitInstances?.length??0)>0?'当前选择的是后台或辅助实例，可按此实例单独结束。':applicationState?.message):'');
   const maxMemory=Math.max(1,...groups.map(g=>g.footprint??0));
   const columns:TableColumnsType<GroupSummary>=[
@@ -297,7 +316,18 @@ export function App({api,context}:{api:Api;context:Context}) {
     {title:'操作',key:'actions',width:90,render:(_,g)=>g.instanceCount>1?<Button size="sm" className="compact-button" onClick={()=>openDetail(g)}>选择实例</Button>:<Button size="sm" className="compact-button" disabled={api.preview||busy||!!plan||!g.canTerminate} title={!g.canTerminate?'含受保护进程，请从所属应用正常退出':undefined} onClick={()=>void prepare(g)}>结束实例</Button>}
   ];
   const instanceColumns:TableColumnsType<Instance>=[
-    {title:'运行实例',key:'root',render:(_,instance)=>{const process=detail?.processes.find(p=>p.pid===instance.root.pid&&p.started===instance.root.started);const clues=applicationIdentity({name:instance.presentation?.name??process?.name??detail?.name??'',appPath:detail?.appPath,presentation:instance.presentation},applications).sourceText;return <div><strong>PID {instance.root.pid} · {instance.presentation?.name??process?.name??'根进程'}</strong>{serviceFor(instance.root as Process)?<div className="mt-1"><button className="text-link" title={serviceFor(instance.root as Process)!.restartHint} onClick={()=>openServices({ids:[serviceFor(instance.root as Process)!.id]})}>{restartLabel(serviceFor(instance.root as Process)!)} · 后台服务</button></div>:null}{clues?<div className="muted text-xs mt-1">来源线索：{clues}</div>:null}<div className="muted text-xs mt-1">{instance.root.started?`${new Date(instance.root.started/1000).toLocaleString()} 启动`:'启动时间不可读取'}</div><div className="path muted text-xs mt-1">{process?.runtimeProject?.entry??instance.root.executable}</div></div>;}},
+    {title:'运行实例',key:'root',render:(_,instance)=>{
+      const process=detail?.processes.find(p=>p.pid===instance.root.pid&&p.started===instance.root.started);
+      const clues=applicationIdentity({name:instance.presentation?.name??process?.name??detail?.name??'',appPath:detail?.appPath,presentation:instance.presentation},applications).sourceText;
+      const service=process?serviceFor(process):undefined;
+      return <div>
+        <strong>PID {instance.root.pid} · {instance.presentation?.name??process?.name??'根进程'}</strong>
+        {service?<div className="mt-1"><button className="text-link" title={service.restartHint} onClick={()=>openServices({ids:[service.id]})}>{restartLabel(service)} · 后台服务</button></div>:null}
+        {clues?<div className="muted text-xs mt-1">来源线索：{clues}</div>:null}
+        <div className="muted text-xs mt-1">{instance.root.started?`${new Date(instance.root.started/1000).toLocaleString()} 启动`:'启动时间不可读取'}</div>
+        <div className="path muted text-xs mt-1">{process?.runtimeProject?.entry??instance.root.executable}</div>
+      </div>;
+    }},
     {title:'进程',dataIndex:'count',width:60,align:'right'},
     {title:'内存足迹',key:'footprint',width:100,align:'right',render:(_,instance)=>bytes(instance.footprint)},
     {title:'CPU',key:'cpu',width:65,align:'right',render:(_,instance)=>cpu(instance.cpu)},
@@ -324,7 +354,7 @@ export function App({api,context}:{api:Api;context:Context}) {
   return <main className="monitor p-3 md:p-4">
     <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
       <div className="flex items-center gap-2"><span className={`live-dot ${stale?'stale':''}`}/><span className="muted text-xs">{api.preview?'只读预览 · 模拟数据':data?.at?`本机 · ${new Date(data.at).toLocaleTimeString()} 更新${data.sampling?' · 采样中':''}`:'正在等待首次采样'}</span><HelpPopover label="统计口径与监控范围">活跃进程足迹是当前分组内进程的 phys_footprint 合计，包含脏页、压缩及换出等记账；RSS 是当前常驻内存。系统归属记账读取应用的系统资源组账本，可包含独立任务和已退出任务的余额，各行可能重叠。三者不能相加，也不等于结束后释放的内存。CPU 按单核 100% 计。页面与对话可能共享进程。</HelpPopover></div>
-      <div className="flex flex-wrap items-center gap-2"><Button size="sm" className="compact-button" onClick={()=>openServices()}>后台服务{background.data?.services.some(service=>service.paused)?` (${background.data.services.filter(service=>service.paused).length} 已暂停)`: ''}</Button><Button size="sm" className="compact-button" onClick={()=>setScriptsOpen(true)}>脚本来源{data?.scriptRunningCount?` (${data.scriptRunningCount})`:''}</Button><Button size="sm" className="compact-button" disabled={refreshing} onClick={()=>void refresh(true)}>{refreshing?'刷新中…':'刷新'}</Button>{!api.widget?<Button size="sm" className="compact-button" disabled={api.preview} onClick={()=>void api.invoke('flowhub_status').catch(e=>setError(displayError(e)))}>桌面与菜单栏</Button>:null}</div>
+      <div className="flex flex-wrap items-center gap-2"><Button size="sm" className="compact-button" onClick={()=>openServices()}>后台服务{background.data?.services.some(service=>service.paused)?` (${background.data.services.filter(service=>service.paused).length} 已暂停)`: ''}</Button><Button size="sm" className="compact-button" onClick={()=>setStartupScope('all')}>自启动</Button><Button size="sm" className="compact-button" onClick={()=>setScriptsOpen(true)}>脚本来源{data?.scriptRunningCount?` (${data.scriptRunningCount})`:''}</Button><Button size="sm" className="compact-button" disabled={refreshing} onClick={()=>void refresh(true)}>{refreshing?'刷新中…':'刷新'}</Button>{!api.widget?<Button size="sm" className="compact-button" disabled={api.preview} onClick={()=>void api.invoke('flowhub_status').catch(e=>setError(displayError(e)))}>桌面与菜单栏</Button>:null}</div>
     </div>
     <div className="system-strip grid grid-cols-3 gap-3 mb-3">
       <div><span className="muted">物理内存</span><strong>{bytes(data?.system.totalMemory)}</strong></div>
@@ -347,11 +377,12 @@ export function App({api,context}:{api:Api;context:Context}) {
     <p className="muted text-xs mt-3">每 5 秒采样 · 活跃足迹与 RSS 不相加 · 系统归属记账仅供参考，可能与其他行重叠</p>
 
     <Modal title={detail?<div className="app-identity"><AppMark name={applicationIdentity(detail,applications).name} iconKey={detail.iconKey} application={detail.appPath?applications[detail.appPath]:undefined}/><span>{applicationIdentity(detail,applications).name} · 进程详情</span></div>:'进程详情'} open={!!detailId} onCancel={closeDetail} footer={<Button size="sm" className="compact-button" onClick={closeDetail}>关闭详情</Button>} width={1000} className="detail-modal" styles={{body:{height:'min(620px,calc(100dvh - 210px))',overflow:'auto'}}}>
-      {!detail&&detailId?<p className="muted">{error?'详情读取失败，请重试。':detailSelection.current.revision>=0?'应用已退出。':'正在读取进程详情…'}</p>:null}
+      {!detail&&detailId?<p className="muted">{error?'详情读取失败，请重试。':detailSelection.current.sample?'应用已退出。':'正在读取进程详情…'}</p>:null}
       {detail?<>
         <div className="flex flex-wrap items-center gap-3 mb-3"><span className="numeric">{selectedInstance?'实例活跃足迹':'活跃进程足迹'} {bytes(shownStats?.footprint)}{shownStats?.footprintIncomplete?'（部分）':''} · RSS {bytes(shownStats?.memory)} · CPU {detail.processes.length>0&&detail.processes.every(permissionLimited)?'—':cpu(shownStats?.cpu)}</span>
           <div className="flex flex-wrap items-center gap-2 ml-auto">
-            <Button size="sm" className="compact-button" onClick={()=>openServices({appPath:detail.appPath??undefined,ids:(background.data?.services??[]).filter(service=>detail.processes.some(process=>sameServiceProcess(service,process))).map(service=>service.id),name:applicationIdentity(detail,applications).name})}>后台服务</Button>
+            {detailServices.length?<Button size="sm" className="compact-button" onClick={()=>openServices({appPath:detailAppPath,ids:detailServices.map(service=>service.id),name:applicationIdentity(detail,applications).name})}>后台服务 ({detailServices.length})</Button>:null}
+            {detailStartup?<Button size="sm" className="compact-button" onClick={()=>setStartupScope(detailStartup)}>{detailStartup.startsWith('homebrew.mxcl.')&&!detailServices.length?'自启动 / 后台服务':'自启动'}</Button>:null}
             {controls.canOpen?<Button size="sm" className="compact-button" disabled={api.preview||linksBusy||!!plan||!!quitPlan} onClick={()=>void openApp(detail)}>打开应用 ↗</Button>:null}
             {controls.canQuit?<Button size="sm" className="compact-button" disabled={api.preview||busy||!!plan||!!quitPlan} onClick={()=>void prepareQuit(selectedInstance)}>{controls.quitLabel}</Button>:null}
             <Button size="sm" variant="danger" className="compact-button" disabled={api.preview||busy||!!plan||!!quitPlan||!controls.canStop} title={controls.stopHint||undefined} onClick={()=>void prepare(detail,undefined,controls.stopIds)}>{controls.stopLabel}</Button>
@@ -442,6 +473,10 @@ export function App({api,context}:{api:Api;context:Context}) {
       <div className="confirm-targets">{plan?.targets.map(p=><div key={`${p.pid}:${p.started}`} className="confirm-target"><strong>{processName(p)}</strong><span className="muted text-xs">PID {p.pid} · 足迹 {bytes(p.footprint)} · RSS {bytes(p.memory)}</span><span className="path muted text-xs">{p.executable}</span></div>)}</div>
     </Modal>
     {servicesOpen?<BackgroundServices api={api} data={background.data} error={background.error} scope={servicesScope} onClose={()=>setServicesOpen(false)} onRefresh={background.refresh} withOperation={background.withOperation} onChanged={()=>void refresh(true)} onAuthorize={()=>{setServicesOpen(false);confirmPrivileged('enable');}}/>:null}
+    {startupScope?<StartupSettings api={api} scope={startupScope==='all'?undefined:startupScope}
+      rootAccess={privilegedBusy||!privilegedStatus||privilegedStatus.stale||privilegedStatus.warning||privilegedWarning||privilegedStatus.status==='unreachable'?'checking':privilegedStatus.vivoStartupControl?'ready':privilegedStatus.checking?'checking':privilegedStatus.vivoStartupSupported?'authorize':'upgrade'}
+      onAuthorize={()=>{setStartupScope(undefined);confirmPrivileged('enable');}} onStopped={()=>void refresh(true)}
+      onClose={()=>setStartupScope(undefined)}/>:null}
     {scriptsOpen?<ScriptDrawer api={api} selectedEventId={scriptEventId} onClose={()=>setScriptsOpen(false)}/>:null}
   </main>;
 }

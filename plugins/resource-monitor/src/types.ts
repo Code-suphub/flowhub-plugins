@@ -33,6 +33,9 @@ export interface ScriptRecord {id:string;process:ScriptNode;chain:ScriptNode[];r
 export interface ScriptActivity extends SnapshotState {records:ScriptRecord[]}
 export interface ScriptObservation {id:string;windowId:number;owner:Identity;firstSeen:number;lastSeen:number;visible:boolean;candidateCount:number;requestApp?:string|null;candidates?:ScriptRecord[];canReplay?:boolean}
 export interface ScriptObserver {supported:boolean;enabled:boolean;keychainNames?:boolean;available:boolean;at:number;revision?:number;interval:number;records:ScriptRecord[];observations:ScriptObservation[];error?:string|null}
+export type StartupKind='mysql'|'postgresql'|'onedrive'|'vivo';
+export interface StartupRow {id:string;name:string;kind:StartupKind;state:'enabled'|'disabled'|'unknown';revision?:string|null;loaded?:boolean;keepAlive?:boolean;pid?:number;stopRevision?:string;system?:boolean;blockedReason?:string}
+export interface StartupSnapshot {rows:StartupRow[]}
 export interface Snapshot extends SnapshotState {groups:Group[]}
 export interface GroupSummary extends Omit<Group,'processes'|'instances'> {processCount:number;instanceCount:number;onlyInstanceId?:string|null;permissionLimited:boolean;hasRestrictedProcesses:boolean}
 export interface RankingSnapshot extends SnapshotState {groups:GroupSummary[];includeSystem:boolean;hasRestrictedProcesses:boolean;query:string;matchedGroupIds:string[]}
