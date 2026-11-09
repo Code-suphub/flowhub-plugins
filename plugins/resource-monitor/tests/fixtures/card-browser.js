@@ -36,9 +36,12 @@
       const at=Date.now(),owner={pid:100,started:(at-100000)*1000,uid:501,name:'FlowHub',executable:'/Applications/FlowHub.app/Contents/MacOS/flowhub-tauri',appPath:'/Applications/FlowHub.app'},script={pid:101,started:(at-50000)*1000,uid:501,name:'osascript',executable:'/usr/bin/osascript',appPath:null};
       const scriptRecords=[{id:'running',process:script,chain:[owner,script],source:{name:'FlowHub',appPath:owner.appPath,evidence:'已核验当前父进程链'},responsible:owner,firstSeen:at-50000,lastSeen:at,running:true,chainNote:''},{id:'recent',process:{...script,pid:99},chain:[{...script,pid:99}],source:null,responsible:null,firstSeen:at-100000,lastSeen:at-50000,running:false,chainNote:''}];
       if(data.method.startsWith('script_observer_')){
-        if(data.method==='script_observer_config')host.observerEnabled=data.params.enabled;
-        const observation={id:'auth-fixture',windowId:42,owner:script,firstSeen:at-3000,lastSeen:at,visible:true,candidateCount:1};
-        const result=data.method==='script_observer_event'?{...observation,candidates:[scriptRecords[0]],canReplay:true}:data.method==='script_observer_replay'?{shown:true}:{supported:true,enabled:host.observerEnabled!==false,available:true,revision:at,at,interval:1,records:scriptRecords,observations:[observation]};
+        if(data.method==='script_observer_config'){
+          if(typeof data.params.enabled==='boolean')host.observerEnabled=data.params.enabled;
+          if(typeof data.params.keychainNames==='boolean')host.keychainNames=data.params.keychainNames;
+        }
+        const observation={id:'auth-fixture',windowId:42,owner:script,firstSeen:at-3000,lastSeen:at,visible:true,candidateCount:1,requestApp:host.keychainNames?'Arc':null};
+        const result=data.method==='script_observer_event'?{...observation,candidates:[scriptRecords[0]],canReplay:true}:data.method==='script_observer_replay'?{shown:true}:{supported:true,enabled:host.observerEnabled!==false,keychainNames:host.keychainNames===true,available:true,revision:at,at,interval:1,records:scriptRecords,observations:[observation]};
         event.source.postMessage({type:'flowhub:response',id:data.id,result},'*');return;
       }
       const result=data.method==='script_activity'?{at,records:scriptRecords}:data.method==='application_metadata'?{applications:[]}:{at,groups:[{id:'app:codex',name:'Codex',source:'fixture',memory:1048576,footprint:2097152,cpu:1,processes:[],processCount:0,instanceCount:0,system:false,canTerminate:false,incomplete:false}],query:data.params?.query??'',includeSystem:data.params?.includeSystem??true,hasRestrictedProcesses:false,matchedGroupIds:[],system:{},interval:5,memoryMetric:'footprint'};
@@ -168,9 +171,15 @@
     assert(doc(main).querySelector('.script-record-detail').textContent.includes('/usr/bin/osascript'),'observed script chain missing');
     [...doc(main).querySelectorAll('button')].find(button=>button.textContent==='重看右上角提示').click();
     await wait(()=>main.messages.some(message=>message.method==='script_observer_replay'&&message.params.id==='auth-fixture'),'replay did not select the observed window');
+    const keychainSwitch=doc(main).querySelector('[aria-label="识别钥匙串请求应用"]');
+    assert(keychainSwitch.getAttribute('aria-checked')==='false','keychain source observation should default to off');
+    keychainSwitch.click();
+    await wait(()=>doc(main).querySelector('.script-record-toggle')?.textContent.includes('钥匙串访问 · Arc'),'keychain requester missing from authorization history');
+    assert(doc(main).querySelector('.script-record-detail').textContent.includes('/usr/bin/osascript'),'keychain evidence replaced the independent script chain');
+    assert(main.messages.filter(message=>message.method==='script_observer_config'&&message.params.keychainNames===true).length===1,'keychain observation should configure once');
     const observationSwitch=doc(main).querySelector('[aria-label="自动观察与右上角提示"]');observationSwitch.click();
     await wait(()=>observationSwitch.getAttribute('aria-checked')==='false','observer switch did not pause');
-    assert(main.messages.filter(message=>message.method==='script_observer_config').length===1,'observer switch duplicated its write');
+    assert(main.messages.filter(message=>message.method==='script_observer_config'&&message.params.enabled===false).length===1,'observer switch duplicated its write');
     doc(main).querySelector('.ant-drawer-close').click();
     await wait(()=>!doc(main).querySelector('.script-drawer'),'script drawer did not close');
     checks.push('script source drawer; source app; launch chain; recent/running records; close cleanup');

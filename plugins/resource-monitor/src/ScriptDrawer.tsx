@@ -45,7 +45,11 @@ export function ScriptDrawer({api,onClose,selectedEventId}:{api:Api;onClose:()=>
   const stale=!!data&&(!!data.error||data.stale||Date.now()-data.at>20000);
   return <Drawer title="脚本来源" open placement="right" onClose={onClose} size="large" styles={{wrapper:{width:'min(620px,100vw)'},body:{padding:16},header:{padding:16}}} className="script-drawer">
     <p className="muted text-xs mb-3">{api.preview?'只读预览 · 模拟记录。':''}查看系统认证窗口与脚本来源线索。脚本运行不代表请求了授权，同时出现也不能证明它是弹窗发起方。</p>
-    {observer?<div className="flex items-center justify-between gap-3 mb-3"><label className="flex items-center gap-2 text-xs"><Switch aria-label="自动观察与右上角提示" checked={observer.enabled} disabled={api.preview||!observer.supported||!observer.available||native.changing} loading={native.changing} onChange={value=>void native.configure(value)}/>自动观察与右上角提示</label><span className="muted text-xs">{!observer.supported?'当前系统不支持':!observer.available?'监控插件未启用':observer.enabled?'后台每秒观察':'观察已暂停'}</span></div>:native.legacy?<Alert type="info" title="自动观察暂不可用，显示原有的每 5 秒采样记录；请使用新版 FlowHub。" className="mb-3"/>:null}
+    {observer?<div className="flex items-center justify-between gap-3 mb-3"><label className="flex items-center gap-2 text-xs"><Switch aria-label="自动观察与右上角提示" checked={observer.enabled} disabled={api.preview||!observer.supported||!observer.available||native.changing} loading={native.changing} onChange={value=>void native.configure({enabled:value})}/>自动观察与右上角提示</label><span className="muted text-xs">{!observer.supported?'当前系统不支持':!observer.available?'监控插件未启用':observer.enabled?'后台每秒观察':'观察已暂停'}</span></div>:native.legacy?<Alert type="info" title="自动观察暂不可用，显示原有的每 5 秒采样记录；请使用新版 FlowHub。" className="mb-3"/>:null}
+    {observer?.keychainNames!==undefined?<div className="mb-3">
+      <label className="flex items-center gap-2 text-xs"><Switch aria-label="识别钥匙串请求应用" aria-describedby="keychain-names-help" checked={observer.keychainNames} disabled={api.preview||!observer.supported||!observer.available||native.changing} onChange={value=>void native.configure({keychainNames:value})}/>识别钥匙串请求应用</label>
+      <p id="keychain-names-help" className="muted text-xs mt-1">需授予 FlowHub 辅助功能权限。只从系统钥匙串弹窗的静态提示提取应用名，跳过密码框和其他输入控件。</p>
+    </div>:null}
     <div className="flex items-center justify-between gap-2 mb-3"><span className="muted text-xs">{data?.at?`${date(data.at)} 采样${stale?' · 数据可能已过期':''}`:'正在读取脚本活动…'}</span><Button size="sm" className="compact-button" disabled={loading} onClick={()=>observer?void native.refresh():refresh.current()}>{loading?'读取中…':'刷新记录'}</Button></div>
     {error||data?.error?<Alert type="warning" showIcon title={errorText(error||data?.error)} description={error instanceof RequestError?<RequestDetails error={error}/>:undefined} className="mb-3"/>:null}
     <Tabs activeKey={observer?filter:filter==='authorizations'?'all':filter} onChange={setFilter} items={[...(observer?[{key:'authorizations',label:`认证窗口 (${observer.observations.length})`}]:[]),{key:'all',label:`脚本记录 (${records.length})`},{key:'running',label:`本次可见 (${records.filter(r=>r.running).length})`}]}/>
@@ -70,6 +74,6 @@ export function ScriptDrawer({api,onClose,selectedEventId}:{api:Api;onClose:()=>
         </div>:null}
       </section>;
     })}</div></>}
-    <p className="muted text-xs mt-4">{observer?'宿主每秒观察；关闭抽屉后继续，暂停开关可停止观察。脚本和认证窗口记录各保留最近 30 分钟、最多 64 条，重启 FlowHub 后清空。':'每 5 秒采样；记录保留最近 30 分钟、最多 64 条，重载采集服务后清空。'} 同一进程更新原记录，不重复累加。短暂活动仍可能遗漏。不读取窗口正文、截图、脚本正文、密码或完整命令行。</p>
+    <p className="muted text-xs mt-4">{observer?'宿主每秒观察；关闭抽屉后继续，暂停开关可停止观察。脚本和认证窗口记录各保留最近 30 分钟、最多 64 条，重启 FlowHub 后清空。':'每 5 秒采样；记录保留最近 30 分钟、最多 64 条，重载采集服务后清空。'} 同一进程更新原记录，不重复累加。短暂活动仍可能遗漏。不采集截图、脚本正文、密码或完整命令行。</p>
   </Drawer>;
 }
