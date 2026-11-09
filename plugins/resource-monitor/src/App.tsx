@@ -10,6 +10,7 @@ import {readGroupDetail} from './api';
 import {ScriptDrawer} from './ScriptDrawer';
 import {StartupSettings} from './StartupSettings';
 import {BackgroundServices,restartLabel,sameServiceProcess,useBackgroundServices} from './BackgroundServices';
+import {FootprintTrend,recordFootprints,type FootprintSample} from './FootprintTrend';
 import {RequestDetails} from './RequestDetails';
 import {displayError,errorText,RequestError} from './errors';
 import type {DisplayError} from './errors';
@@ -44,6 +45,7 @@ const settledPrivilege=(value:PrivilegedStatus,action:'enable'|'disable')=>!valu
 export function App({api,context}:{api:Api;context:Context}) {
   const [data,setData]=useState<RankingSnapshot>();
   const dataRef=useRef<RankingSnapshot|undefined>(undefined);
+  const footprintHistory=useRef<FootprintSample[]>([]);
   const [error,setError]=useState<DisplayError>('');const [notice,setNotice]=useState('');
   const [query,setQuery]=useState('');const deferredQuery=useDeferredValue(query);
   const [sorting,setSorting]=useState<{key:RankingSort;order:SortOrder}>({key:'cpu',order:'descend'});const [system,setSystem]=useState(false);
@@ -148,6 +150,7 @@ export function App({api,context}:{api:Api;context:Context}) {
   function rankingError(next:DisplayError){setError(previous=>previous instanceof RequestError&&previous.method!=='ranking_snapshot'&&previous.method!=='refresh_summary'?previous:next);}
   function accept(next:RankingSnapshot){
     if(next.query!==queryRef.current.trim().toLocaleLowerCase()||next.includeSystem!==systemRef.current||!newerSnapshot(next,dataRef.current))return false;
+    recordFootprints(footprintHistory.current,next);
     dataRef.current=next;setData(next);return true;
   }
   function acceptFull(next:Snapshot){
@@ -305,6 +308,7 @@ export function App({api,context}:{api:Api;context:Context}) {
     :detail?.processes.map(databaseStartupId).find(Boolean);
   const detailServices=detail?(background.data?.services??[]).filter(service=>
     (!!detailAppPath&&service.appPath===detailAppPath)||detail.processes.some(process=>!process.exited&&!process.moved&&sameServiceProcess(service,process))):[];
+  const detailAccounting=detail?accountingDisplay(detail):undefined;
   const detailHint=controls.stopHint||(detail?.appPath&&!controls.canQuit?(selectedInstance&&(applicationState?.quitInstances?.length??0)>0?'当前选择的是后台或辅助实例，可按此实例单独结束。':applicationState?.message):'');
   const columns:TableColumnsType<GroupSummary>=[
     {
@@ -392,27 +396,39 @@ export function App({api,context}:{api:Api;context:Context}) {
     <Modal title={detail?<div className="app-identity"><AppMark name={applicationIdentity(detail,applications).name} iconKey={detail.iconKey} application={detail.appPath?applications[detail.appPath]:undefined}/><span>{applicationIdentity(detail,applications).name} · 进程详情</span></div>:'进程详情'} open={!!detailId} onCancel={closeDetail} footer={<Button size="sm" className="compact-button" onClick={closeDetail}>关闭详情</Button>} width={1000} className="detail-modal" styles={{body:{height:'min(620px,calc(100dvh - 210px))',overflow:'auto'}}}>
       {!detail&&detailId?<p className="muted">{error?'详情读取失败，请重试。':detailSelection.current.sample?'应用已退出。':'正在读取进程详情…'}</p>:null}
       {detail?<>
-        <div className="flex flex-wrap items-center gap-3 mb-3"><span className="numeric">{selectedInstance?'实例活跃足迹':'活跃进程足迹'} {bytes(shownStats?.footprint)}{shownStats?.footprintIncomplete?'（部分）':''} · RSS {bytes(shownStats?.memory)} · CPU {detail.processes.length>0&&detail.processes.every(permissionLimited)?'—':cpu(shownStats?.cpu)}</span>
-          <div className="flex flex-wrap items-center gap-2 ml-auto">
-            {detailServices.length?<Button size="sm" className="compact-button" onClick={()=>openServices({appPath:detailAppPath,ids:detailServices.map(service=>service.id),name:applicationIdentity(detail,applications).name})}>后台服务 ({detailServices.length})</Button>:null}
-            {detailStartup?<Button size="sm" className="compact-button" onClick={()=>setStartupScope(detailStartup)}>{detailStartup.startsWith('homebrew.mxcl.')&&!detailServices.length?'自启动 / 后台服务':'自启动'}</Button>:null}
+        <div className="detail-management flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2" role="group" aria-label="应用管理">
+            {detailStartup||detailAppPath?<Button size="sm" className="compact-button" onClick={()=>setStartupScope(detailStartup??detailAppPath)}>{detailStartup?.startsWith('homebrew.mxcl.')&&!detailServices.length?'自启动 / 后台服务':'自启动'}</Button>:null}
+            {detailAppPath||detailServices.length?<Button size="sm" className="compact-button" onClick={()=>openServices({appPath:detailAppPath,ids:detailServices.map(service=>service.id),name:applicationIdentity(detail,applications).name})}>{detailServices.length?`后台服务 (${detailServices.length})`:'后台服务'}</Button>:null}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
             {controls.canOpen?<Button size="sm" className="compact-button" disabled={api.preview||linksBusy||!!plan||!!quitPlan} onClick={()=>void openApp(detail)}>打开应用 ↗</Button>:null}
             {controls.canQuit?<Button size="sm" className="compact-button" disabled={api.preview||busy||!!plan||!!quitPlan} onClick={()=>void prepareQuit(selectedInstance)}>{controls.quitLabel}</Button>:null}
-            <Button size="sm" variant="danger" className="compact-button" disabled={api.preview||busy||!!plan||!!quitPlan||!controls.canStop} title={controls.stopHint||undefined} onClick={()=>void prepare(detail,undefined,controls.stopIds)}>{controls.stopLabel}</Button>
             {controls.canQuit?<HelpPopover label="正常退出与结束实例的区别">正常退出使用应用自身的退出流程，可能提示保存。结束实例会先列出目标进程供确认，再发送退出信号，可能中断正在执行的任务。</HelpPopover>:null}
           </div>
         </div>
-        <p className="muted text-xs mb-3">系统归属记账（应用级参考）：<strong className="numeric">{accountingDisplay(detail).text}</strong>。{accountingDisplay(detail).hint}{accountingDisplay(detail).available?'不能分摊给当前实例，结束操作仍只核对所选独立实例。':''}{detail.systemAccounting?.shared?'此资源组还被其他应用条目引用，不可跨行相加。':''}</p>
-        <div className="muted text-xs mb-3 flex items-start gap-2"><span className="min-w-0">归组依据：{groupingBasis}</span><HelpPopover label="归组依据与结束范围">
-          <p>服务登记、来源线索和关联应用只用于识别。结束操作按确认框列出的独立实例核对，不会额外加入来源应用或未确认的实例。应用自身退出时，仍可能影响它管理的连接或子任务。</p>
-          {registeredServices.length?<p className="mt-2">服务登记：{registeredServices.map(service=>service.label===service.name?service.name:`${service.name}（${service.label}）`).join('；')}。</p>:null}
-          <p className="mt-2">应用名和图标来自本机应用扫描；原始进程名、路径、工作目录和父进程可在进程信息中查看。</p>
-        </HelpPopover></div>
+        <dl className="detail-metrics grid grid-cols-3 gap-2">
+          <div><dt>{selectedInstance?'实例活跃足迹':'活跃进程足迹'}</dt><dd className="numeric">{bytes(shownStats?.footprint)}{shownStats?.footprintIncomplete?' *':''}</dd></div>
+          <div><dt>RSS</dt><dd className="numeric">{bytes(shownStats?.memory)}{shownStats?.incomplete?' *':''}</dd></div>
+          <div><dt>CPU</dt><dd className="numeric">{detail.processes.length>0&&detail.processes.every(permissionLimited)?'—':cpu(shownStats?.cpu)}</dd></div>
+        </dl>
+        <FootprintTrend history={footprintHistory.current} groupId={detail.id}/>
+        <details className="detail-accounting muted text-xs">
+          <summary>统计口径与归组</summary>
+          <p>系统归属记账（应用级参考） <strong className="numeric">{detailAccounting?.text}</strong>。{detailAccounting?.hint}{detail.systemAccounting?.shared?'此资源组由多条记录共享。':''}</p>
+          <div className="flex items-start gap-2"><span>归组依据 {groupingBasis}</span><HelpPopover label="归组依据与结束范围">
+            <p>服务登记、来源线索和关联应用用于识别。结束范围按确认框列出的独立实例核对。应用自身退出时，可能影响它管理的连接或子任务。</p>
+            {registeredServices.length?<p className="mt-2">服务登记 {registeredServices.map(service=>service.label===service.name?service.name:`${service.name}（${service.label}）`).join('、')}。</p>:null}
+          </HelpPopover></div>
+        </details>
         {detailHint?<p className="muted text-xs mb-3">{detailHint}</p>:null}
         {detail.processes.some(p=>!p.exited&&!p.moved&&(permissionLimited(p)||(p.memory==null&&p.footprint==null)))?<Alert type="warning" showIcon title="部分进程的资源指标暂不可读取，可能受系统保护或采集服务连接影响。结束权限另行判断，请查看各实例的操作说明。" className="mb-3"/>:null}
         <Tabs activeKey={activeTab} onChange={key=>{setTab(key);if(key!=='processes')setSelectedInstance(undefined);}} items={[{key:'instances',label:`运行实例${detail.instances?.length?` (${detail.instances.length})`:''}`},{key:'processes',label:'进程'},...(controls.contextLabel?[{key:'pages',label:controls.contextLabel}]:[])]}/>
+        <div className="detail-stop flex justify-end mb-3">
+          <Button size="sm" variant="danger" className="compact-button" disabled={api.preview||busy||!!plan||!!quitPlan||!controls.canStop} title={controls.stopHint||undefined} onClick={()=>void prepare(detail,undefined,controls.stopIds)}>{controls.stopLabel}</Button>
+        </div>
         {activeTab==='instances'?<>
-          <p className="muted text-xs mb-3">一次独立启动记为一个运行实例，可包含主进程和辅助进程。未勾选时右上角结束全部可操作实例；勾选后仅结束所选实例。受保护实例不参与全选。</p>
+          <p className="muted text-xs mb-3">一次独立启动记为一个运行实例，可包含主进程和辅助进程。勾选后仅结束所选实例。受保护实例不参与全选。</p>
           {checkedInstances.length?<div className="flex items-center gap-2 mb-3"><span className="muted text-xs">已勾选 {checkedInstances.length} 个实例</span><Button size="sm" className="compact-button" onClick={()=>setCheckedInstances([])}>清除选择</Button></div>:null}
           <Table<Instance> size="small" rowKey="id" columns={instanceColumns} dataSource={detail.instances??[]} rowSelection={{selectedRowKeys:checkedInstances,preserveSelectedRowKeys:true,onChange:keys=>setCheckedInstances(keys.map(String)),getCheckboxProps:instance=>({disabled:!instance.canTerminate||busy||!!plan||!!quitPlan,'aria-label':`选择实例 PID ${instance.root.pid}`})}} pagination={{pageSize:8,hideOnSinglePage:true,showSizeChanger:false,size:'small'}} scroll={{x:800}} locale={{emptyText:'暂无运行实例'}}/>
         </>:activeTab==='processes'?<>

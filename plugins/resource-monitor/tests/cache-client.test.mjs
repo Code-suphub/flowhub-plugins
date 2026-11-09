@@ -4,6 +4,27 @@ import {build} from 'esbuild';
 import {webcrypto} from 'node:crypto';
 async function moduleAt(entry){const result=await build({entryPoints:[new URL(entry,import.meta.url).pathname],bundle:true,write:false,platform:'node',format:'esm'});return import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString('base64')}`);}
 const model=await moduleAt('../src/model.ts'),{createApi,readGroupDetail}=await moduleAt('../src/api.ts');
+const {recordFootprints}=await moduleAt('../src/FootprintTrend.tsx');
+
+test('trend retains five minutes of valid samples and preserves missing footprint gaps',()=>{
+ const history=[];
+ const snapshot=model.rankingFrom(model.sampleSnapshot());
+ const [group,partial]=snapshot.groups;
+ partial.footprintIncomplete=true;
+ const record=(at,extra={})=>recordFootprints(history,{...snapshot,at,...extra});
+ record(5000);
+ record(5500);
+ record(10000,{error:'采样失败'});
+ record(15000,{stale:true});
+ record(20000,{groups:[]});
+ record(305500);
+ assert.deepEqual(history.map(sample=>sample.at),[5500,20000,305500]);
+ assert.equal(history[0].groups.get(group.id),group.footprint);
+ assert.equal(history[0].groups.has(partial.id),false);
+ assert.equal(history[1].groups.has(group.id),false);
+ record(310000);
+ assert.deepEqual(history.map(sample=>sample.at),[20000,305500,310000]);
+});
 function host(surface='main',token=''){
  const bus=new EventTarget(),messages=[],parent={postMessage:message=>messages.push(message)};
  const window={document:{body:{dataset:{surface}}},location:{hash:token?`#flowhubWidgetToken=${token}`:''},crypto:webcrypto,parent,addEventListener:bus.addEventListener.bind(bus),removeEventListener:bus.removeEventListener.bind(bus)};
