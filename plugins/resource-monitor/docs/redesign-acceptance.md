@@ -54,3 +54,9 @@
 | 访达重新打开 | 在观察开始后新建访达窗口并进入「应用程序」。43 次进程采样均未发现该扩展重新启动，末次检查仍为停用。验收结束后保留停用状态。 |
 
 插件市场更新提示中的「打开」本次进入了空白插件面板；正常安装版功能通过桌面卡片的排行入口验证。重新启用只在隔离页面验证，实机保留停用。安装备份及 `installed-readback.log`、`after-disable.log`、`finder-process-watch.log` 和 `finder-ax.log` 位于 Git 外的 `~/.local/state/flowhub-resource-monitor-finder/2026-11-10.5mhUt1/`。
+
+## 2026-11-10 卡片直接保存实机验收
+
+应用资源监控 `0.4.0`，卡片脚本 SHA-256 前缀 `220efa9e99b0`，在 macOS 15.5、签名宿主 `0.1.18-local.20261110071945` 上验证。从卡片「显示设置」选前 3 项、启用 RSS，并点击 RSS 列头。三项都写入该卡片的画布配置。完全退出并重启 FlowHub 后，画布仍显示 3 项、RSS 列及 RSS 排序。验收后恢复 CPU 排序和完整列表，其余 8 张卡片配置一致。
+
+插件构建、Rust 和 Node 测试通过。浏览器覆盖保存确认、写入失败提示、重试以及重新加载卡片读回。安装包和注册备份及两次磁盘读回在 Git 外的 `~/.local/state/flowhub-launcher-card-persistence/native.vQPOuY/`。

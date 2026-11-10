@@ -9,7 +9,7 @@ pnpm install --frozen-lockfile
 pnpm run build
 ```
 
-在 FlowHub「插件市场 → 安装开发目录」选择本插件的 **`build/`**。启用后侧栏出现「应用资源监控」，宿主通过 `statusSurface` 自动接入菜单栏状态；主页面「桌面与菜单栏」打开组件画布。也可在画布添加「应用资源监控」卡片。卡片默认显示完整应用与工具列表，在卡片内部连续滚动；标题、内存概况和更新时间固定显示。支持按内存/CPU 排序、关注单个应用，或在编辑器显式切换为仅显示前 3–10 项，点击应用进入对应进程详情。卡片内不直接执行清理。
+在 FlowHub「插件市场 → 安装开发目录」选择本插件的 **`build/`**。启用后侧栏出现「应用资源监控」，宿主通过 `statusSurface` 自动接入菜单栏状态；主页面「桌面与菜单栏」打开组件画布。也可在画布添加「应用资源监控」卡片。卡片默认按 CPU 排序并显示可滚动的完整列表。在支持卡片内保存的宿主中，直接点列头排序，或在「显示设置」中修改指标和列表范围，会自动保存到当前卡片。编辑组件仍可设置名称和关注应用。点击应用进入进程详情。
 
 源码位于独立的 flowhub-plugins 仓库。采集和界面修改可单独构建插件；应用名称与图标需要支持 `application_metadata` 的新版宿主，旧版宿主降级显示原名与首字母。使用 React + TypeScript + Ant Design + Tailwind v4；复用 `@flowhub/plugin-common/react` 的基础控件和 `common-components` 的 antd 主题配置。`StyleProvider layer` 与 `theme, base, antd, components, utilities` 保持样式顺序。构建产物为自包含包，不依赖源码路径、CDN 或内联脚本。
 

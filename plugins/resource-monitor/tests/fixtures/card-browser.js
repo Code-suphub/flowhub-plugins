@@ -96,7 +96,18 @@
     if(data.type!=='flowhub:widget-rpc')return;
     let result;
     if(data.params.action==='snapshot')result=current;
+    else if(data.params.action==='configureCard'){
+      if(host.failSave){
+        host.failSave=false;
+        host.send({type:'flowhub:widget-result',id:data.id,error:'模拟磁盘保存失败'});
+        return;
+      }
+      host.config={...host.config,...data.params.patch};
+      host.send({type:'flowhub:widget-init',context:{config:host.config,snapshot:current,canSaveConfig:true}});
+      result={saved:true};
+    }
     else if(data.params.method==='application_metadata')result={applications:[{path:'/Applications/Test.app',name:'Native Test',bundleId:'fixture.app',iconUrl:nativeIcon}]};
+    else if(data.params.method==='diagnostic_event')result={ok:true};
     else {errors.push(`unexpected RPC: ${JSON.stringify(data.params)}`);return;}
     event.source.postMessage({type:'flowhub:widget-result',token,id:data.id,result},'*');
   });
@@ -119,7 +130,8 @@
     host.send({type:'flowhub:widget-init',token:'wrong',context:{snapshot}});
     await new Promise(done=>setTimeout(done,20));
     assert(rows(host).length===0,'invalid token initialized card');
-    host.send({type:'flowhub:widget-init',context:{title:'Host title',config:{title:'Configured title',limit:5},snapshot}});
+    host.config={title:'Configured title',limit:5};
+    host.send({type:'flowhub:widget-init',context:{title:'Host title',config:host.config,snapshot,canSaveConfig:true}});
     await wait(()=>rows(host).length===28&&rows(host)[0].textContent.includes('Native Test'),'initial context or metadata missing');
     assert(doc(host).querySelector('.widget-header strong').textContent==='Configured title','configured title lost');
     assert(rows(host).every(row=>!row.disabled),'live card navigation disabled');
@@ -178,10 +190,27 @@
     await wait(settings,'could not reopen display settings');
     metricCheckbox('活跃足迹').click();
     await wait(()=>!sortButton('活跃足迹')&&sortButton('CPU').getAttribute('aria-pressed')==='true','hiding sorted metric did not reset to CPU');
-    settingButton('编辑默认设置').click();
-    await wait(()=>host.messages.some(message=>message.type==='flowhub:widget-navigate'&&message.action==='editor'),'card could not open its existing host editor');
+    await wait(()=>host.config.sort==='cpu'&&host.config.showFootprint===false&&host.config.showRss===true,'metric and sort were not saved');
+    host.failSave=true;
+    settingButton('前 5').click();
+    await wait(()=>doc(host).body.textContent.includes('卡片设置未保存'),'save failure was not visible');
+    assert(host.config.display==='all','failed save changed the persisted range');
+    settings().dispatchEvent(new Event('cancel',{cancelable:true}));
     await wait(()=>!settings(),'display settings did not dismiss');
-    checks.push('CPU default; header sorting; visible range selection; single row at 315/260px; opener focus; host editor navigation');
+    [...doc(host).querySelectorAll('button')].find(button=>button.textContent==='重试').click();
+    await wait(()=>host.config.display==='top'&&host.config.limit===5&&!doc(host).body.textContent.includes('卡片设置未保存'),'retry did not persist the range');
+    const reopened=await frame('widget-card.html',true);
+    await wait(()=>reopened.messages.some(message=>message.type==='flowhub:widget-ready'),'reopened card not ready');
+    reopened.send({type:'flowhub:widget-init',context:{config:host.config,snapshot,canSaveConfig:true}});
+    await wait(()=>rows(reopened).length===5&&doc(reopened).querySelector('.widget-sort[aria-label="按RSS排序"]'),'reopened card did not read saved range and metrics');
+    assert(doc(reopened).querySelector('.widget-sort[aria-pressed=true]')?.getAttribute('aria-label')==='按CPU排序','reopened card did not read saved sort');
+    settingsButton.click();
+    await wait(settings,'could not reopen to restore the full range');
+    settingButton('完整列表').click();
+    await wait(()=>rows(host).length===28&&host.config.display==='all','full range was not restored');
+    settings().dispatchEvent(new Event('cancel',{cancelable:true}));
+    await wait(()=>!settings(),'display settings did not dismiss');
+    checks.push('CPU default; header sorting; range and metrics saved in place; persistence after remount; save failure and retry; narrow layout and opener focus');
 
     host.send({type:'flowhub:theme',theme:'light'});
     await wait(()=>doc(host).documentElement.dataset.theme==='light','light theme missing');

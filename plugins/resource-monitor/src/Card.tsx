@@ -1,4 +1,4 @@
-import {useEffect,useState,type CSSProperties} from 'react';
+import {useEffect,useRef,useState,type CSSProperties} from 'react';
 import {Button,Checkbox,DialogShell} from '@flowhub/plugin-common/react';
 import {RequestDetails} from './RequestDetails';
 import {displayError,errorText} from './errors';
@@ -12,8 +12,16 @@ export function Card({api,context}:{api:Api;context:Context}) {
   const [snapshot,setSnapshot]=useState<StatusSnapshot|undefined>(context.snapshot);const [error,setError]=useState<DisplayError>('');
   const [settingsOpen,setSettingsOpen]=useState(false);
   const [overrides,setOverrides]=useState<Partial<Config>>({});
+  const [saveState,setSaveState]=useState<'idle'|'saving'|'failed'>('idle');
+  const pending=useRef<Partial<Config>>({}), saveSequence=useRef(0);
   const saved=context.config;
-  useEffect(()=>setOverrides({}),[saved?.sort,saved?.display,saved?.limit,saved?.showFootprint,saved?.showRss,saved?.showAccounting,saved?.groupId]);
+  const canSave=!api.preview&&context.canSaveConfig===true;
+  useEffect(()=>{
+    if(saveState==='idle'&&Object.keys(overrides).length>0&&Object.entries(overrides).every(([key,value])=>saved?.[key as keyof Config]===value)){
+      pending.current={};
+      setOverrides({});
+    }
+  },[saved,overrides,saveState]);
   useEffect(()=>{if(context.snapshot)setSnapshot(previous=>!previous||context.snapshot!.at>=previous.at?context.snapshot:previous);},[context.snapshot]);
   useEffect(()=>{
     let disposed=false,timer:ReturnType<typeof setTimeout>;
@@ -27,7 +35,20 @@ export function Card({api,context}:{api:Api;context:Context}) {
   const rows=widgetRows(snapshot,{...config,sort});
   const applications=useApplications(api,rows);
   const stale=!!snapshot?.at&&Date.now()-snapshot.at>20000;
-  const change=(patch:Partial<Config>)=>setOverrides(previous=>({...previous,...patch}));
+  function change(patch:Partial<Config>) {
+    if(!canSave)return;
+    const next={...pending.current,...patch};
+    const sequence=++saveSequence.current;
+    pending.current=next;
+    setOverrides(next);
+    setSaveState('saving');
+    void api.saveCardConfig(next).then(()=>{
+      if(sequence!==saveSequence.current)return;
+      setSaveState('idle');
+    }).catch(()=>{
+      if(sequence===saveSequence.current)setSaveState('failed');
+    });
+  }
   const rowLimit=cardRowLimit(config.limit);
   const limit=config.display==='top'?rowLimit:'all';
   const style={'--widget-metrics':metrics.length} as CSSProperties;
@@ -44,12 +65,13 @@ export function Card({api,context}:{api:Api;context:Context}) {
       </Button>
     </div>
     {api.preview?<p className="muted text-xs mb-1">模拟数据</p>:null}
+    {saveState==='failed'?<div className="flex items-center gap-2 text-xs warning" role="alert">卡片设置未保存<Button size="sm" disabled={!canSave} onClick={()=>change(pending.current)}>重试</Button></div>:null}
     {error||snapshot?.error||stale?<div className="warning text-xs"><p role="alert">{errorText(error||snapshot?.error||'数据已过期')}</p><RequestDetails error={error}/></div>:null}
     <div className="widget-list" role="region" aria-label="应用资源列表，可滚动查看" tabIndex={0}>
       <div className="widget-grid widget-columns muted text-xs">
         <span className="widget-identity">应用</span>
         {metrics.map(metric=><button key={metric.value} type="button" className="widget-sort" title={`按${metric.label}从高到低排序`}
-          aria-label={`按${metric.label}排序`} aria-pressed={sort===metric.value} onClick={()=>change({...preferences,sort:metric.value})}>
+          aria-label={`按${metric.label}排序`} aria-pressed={sort===metric.value} disabled={!canSave} onClick={()=>change({...preferences,sort:metric.value})}>
           {metric.value==='accounting'?'记账':metric.label}{sort===metric.value?<span aria-hidden="true"> ↓</span>:null}
         </button>)}
       </div>
@@ -79,18 +101,18 @@ export function Card({api,context}:{api:Api;context:Context}) {
       <button type="button" className="text-link" disabled={api.preview} onClick={()=>api.navigate()}>打开排行 →</button>
     </footer>
     <DialogShell open={settingsOpen} onOpenChange={setSettingsOpen} title="显示设置" className="widget-settings-dialog" contentClassName="widget-settings-content"
-      footer={!api.preview?<><span className="mr-auto muted text-xs">仅本次生效</span><Button size="sm" className="compact-button" onClick={()=>{setSettingsOpen(false);api.openEditor();}}>编辑默认设置</Button></>:undefined}>
+      footer={!api.preview?<span className="mr-auto muted text-xs" role="status">{canSave?(saveState==='saving'?'保存中…':saveState==='failed'?'未保存':'修改自动保存'):'当前无法保存卡片设置'}</span>:undefined}>
       <fieldset className="widget-settings-group">
         <legend>显示指标</legend>
         <div className="flex flex-wrap gap-x-3">
           {cardSortOptions.map(({value,label})=>value==='cpu'?null:<Checkbox key={value} label={label}
-            checked={preferences[cardMetricFields[value]]} onChange={checked=>change(showCardMetric(value,checked,sort))} containerClassName="widget-setting-checkbox"/>)}
+            checked={preferences[cardMetricFields[value]]} disabled={!canSave} onChange={checked=>change(showCardMetric(value,checked,sort))} containerClassName="widget-setting-checkbox"/>)}
         </div>
       </fieldset>
       <fieldset className="widget-settings-group">
         <legend>显示范围</legend>
         <div className="flex flex-wrap gap-1">{(['all',...cardLimitOptions(rowLimit)] as const).map(value=><Button key={value} size="sm" className="compact-button"
-          variant={value===limit?'primary':'secondary'} aria-pressed={value===limit} onClick={()=>change(value==='all'?{display:'all'}:{display:'top',limit:value})}>
+          variant={value===limit?'primary':'secondary'} aria-pressed={value===limit} disabled={!canSave} onClick={()=>change(value==='all'?{display:'all'}:{display:'top',limit:value})}>
           {value==='all'?'完整列表':`前 ${value}`}
         </Button>)}</div>
       </fieldset>

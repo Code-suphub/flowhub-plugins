@@ -49,6 +49,14 @@ export function createApi(host:Window):Api {
       catch(e){send({type:'flowhub:widget-config',id:d.id,error:String(e)});}
     }
   }
+  function widgetRequest<T>(method:string,params:object):Promise<T>{
+    return new Promise((resolve,reject)=>{
+      const id=requestId(),timer=setTimeout(()=>{const item=pending.get(id);if(item)timedOut(id,item);},20000);
+      const item:Request={resolve:value=>resolve(value as T),reject,timer,method,traceId:id,started:Date.now(),hidden:!!host.document.hidden};pending.set(id,item);
+      try{send({type:'flowhub:widget-rpc',id,params:{...params,_trace:metadata(id)}});}
+      catch{clearTimeout(timer);pending.delete(id);failed.add(method);diagnose('send_failed',item);reject(requestError('无法连接 FlowHub',item,'send_failed'));}
+    });
+  }
   host.addEventListener('message',receive);
   const api:Api={
     // Native detail contexts omit preview; browser canvas/detail always set preview:true.
@@ -87,12 +95,7 @@ export function createApi(host:Window):Api {
       if(widget&&hosted&&token&&!context)throw new Error('组件上下文尚未就绪');
       if(api.preview)return statusFrom(sampleSnapshot());
       if(!widget)return api.invoke('status_snapshot');
-      return new Promise((resolve,reject)=>{
-        const id=requestId(),timer=setTimeout(()=>{const item=pending.get(id);if(item)timedOut(id,item);},20000);
-        const item:Request={resolve:value=>resolve(value as Awaited<ReturnType<Api['status']>>),reject,timer,method:'status_snapshot',traceId:id,started:Date.now(),hidden:!!host.document.hidden};pending.set(id,item);
-        try{send({type:'flowhub:widget-rpc',id,params:{action:'snapshot',_trace:metadata(id)}});}
-        catch{clearTimeout(timer);pending.delete(id);failed.add(item.method);diagnose('send_failed',item);reject(requestError('无法连接 FlowHub',item,'send_failed'));}
-      });
+      return widgetRequest<Awaited<ReturnType<Api['status']>>>('status_snapshot',{action:'snapshot'});
     },
     subscribe(fn){listeners.add(fn);if(context)fn(context);return()=>{listeners.delete(fn);};},
     editor(fn){editor=fn;},
@@ -102,7 +105,11 @@ export function createApi(host:Window):Api {
       else {context={preview:true,config:{limit:5},snapshot:statusFrom(sampleSnapshot())};listeners.forEach(fn=>fn(context!));}
     },
     navigate(groupId){if(!api.preview&&widget)send({type:'flowhub:widget-navigate',action:'detail',selection:groupId?{groupId}:{}});},
-    openEditor(){if(!api.preview&&surface==='card')send({type:'flowhub:widget-navigate',action:'editor'});},
+    async saveCardConfig(patch){
+      if(disposed||api.preview||surface!=='card'||!context?.canSaveConfig)throw Error('当前无法保存卡片设置');
+      const result=await widgetRequest<{saved:boolean}>('configureCard',{action:'configureCard',patch});
+      if(result?.saved!==true)throw Error('保存结果尚未确认');
+    },
     dispose(){disposed=true;host.removeEventListener('message',receive);listeners.clear();for(const p of pending.values()){clearTimeout(p.timer);p.reject(new Error('插件连接已关闭'));}pending.clear();expired.clear();failed.clear();}
   };
   return api;

@@ -62,7 +62,7 @@ export interface PageContexts {
   kind:'arc'|'codex'|'unsupported';hint:string;mapping:'application-only'|'process-linked';at:number;entries:ContextEntry[];unmappedProcesses:number;
   diagnostics?:{state:string;hint:string;at:number;unreadable?:number;unmatchedTasks?:number;readTasks?:number;partial?:boolean}|null;
 }
-export interface Context {preview?:boolean;title?:string;config?:Config;snapshot?:StatusSnapshot}
+export interface Context {preview?:boolean;title?:string;config?:Config;snapshot?:StatusSnapshot;canSaveConfig?:boolean}
 export interface Plan {token:string;force:boolean;expiresIn:number;targets:Process[];scope?:{kind:'instance'|'instances'|'process';name?:string;instanceId?:string;root?:Identity;instances?:Array<{id:string;root:Identity;count:number}>}}
 export interface TerminateResult {results:Array<{pid:number;sent:boolean;exited:boolean;error?:string|null}>;refreshError?:string|null;snapshot:Snapshot}
 export interface Api {
@@ -73,6 +73,6 @@ export interface Api {
   editor(handler:()=>Config):void;
   ready():void;
   navigate(groupId?:string):void;
-  openEditor():void;
+  saveCardConfig(patch:Partial<Config>):Promise<void>;
   dispose():void;
 }
