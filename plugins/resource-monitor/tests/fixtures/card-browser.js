@@ -10,6 +10,13 @@
   }))};
   const nativeIcon='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aOWQAAAAASUVORK5CYII=';
   let current=snapshot;
+  let includeSystem=false;
+  let sorting={key:'cpu',order:'descend'};
+  const systemRow={...snapshot.rows[0],id:'system:window-server',name:'WindowServer'};
+  const changeView=params=>{
+    if(typeof params.includeSystem==='boolean')includeSystem=params.includeSystem;
+    if(params.sorting)sorting=params.sorting;
+  };
   const fixtureProcesses=[101,102,103].map((pid,index)=>({pid,started:1700000000000000+pid,uid:index===2?0:501,name:index===2?'root-helper':'worker',executable:'/Applications/Codex.app/Contents/MacOS/worker',ppid:1,parentName:'launchd',cwd:'',role:'fixture',attribution:'fixture',avd:'',groupId:'app:codex',instanceId:`instance-${pid}`,memory:1048576,footprint:2097152,cpu:0,protected:index===2,protection:index===2?'其他用户或系统账户':''}));
   const fixtureGroup={id:'app:codex',name:'Codex',source:'fixture',memory:3145728,footprint:6291456,cpu:0,appPath:'/Applications/Codex.app',processes:fixtureProcesses,instances:fixtureProcesses.map(p=>({id:p.instanceId,root:p,count:1,memory:p.memory,footprint:p.footprint,cpu:0,canTerminate:!p.protected})),system:false,canTerminate:false,incomplete:false};
   const {processes:unusedProcesses,instances:unusedInstances,...fixtureSummary}=fixtureGroup;
@@ -87,15 +94,19 @@
         const result=data.method==='script_observer_event'?{...observation,candidates:[scriptRecords[0]],canReplay:true}:data.method==='script_observer_replay'?{shown:true}:{supported:true,enabled:host.observerEnabled!==false,keychainNames:host.keychainNames===true,available:true,revision:at,at,interval:1,records:scriptRecords,observations:[observation]};
         event.source.postMessage({type:'flowhub:response',id:data.id,result},'*');return;
       }
-      const result=data.method==='script_activity'?{at,records:scriptRecords}:data.method==='application_metadata'?{applications:[]}:{at,groups:[{id:'app:codex',name:'Codex',source:'fixture',memory:1048576,footprint:2097152,cpu:1,processes:[],processCount:0,instanceCount:0,system:false,canTerminate:false,incomplete:false}],query:data.params?.query??'',includeSystem:data.params?.includeSystem??true,hasRestrictedProcesses:false,matchedGroupIds:[],system:{},interval:5,memoryMetric:'footprint'};
+      if(data.method==='set_view_preferences')changeView(data.params);
+      const result=data.method==='script_activity'?{at,records:scriptRecords}:data.method==='application_metadata'?{applications:[]}:{at,groups:[{id:'app:codex',name:'Codex',source:'fixture',memory:1048576,footprint:2097152,cpu:1,processes:[],processCount:0,instanceCount:0,system:false,canTerminate:false,incomplete:false}],query:data.params?.query??'',includeSystem,sorting,hasRestrictedProcesses:false,matchedGroupIds:[],system:{},interval:5,memoryMetric:'footprint'};
       const group=data.params?.groupId==='postgres'?postgresGroup:fixtureGroup;
-      const payload=data.method==='group_detail'?{at,groupId:group.id,group,elsewhere:[],contextProcesses:[]}:data.method==='application_state'?{canQuit:false,message:'fixture'}:data.method==='terminate_preview'?{token:'fixture-review-only',expiresIn:30,targets:fixtureProcesses.filter(p=>data.params.instanceIds.includes(p.instanceId)),scope:{kind:'instances',name:'Codex',instances:fixtureGroup.instances.filter(i=>data.params.instanceIds.includes(i.id))}}:data.method==='ranking_snapshot'?{...result,groups:[{...fixtureSummary,processCount:3,instanceCount:3},postgresSummary]}:result;
+      const rankingGroups=[{...fixtureSummary,processCount:3,instanceCount:3},postgresSummary];
+      if(includeSystem)rankingGroups.push({...postgresSummary,id:systemRow.id,name:systemRow.name,system:true});
+      const payload=data.method==='group_detail'?{at,groupId:group.id,group,elsewhere:[],contextProcesses:[]}:data.method==='application_state'?{canQuit:false,message:'fixture'}:data.method==='terminate_preview'?{token:'fixture-review-only',expiresIn:30,targets:fixtureProcesses.filter(p=>data.params.instanceIds.includes(p.instanceId)),scope:{kind:'instances',name:'Codex',instances:fixtureGroup.instances.filter(i=>data.params.instanceIds.includes(i.id))}}:['ranking_snapshot','set_view_preferences'].includes(data.method)?{...result,groups:rankingGroups}:result;
       if(data.method==='terminate_confirm')throw Error('browser fixture must never execute termination');
       event.source.postMessage({type:'flowhub:response',id:data.id,result:payload},'*');return;
     }
     if(data.type!=='flowhub:widget-rpc')return;
     let result;
-    if(data.params.action==='snapshot')result=current;
+    if(data.params.action==='snapshot')result={...current,sorting,rows:includeSystem?[...current.rows,systemRow]:current.rows};
+    else if(data.params.method==='set_view_preferences'){changeView(data.params.params);result={sorting,includeSystem};}
     else if(data.params.action==='configureCard'){
       if(host.failSave){
         host.failSave=false;
@@ -189,8 +200,8 @@
     settingsButton.click();
     await wait(settings,'could not reopen display settings');
     metricCheckbox('活跃足迹').click();
-    await wait(()=>!sortButton('活跃足迹')&&sortButton('CPU').getAttribute('aria-pressed')==='true','hiding sorted metric did not reset to CPU');
-    await wait(()=>host.config.sort==='cpu'&&host.config.showFootprint===false&&host.config.showRss===true,'metric and sort were not saved');
+    await wait(()=>!sortButton('活跃足迹')&&doc(host).querySelector('footer').textContent.includes('按活跃足迹 ↓'),'hidden metric changed the shared sort');
+    await wait(()=>host.config.showFootprint===false&&host.config.showRss===true,'metrics were not saved');
     host.failSave=true;
     settingButton('前 5').click();
     await wait(()=>doc(host).body.textContent.includes('卡片设置未保存'),'save failure was not visible');
@@ -203,7 +214,7 @@
     await wait(()=>reopened.messages.some(message=>message.type==='flowhub:widget-ready'),'reopened card not ready');
     reopened.send({type:'flowhub:widget-init',context:{config:host.config,snapshot,canSaveConfig:true}});
     await wait(()=>rows(reopened).length===5&&doc(reopened).querySelector('.widget-sort[aria-label="按RSS排序"]'),'reopened card did not read saved range and metrics');
-    assert(doc(reopened).querySelector('.widget-sort[aria-pressed=true]')?.getAttribute('aria-label')==='按CPU排序','reopened card did not read saved sort');
+    assert(doc(reopened).querySelector('footer').textContent.includes('按活跃足迹 ↓'),'reopened card did not read shared sort');
     settingsButton.click();
     await wait(settings,'could not reopen to restore the full range');
     settingButton('完整列表').click();
@@ -267,6 +278,36 @@
 
     const main=await frame('index.html');
     await wait(()=>doc(main).querySelector('.ant-table-row'),'management preview failed');
+    const systemSwitch=doc(main).querySelector('[role=switch]');
+    const showsSystem=(surface,selector)=>[...doc(surface).querySelectorAll(selector)].some(row=>row.textContent.includes('WindowServer'));
+    reopened.send({type:'flowhub:widget-init',context:{config:{display:'all'},snapshot:current}});
+    systemSwitch.click();
+    await wait(()=>showsSystem(main,'.ant-table-row'),'ranking did not enable system processes');
+    reopened.element.contentWindow.__probe.poll();
+    await wait(()=>showsSystem(reopened,'.widget-row'),'card did not enable system processes');
+    reopened.send({type:'flowhub:widget-init',context:{config:{display:'all',title:'System card'},snapshot:{...current,at:current.at+1}}});
+    await wait(()=>doc(reopened).querySelector('.widget-header strong').textContent==='System card','card did not receive new host context');
+    assert(showsSystem(reopened,'.widget-row'),'application-only context replaced shared visibility');
+    systemSwitch.click();
+    await wait(()=>!showsSystem(main,'.ant-table-row'),'ranking did not hide system processes');
+    reopened.element.contentWindow.__probe.poll();
+    await wait(()=>!showsSystem(reopened,'.widget-row'),'card did not hide system processes');
+    checks.push('ranking toggle synchronizes the card in both directions and survives context refresh');
+    const rankingHeader=label=>[...doc(main).querySelectorAll('.ant-table-thead th')].find(th=>th.textContent.trim()===label);
+    rankingHeader('进程数').click();
+    await wait(()=>rankingHeader('进程数').getAttribute('aria-sort')==='descending','process-count sort did not become active');
+    reopened.element.contentWindow.__probe.poll();
+    await wait(()=>doc(reopened).querySelector('footer').textContent.includes('按进程数 ↓'),'card did not follow a hidden ranking metric');
+    const reopenedCpu=doc(reopened).querySelector('.widget-sort[aria-label="按CPU排序"]');
+    reopenedCpu.click();
+    await wait(()=>reopenedCpu.textContent.includes('↓'),'card CPU sort did not become active');
+    reopenedCpu.click();
+    await wait(()=>reopenedCpu.textContent.includes('↑'),'card CPU sort did not switch direction');
+    main.element.contentWindow.__probe.poll();
+    await wait(()=>rankingHeader('CPU').getAttribute('aria-sort')==='ascending','ranking did not follow card sort and direction');
+    reopenedCpu.click();
+    await wait(()=>reopenedCpu.textContent.includes('↓'),'card did not restore CPU descending');
+    checks.push('shared ranking metric and direction; hidden metrics stay sorted without adding a column');
     // Modal leave motion needs animation frames; Chrome throttles an offscreen iframe.
     main.element.scrollIntoView({block:'center'});
     const scriptEntry=[...doc(main).querySelectorAll('button')].find(button=>button.textContent==='脚本来源');

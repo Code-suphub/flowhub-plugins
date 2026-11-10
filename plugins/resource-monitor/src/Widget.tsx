@@ -1,7 +1,7 @@
 import {useEffect,useRef,useState} from 'react';
 import {Alert,Select} from 'antd';
 import {Checkbox,Input} from '@flowhub/plugin-common/react';
-import {cardLimitOptions,cardMetricFields,cardPreferences,cardRowLimit,cardSortOptions,showCardMetric,sortCardBy} from './card-preferences';
+import {cardLimitOptions,cardMetricFields,cardPreferences,cardRowLimit,cardSortOptions} from './card-preferences';
 import type {Api,Config,Context} from './types';
 
 // Keep existing consumers compatible; the card entry imports Card directly.
@@ -28,10 +28,9 @@ export function Editor({api,context}:{api:Api;context:Context}) {
       <legend>额外显示指标</legend>
       <div className="flex flex-wrap gap-x-4">
         {cardSortOptions.map(({value,label})=>value==='cpu'?null:<Checkbox key={value} label={label}
-          checked={preferences[cardMetricFields[value]]} onChange={checked=>change(showCardMetric(value,checked,preferences.sort))}/>)}
+          checked={preferences[cardMetricFields[value]]} onChange={checked=>change({[cardMetricFields[value]]:checked})}/>)}
       </div>
     </fieldset>
-    <label className="grid gap-2 text-sm">排行方式<Select aria-label="卡片排行方式" value={preferences.sort} onChange={sort=>change({...preferences,...sortCardBy(sort)})} options={cardSortOptions.map(option=>({value:option.value,label:`按 ${option.label}`}))}/></label>
     <label className="grid gap-2 text-sm">显示范围<Select aria-label="显示范围" value={config.display??'all'} onChange={display=>change({display})} options={[{value:'all',label:'完整列表 · 滚动查看'},{value:'top',label:'只显示排名靠前的应用'}]}/></label>
     {config.display==='top'?<label className="grid gap-2 text-sm">显示数量<Select aria-label="显示数量" value={rowLimit} onChange={limit=>change({limit})} options={cardLimitOptions(rowLimit).map(n=>({value:n,label:`前 ${n} 个`}))}/></label>:null}
     <Alert type="info" title="卡片点击应用可查看进程和来源，清理在详情页确认后执行。"/>

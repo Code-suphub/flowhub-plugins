@@ -1,4 +1,4 @@
-import type {ApplicationState,Config,ContextEntry,Group,GroupDetail,GroupSummary,Identity,PageContexts,Process,RankingSnapshot,RankingSort,ScriptActivity,Snapshot,StatusSnapshot,Sort} from './types';
+import type {ApplicationState,Config,ContextEntry,Group,GroupDetail,GroupSummary,Identity,PageContexts,Process,RankingOrder,RankingSnapshot,RankingSort,ScriptActivity,Snapshot,StatusSnapshot,Sort,SortOrder} from './types';
 import {cardRowLimit} from './card-preferences';
 
 export function instanceStopReason(group:Group,instance:NonNullable<Group['instances']>[number]) {
@@ -25,11 +25,12 @@ export function detailControls(group:Group|undefined,state?:ApplicationState,sel
     quitLabel:selectedId?'正常退出此实例':(state?.quitInstances?.length??0)>1?'选择实例退出':'正常退出应用',
     contextKind,contextLabel:contextKind==='arc'?'标签页':contextKind==='codex'?'对话与任务':undefined};
 }
+export const defaultRankingOrder:RankingOrder={key:'cpu',order:'descend'};
 export function widgetRows(snapshot:StatusSnapshot|undefined,config:Config={}) {
-  const sort=config.sort==='footprint'?'footprint':config.sort==='memory'?'rss':'cpu';
-  const value=(row:StatusSnapshot['rows'][number])=>config.sort==='accounting'?row.systemAccounting?.footprint:row.values[sort];
+  const {key,order}=snapshot?.sorting??{...defaultRankingOrder,key:config.sort??defaultRankingOrder.key};
+  const value=(row:StatusSnapshot['rows'][number])=>key==='accounting'?row.systemAccounting?.footprint:key==='processCount'?row.count:row.values[key==='memory'?'rss':key];
   const rows=[...(snapshot?.rows??[])].filter(row=>!config.groupId||row.id===config.groupId)
-    .sort((a,b)=>(value(b)??-1)-(value(a)??-1)||a.id.localeCompare(b.id));
+    .sort((a,b)=>compareMetric(value(a),value(b),order)||a.id.localeCompare(b.id));
   return config.display==='top'?rows.slice(0,cardRowLimit(config.limit)):rows;
 }
 export function sampleScriptActivity():ScriptActivity {
@@ -80,9 +81,14 @@ export function matchesProcess(p:Process,q:string) {
 export function matchesGroup(g:Omit<Group,'processes'|'instances'>,q:string) {
   return [g.name,g.source,g.appPath??'',g.origin?.name??'',g.origin?.appPath??'',g.presentation?.name??'',...(g.presentation?.sources??[]).flatMap(source=>[source.name,source.appPath??'']),...(g.presentation?.services??[]).flatMap(service=>[service.name,service.label])].some(s=>s.toLocaleLowerCase().includes(q));
 }
-function sortGroups<T extends Pick<Group,'id'|'memory'|'footprint'|'cpu'|'systemAccounting'>&{processCount?:number}>(groups:T[],sort:RankingSort,order:'ascend'|'descend') {
+function compareMetric(left:number|null|undefined,right:number|null|undefined,order:SortOrder) {
+  if(left==null)return right==null?0:1;
+  if(right==null)return -1;
+  return order==='ascend'?left-right:right-left;
+}
+function sortGroups<T extends Pick<Group,'id'|'memory'|'footprint'|'cpu'|'systemAccounting'>&{processCount?:number}>(groups:T[],sort:RankingSort,order:SortOrder) {
   const value=(g:T)=>sort==='accounting'?g.systemAccounting?.footprint:g[sort];
-  return groups.sort((a,b)=>{const left=value(a),right=value(b);if(left==null||right==null)return left==null?(right==null?a.id.localeCompare(b.id):1):-1;return (order==='ascend'?left-right:right-left)||a.id.localeCompare(b.id);});
+  return groups.sort((a,b)=>compareMetric(value(a),value(b),order)||a.id.localeCompare(b.id));
 }
 export function filterGroups(groups:Group[],query:string,system:boolean,sort:Sort,order:'ascend'|'descend'='descend') {
   const q=query.trim().toLocaleLowerCase();

@@ -270,7 +270,11 @@ impl Monitor {
             "health" => Ok(json!({"protocol":2,"name":"resource-monitor"})),
             "status_snapshot" => Ok(self.snapshot.status()),
             "snapshot" => Ok(self.snapshot.full()),
-            "ranking_snapshot" => Ok(self.snapshot.ranking(params)),
+            "ranking_snapshot" => Ok(self.cache.get().ranking(params)),
+            "set_view_preferences" => {
+                self.snapshot = self.cache.set_view_preferences(params)?;
+                Ok(self.snapshot.ranking(&json!({"query":params["query"]})))
+            }
             "group_detail" => self.snapshot.detail(params),
             "script_activity" => Ok(self.snapshot.scripts()),
             "diagnostic_event" => diagnostics::client(params),
@@ -334,12 +338,13 @@ impl Monitor {
             }
             "accessibility_settings" => surfaces::accessibility_settings(),
             "widget_api" => match params["action"].as_str() {
-                Some("snapshot") => Ok(self.snapshot.status()),
+                Some("snapshot") => Ok(self.cache.get().widget_status()),
                 Some("management") => {
                     let method = params["method"].as_str().unwrap_or("");
                     if ![
                         "snapshot",
                         "ranking_snapshot",
+                        "set_view_preferences",
                         "group_detail",
                         "script_activity",
                         "diagnostic_event",

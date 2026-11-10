@@ -54,6 +54,48 @@ fn snapshot(at: u64) -> Snapshot {
     });
     Snapshot::new(at, groups, json!({"totalMemory":1024}))
 }
+
+#[test]
+fn ranking_and_desktop_card_share_persisted_view_preferences() {
+    let path = std::env::temp_dir().join(format!("flowhub-view-{}.json", uuid::Uuid::new_v4()));
+    let cache = Cache::with_preferences(Some(path.clone()));
+    let mut sample = snapshot(now());
+    let groups = Arc::make_mut(&mut sample.groups);
+    groups[0].system = false;
+    groups[1].system = true;
+    let system_id = groups[1].id.clone();
+    let sample = Snapshot::new(sample.at, groups.clone(), sample.system);
+    cache.finish(Ok(sample.clone()));
+    let assert_view = |cache: &Cache, visible: bool, sorting: Value| {
+        let rank = rpc::read(cache, "ranking_snapshot", &json!({})).unwrap().unwrap();
+        let card = rpc::read(cache, "widget_api", &json!({"action":"snapshot"})).unwrap().unwrap();
+        let rows = |value: &Value, key: &str| value[key].as_array().unwrap().iter()
+            .map(|row| row["id"].as_str().unwrap().to_owned()).collect::<Vec<_>>();
+        assert_eq!(rank["includeSystem"], visible);
+        assert_eq!(rank["sorting"], sorting);
+        assert_eq!(card["sorting"], sorting);
+        assert_eq!(rows(&rank, "groups"), rows(&card, "rows"));
+        assert_eq!(rows(&card, "rows").contains(&system_id), visible);
+        assert!(!rows(&cache.get().status(), "rows").contains(&system_id));
+    };
+    let default_sort = json!({"key":"cpu","order":"descend"});
+    let custom_sort = json!({"key":"processCount","order":"ascend"});
+    assert_view(&cache, false, default_sort);
+    let before = cache.get().revision;
+    cache.set_view_preferences(&json!({"includeSystem":true})).unwrap();
+    assert_eq!(cache.get().revision, before + 1);
+    cache.set_view_preferences(&json!({"sorting":custom_sort})).unwrap();
+    assert_view(&cache, true, custom_sort.clone());
+    assert!(cache.set_view_preferences(&json!({"sorting":{"key":"unknown","order":"ascend"}})).is_err());
+
+    let reopened = Cache::with_preferences(Some(path.clone()));
+    reopened.finish(Ok(sample));
+    assert_view(&reopened, true, custom_sort.clone());
+    reopened.set_view_preferences(&json!({"includeSystem":false})).unwrap();
+    assert_view(&reopened, false, custom_sort);
+    std::fs::remove_file(path).unwrap();
+}
+
 #[test]
 fn ranking_search_and_detail_preserve_metrics_identity_and_instance_boundaries() {
     let sample = snapshot(now());

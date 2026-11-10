@@ -1,5 +1,5 @@
-import {detailFrom,rankingFrom,sampleContexts,sampleScriptActivity,sampleSnapshot,statusFrom} from './model';
-import type {Api,Config,Context,GroupDetail} from './types';
+import {defaultRankingOrder,detailFrom,rankingFrom,sampleContexts,sampleScriptActivity,sampleSnapshot,statusFrom} from './model';
+import type {Api,Config,Context,GroupDetail,RankingOrder} from './types';
 import {RequestError,requestLabel} from './errors';
 
 export function createApi(host:Window):Api {
@@ -7,6 +7,8 @@ export function createApi(host:Window):Api {
   const widget=surface!=='main';
   const token=new URLSearchParams(host.location.hash.slice(1)).get('flowhubWidgetToken');
   let context:Context|undefined,disposed=false,editor:(()=>Config)|undefined;
+  let previewIncludeSystem=false;
+  let previewSorting=defaultRankingOrder;
   const hosted=host.parent!==host;
   const listeners=new Set<(context:Context)=>void>();
   type Request={resolve(value:unknown):void;reject(error:Error):void;timer:ReturnType<typeof setTimeout>;method:string;traceId:string;started:number;hidden:boolean};
@@ -66,7 +68,11 @@ export function createApi(host:Window):Api {
       if(widget&&hosted&&token&&!context)return Promise.reject(new Error('组件上下文尚未就绪'));
       if(api.preview){
         if(method==='snapshot'||method==='refresh')return Promise.resolve(sampleSnapshot() as T);
-        if(method==='ranking_snapshot'||method==='refresh_summary')return Promise.resolve(rankingFrom(sampleSnapshot(),String(params.query??''),params.includeSystem!==false) as T);
+        if(method==='set_view_preferences'){
+          if(typeof params.includeSystem==='boolean')previewIncludeSystem=params.includeSystem;
+          if(params.sorting)previewSorting=params.sorting as RankingOrder;
+        }
+        if(method==='ranking_snapshot'||method==='refresh_summary'||method==='set_view_preferences')return Promise.resolve(rankingFrom({...sampleSnapshot(),sorting:previewSorting},String(params.query??''),typeof params.includeSystem==='boolean'?params.includeSystem:previewIncludeSystem) as T);
         if(method==='group_detail')return Promise.resolve(detailFrom(sampleSnapshot(),String(params.groupId??''),params.trackedPids as number[]|undefined,params.contextPids as number[]|undefined) as T);
         if(method==='services_snapshot')return Promise.resolve({at:Date.now(),supported:true,services:[]} as T);
         if(method==='finder_extensions_snapshot')return Promise.resolve({rows:[

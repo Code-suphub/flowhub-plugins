@@ -45,15 +45,17 @@ export interface FinderExtension {
   runningCount:number|null;
   revision:string|null;
 }
-export interface Snapshot extends SnapshotState {groups:Group[]}
+export interface Snapshot extends SnapshotState {groups:Group[];includeSystem?:boolean;sorting?:RankingOrder}
 export interface GroupSummary extends Omit<Group,'processes'|'instances'> {processCount:number;instanceCount:number;onlyInstanceId?:string|null;permissionLimited:boolean;hasRestrictedProcesses:boolean}
-export interface RankingSnapshot extends SnapshotState {groups:GroupSummary[];includeSystem:boolean;hasRestrictedProcesses:boolean;query:string;matchedGroupIds:string[]}
+export interface RankingSnapshot extends SnapshotState {groups:GroupSummary[];includeSystem:boolean;sorting?:RankingOrder;hasRestrictedProcesses:boolean;query:string;matchedGroupIds:string[]}
 export interface GroupDetail extends SnapshotState {groupId:string;group:Group|null;elsewhere:Identity[];contextProcesses:Process[]}
 export interface StatusRow {id:string;name:string;systemAccounting?:SystemAccounting|null;appPath?:string|null;origin?:SourceOrigin|null;presentation?:Presentation|null;iconKey?:ToolIconKey|null;at:number;status:string;summary:string;values:{memory:number|null;footprint:number|null;rss:number|null;cpu:number|null};count:number;instanceCount?:number;incomplete:boolean}
-export interface StatusSnapshot {at:number;rows:StatusRow[];system:SystemInfo;error?:string|null}
+export interface StatusSnapshot {at:number;revision?:number;sorting?:RankingOrder;rows:StatusRow[];system:SystemInfo;error?:string|null}
 export type Sort = 'footprint'|'memory'|'cpu'|'accounting';
 export type RankingSort = Sort|'processCount';
 export type SortOrder = 'ascend'|'descend';
+export interface RankingOrder {key:RankingSort;order:SortOrder}
+export interface ViewPreferences {includeSystem:boolean;sorting:RankingOrder}
 export interface Config {title?:string;sort?:Sort;display?:'all'|'top';limit?:number;showFootprint?:boolean;showRss?:boolean;showAccounting?:boolean;groupId?:string;selection?:{groupId?:string};sourceView?:string;scriptEventId?:string}
 export interface ApplicationState {canQuit:boolean;message:string;instances?:number;quitInstances?:string[];contextKind?:'arc'|'codex'|null}
 export interface QuitPlan {token:string;expiresIn:number;name:string;appPath:string;targets:Identity[];instanceId?:string;root?:Identity}
