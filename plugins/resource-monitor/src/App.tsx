@@ -9,6 +9,7 @@ import {AppMark,applicationIdentity,useApplications} from './applications';
 import {readGroupDetail} from './api';
 import {ScriptDrawer} from './ScriptDrawer';
 import {StartupSettings} from './StartupSettings';
+import {FinderExtensions} from './FinderExtensions';
 import {BackgroundServices,restartLabel,sameServiceProcess,useBackgroundServices} from './BackgroundServices';
 import {FootprintTrend,recordFootprints,type FootprintSample} from './FootprintTrend';
 import {RequestDetails} from './RequestDetails';
@@ -62,6 +63,7 @@ export function App({api,context}:{api:Api;context:Context}) {
   useEffect(()=>{if(context.config?.sourceView==='scripts'&&scriptEventId&&openedScriptEvent.current!==scriptEventId){openedScriptEvent.current=scriptEventId;setScriptsOpen(true);}},[scriptEventId,context.config?.sourceView]);
   const [servicesScope,setServicesScope]=useState<{appPath?:string;ids?:string[];name?:string}>();const [servicesOpen,setServicesOpen]=useState(false);
   const [startupScope,setStartupScope]=useState<string>();
+  const [finderScope,setFinderScope]=useState<{appPath?:string}>();
   const background=useBackgroundServices(api,!!detailId||servicesOpen);
   const serviceFor=(process:Process)=>background.data?.services.find(service=>!process.exited&&!process.moved&&sameServiceProcess(service,process));
   function openServices(scope?:{appPath?:string;ids?:string[];name?:string}){setServicesScope(scope);setServicesOpen(true);}
@@ -303,6 +305,8 @@ export function App({api,context}:{api:Api;context:Context}) {
   const activeInstance=detail?.instances?.find(instance=>instance.id===selectedInstance);
   const shownStats=selectedInstance?activeInstance:detail;
   const detailAppPath=detail?.appPath??undefined;
+  const detailHasExtension=detailAppPath&&detail?.processes.some(process=>
+    !process.exited&&!process.moved&&process.executable.startsWith(detailAppPath+'/')&&process.executable.includes('.appex/Contents/MacOS/'));
   const detailStartup=detailAppPath==='/Applications/pcsuite.app'?'vivo':detailAppPath&&(detailAppPath.endsWith('/OneDrive.app')||applications[detailAppPath]?.bundleId==='com.microsoft.OneDrive')
     ?'com.microsoft.OneDriveLauncher'
     :detail?.processes.map(databaseStartupId).find(Boolean);
@@ -371,7 +375,7 @@ export function App({api,context}:{api:Api;context:Context}) {
   return <main className="monitor p-3 md:p-4">
     <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
       <div className="flex items-center gap-2"><span className={`live-dot ${stale?'stale':''}`}/><span className="muted text-xs">{api.preview?'只读预览 · 模拟数据':data?.at?`本机 · ${new Date(data.at).toLocaleTimeString()} 更新${data.sampling?' · 采样中':''}`:'正在等待首次采样'}</span><HelpPopover label="统计口径与监控范围">活跃进程足迹是当前分组内进程的 phys_footprint 合计，包含脏页、压缩及换出等记账；RSS 是当前常驻内存。系统归属记账读取应用的系统资源组账本，可包含独立任务和已退出任务的余额，各行可能重叠。三者不能相加，也不等于结束后释放的内存。CPU 按单核 100% 计。页面与对话可能共享进程。</HelpPopover></div>
-      <div className="flex flex-wrap items-center gap-2"><Button size="sm" className="compact-button" onClick={()=>openServices()}>后台服务{background.data?.services.some(service=>service.paused)?` (${background.data.services.filter(service=>service.paused).length} 已暂停)`: ''}</Button><Button size="sm" className="compact-button" onClick={()=>setStartupScope('all')}>自启动</Button><Button size="sm" className="compact-button" onClick={()=>setScriptsOpen(true)}>脚本来源{data?.scriptRunningCount?` (${data.scriptRunningCount})`:''}</Button><Button size="sm" className="compact-button" disabled={refreshing} onClick={()=>void refresh(true)}>{refreshing?'刷新中…':'刷新'}</Button>{!api.widget?<Button size="sm" className="compact-button" disabled={api.preview} onClick={()=>void api.invoke('flowhub_status').catch(e=>setError(displayError(e)))}>桌面与菜单栏</Button>:null}</div>
+      <div className="flex flex-wrap items-center gap-2"><Button size="sm" className="compact-button" onClick={()=>openServices()}>后台服务{background.data?.services.some(service=>service.paused)?` (${background.data.services.filter(service=>service.paused).length} 已暂停)`: ''}</Button><Button size="sm" className="compact-button" onClick={()=>setStartupScope('all')}>自启动</Button><Button size="sm" className="compact-button" onClick={()=>setFinderScope({})}>访达扩展</Button><Button size="sm" className="compact-button" onClick={()=>setScriptsOpen(true)}>脚本来源{data?.scriptRunningCount?` (${data.scriptRunningCount})`:''}</Button><Button size="sm" className="compact-button" disabled={refreshing} onClick={()=>void refresh(true)}>{refreshing?'刷新中…':'刷新'}</Button>{!api.widget?<Button size="sm" className="compact-button" disabled={api.preview} onClick={()=>void api.invoke('flowhub_status').catch(e=>setError(displayError(e)))}>桌面与菜单栏</Button>:null}</div>
     </div>
     <div className="system-strip grid grid-cols-3 gap-3 mb-3">
       <div><span className="muted">物理内存</span><strong>{bytes(data?.system.totalMemory)}</strong></div>
@@ -400,6 +404,7 @@ export function App({api,context}:{api:Api;context:Context}) {
           <div className="flex flex-wrap items-center gap-2" role="group" aria-label="应用管理">
             {detailStartup||detailAppPath?<Button size="sm" className="compact-button" onClick={()=>setStartupScope(detailStartup??detailAppPath)}>{detailStartup?.startsWith('homebrew.mxcl.')&&!detailServices.length?'自启动 / 后台服务':'自启动'}</Button>:null}
             {detailAppPath||detailServices.length?<Button size="sm" className="compact-button" onClick={()=>openServices({appPath:detailAppPath,ids:detailServices.map(service=>service.id),name:applicationIdentity(detail,applications).name})}>{detailServices.length?`后台服务 (${detailServices.length})`:'后台服务'}</Button>:null}
+            {detailHasExtension?<Button size="sm" className="compact-button" onClick={()=>setFinderScope({appPath:detailAppPath})}>访达扩展</Button>:null}
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {controls.canOpen?<Button size="sm" className="compact-button" disabled={api.preview||linksBusy||!!plan||!!quitPlan} onClick={()=>void openApp(detail)}>打开应用 ↗</Button>:null}
@@ -506,6 +511,7 @@ export function App({api,context}:{api:Api;context:Context}) {
       rootAccess={privilegedBusy||!privilegedStatus||privilegedStatus.stale||privilegedStatus.warning||privilegedWarning||privilegedStatus.status==='unreachable'?'checking':privilegedStatus.vivoStartupControl?'ready':privilegedStatus.checking?'checking':privilegedStatus.vivoStartupSupported?'authorize':'upgrade'}
       onAuthorize={()=>{setStartupScope(undefined);confirmPrivileged('enable');}} onStopped={()=>void refresh(true)}
       onClose={()=>setStartupScope(undefined)}/>:null}
+    {finderScope?<FinderExtensions api={api} appPath={finderScope.appPath} onClose={()=>setFinderScope(undefined)} onChanged={()=>void refresh(true)}/>:null}
     {scriptsOpen?<ScriptDrawer api={api} selectedEventId={scriptEventId} onClose={()=>setScriptsOpen(false)}/>:null}
   </main>;
 }

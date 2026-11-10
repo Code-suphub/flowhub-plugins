@@ -36,6 +36,15 @@ export interface ScriptObserver {supported:boolean;enabled:boolean;keychainNames
 export type StartupKind='mysql'|'postgresql'|'onedrive'|'vivo';
 export interface StartupRow {id:string;name:string;kind:StartupKind;state:'enabled'|'disabled'|'unknown';revision?:string|null;loaded?:boolean;keepAlive?:boolean;pid?:number;stopRevision?:string;system?:boolean;blockedReason?:string}
 export interface StartupSnapshot {rows:StartupRow[]}
+export interface FinderExtension {
+  id:string;
+  name:string;
+  appPath:string;
+  bundlePath:string;
+  state:'enabled'|'disabled'|'default'|'unknown';
+  runningCount:number|null;
+  revision:string|null;
+}
 export interface Snapshot extends SnapshotState {groups:Group[]}
 export interface GroupSummary extends Omit<Group,'processes'|'instances'> {processCount:number;instanceCount:number;onlyInstanceId?:string|null;permissionLimited:boolean;hasRestrictedProcesses:boolean}
 export interface RankingSnapshot extends SnapshotState {groups:GroupSummary[];includeSystem:boolean;hasRestrictedProcesses:boolean;query:string;matchedGroupIds:string[]}

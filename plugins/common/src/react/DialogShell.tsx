@@ -124,7 +124,8 @@ export const DialogShell = forwardRef<HTMLDialogElement, DialogShellProps>(
       if (event.target !== event.currentTarget) return;
       event.stopPropagation();
       onClose?.(event);
-      if (open) onOpenChange(false);
+      // The browser can deliver an earlier close event after the dialog has reopened.
+      if (open && !event.currentTarget.open) onOpenChange(false);
     }
 
     function handleCancel(event: SyntheticEvent<HTMLDialogElement>): void {

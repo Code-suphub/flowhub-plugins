@@ -23,6 +23,7 @@
   const vivoAgent={id:'com.vivo.pcsuite.SyncService',name:'vivo 同步服务',kind:'vivo',state:'enabled',revision:'c'.repeat(64)};
   const vivoWatch={id:'com.vivo.control.watch',name:'vivo 远控守护服务',kind:'vivo',state:'enabled',revision:'d'.repeat(64),system:true};
   const vivoLogin={id:'com.vivo.control.serviceAgentLogin',name:'vivo 登录窗口远控服务',kind:'vivo',state:'unknown',revision:null,blockedReason:'此服务在 macOS 登录窗口运行，当前用户会话无法配置。'};
+  const finderExtension={id:'test.finder',name:'测试访达扩展',appPath:'/Applications/Test.app',bundlePath:'/Applications/Test.app/Contents/PlugIns/Finder.appex',state:'enabled',runningCount:1,revision:'finder-enabled'};
   let servicePlan;
   const hosts=new Map();
   addEventListener('message',event=>{
@@ -30,6 +31,17 @@
     const data=event.data;host.messages.push(data);
     if(data.type==='flowhub:request') {
       if(data.method===host.failMethod){delete host.failMethod;event.source.postMessage({type:'flowhub:response',id:data.id,error:'Error: fixture request failure'},'*');return;}
+      if(data.method==='finder_extensions_snapshot'||data.method==='finder_extension_set'){
+        const update=data.method==='finder_extension_set';
+        if(update){
+          assert(data.params.id===finderExtension.id&&data.params.confirmed&&data.params.revision===finderExtension.revision,'Finder update lost confirmed registration');
+          finderExtension.state=data.params.enabled?'enabled':'disabled';
+          finderExtension.revision='finder-'+finderExtension.state;
+          finderExtension.runningCount=0;
+        }
+        const result=update?{enabled:data.params.enabled,runningCount:finderExtension.runningCount}:{rows:[finderExtension]};
+        event.source.postMessage({type:'flowhub:response',id:data.id,result},'*');return;
+      }
       if(data.method==='privileged_status'){
         event.source.postMessage({type:'flowhub:response',id:data.id,result:{ok:true,status:'enabled',message:'已授权',checking:true,vivoStartupSupported:true,vivoStartupControl:true}},'*');return;
       }
@@ -375,6 +387,32 @@
     startupDrawer().querySelector('.ant-drawer-close').click();await wait(()=>!startupDrawer(),'PostgreSQL startup drawer did not close');
     doc(main).querySelector('.detail-modal .ant-modal-close').click();
     checks.push('PostgreSQL detail shortcut without privileged match; KeepAlive hint; policy and stop target the exact service');
+    const finderStart=main.messages.length;
+    [...doc(main).querySelectorAll('button')].find(button=>button.textContent==='访达扩展').click();
+    const finderDrawer=()=>doc(main).querySelector('.finder-extensions-drawer');
+    const finderAction=label=>[...(finderDrawer()?.querySelectorAll('article button')??[])].find(button=>button.textContent===label&&!button.disabled);
+    const finderConfirm=label=>[...doc(main).querySelectorAll('.finder-extension-review .ant-modal-footer button')].find(button=>button.textContent.replace(/\s/g,'')===label);
+    await wait(()=>finderAction('停用'),'Finder extension settings did not open');
+    assert(finderDrawer().textContent.includes('运行中'),'enabled extension did not show independent process state');
+    finderAction('停用').click();
+    await wait(()=>finderConfirm('确认关闭'),'Finder extension review did not open');
+    assert(!main.messages.slice(finderStart).some(message=>message.method==='finder_extension_set'),'Finder review changed settings before confirmation');
+    finderConfirm('取消').click();
+    await wait(()=>finderAction('停用'),'Finder cancel did not restore the original action');
+    finderAction('停用').click();
+    await wait(()=>finderConfirm('确认关闭'),'Finder review did not reopen');
+    finderConfirm('确认关闭').click();
+    await wait(()=>finderAction('启用'),'Finder settings did not read back the disabled state');
+    assert(finderDrawer().textContent.includes('未运行'),'Finder process exit state was not shown');
+    finderAction('启用').click();
+    await wait(()=>finderConfirm('确认启用'),'Finder enable review did not open');
+    finderConfirm('确认启用').click();
+    await wait(()=>finderAction('停用'),'Finder settings did not read back the enabled state');
+    const finderWrites=main.messages.slice(finderStart).filter(message=>message.method==='finder_extension_set');
+    assert(finderWrites.length===2&&finderWrites[0].params.enabled===false&&finderWrites[1].params.enabled===true,'Finder extension writes were duplicated or reversed');
+    finderDrawer().querySelector('.ant-drawer-close').click();
+    await wait(()=>!finderDrawer(),'Finder drawer did not close');
+    checks.push('Finder extension list and runtime state; cancel, disable and enable exact confirmed registration');
     const detail=await frame('widget-detail.html',true);
     await wait(()=>detail.messages.some(message=>message.type==='flowhub:widget-ready'),'detail ready missing');
     detail.send({type:'flowhub:widget-init',context:{preview:true,config:{selection:{groupId:'app:codex'}}}});

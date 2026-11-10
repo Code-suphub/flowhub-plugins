@@ -42,3 +42,15 @@
 | 列头排序和窄卡片 | 在 320 像素卡片上点活跃足迹列头，排序箭头移到该列，前三项足迹为 4.50、1.75、1.67 GiB。应用名、CPU 和活跃足迹均在同一行。 |
 
 通过全仓 `npm test`、`npm run build`、机器管理布局检查和 `git diff --check`。打包浏览器额外核对 315 和 260 像素下的单行布局、列头排序、范围选中底色和关闭回焦。安装日志和原生截图位于 Git 外的 `~/.local/state/flowhub-resource-monitor-redesign/installed-2026-11-10/card-focus/`，文件为 `header-installed-readback.log` 和 `header-native-card.png`。
+
+## 2026-11-10 访达扩展实机验收
+
+在 macOS 15.5、FlowHub `0.1.18-local.20261110035223` 上，用插件市场的「更新」从已登记的原目录重载应用资源监控 `0.4.0`，无需重新选目录。后端 SHA-256 前缀为 `6acec50c03a5`；注册加载时间更新，新的后端由原宿主启动，其余五个插件注册未变。
+
+| 场景 | 结果 |
+| --- | --- |
+| 自动检查 | 全仓测试、构建及机器管理布局检查通过。打包页面验证确认、取消及启停交互；过期的扩展登记版本会被后端拒绝。 |
+| 正常安装版停用 | 从桌面卡片「打开排行」进入「访达扩展」，选中 vivo 办公套件并点「确认关闭」。界面从「已启用，运行中 · 1」变为「已停用，未运行」。系统 PlugInKit 中 `com.vivo.pcsuite.pcsuite-ex` 从 `+` 变为 `-`，原进程 PID 44182 已退出。 |
+| 访达重新打开 | 在观察开始后新建访达窗口并进入「应用程序」。43 次进程采样均未发现该扩展重新启动，末次检查仍为停用。验收结束后保留停用状态。 |
+
+插件市场更新提示中的「打开」本次进入了空白插件面板；正常安装版功能通过桌面卡片的排行入口验证。重新启用只在隔离页面验证，实机保留停用。安装备份及 `installed-readback.log`、`after-disable.log`、`finder-process-watch.log` 和 `finder-ax.log` 位于 Git 外的 `~/.local/state/flowhub-resource-monitor-finder/2026-11-10.5mhUt1/`。

@@ -15,6 +15,7 @@ mod origins;
 mod terminals;
 mod services;
 mod startup;
+mod finder_extensions;
 #[cfg(target_os = "macos")]
 mod native;
 mod surfaces;
@@ -277,6 +278,8 @@ impl Monitor {
             "startup_snapshot" => startup::snapshot(),
             "startup_set" => startup::set(params),
             "startup_stop" => startup::stop(params),
+            "finder_extensions_snapshot" => finder_extensions::snapshot(),
+            "finder_extension_set" => finder_extensions::set(params),
             "login_items_settings" => startup::open_settings(),
             "refresh_summary" => {
                 self.refresh()?;
@@ -346,6 +349,8 @@ impl Monitor {
                         "startup_snapshot",
                         "startup_set",
                         "startup_stop",
+                        "finder_extensions_snapshot",
+                        "finder_extension_set",
                         "login_items_settings",
                         "refresh_summary",
                         "refresh",

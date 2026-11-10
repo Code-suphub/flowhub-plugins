@@ -563,7 +563,7 @@ mod argument_tests {
     }
 }
 
-pub fn collect() -> Result<Vec<Process>, String> {
+fn process_ids() -> Result<Vec<i32>, String> {
     let count = unsafe { libc::proc_listallpids(std::ptr::null_mut(), 0) };
     if count <= 0 {
         return Err("无法读取本机进程列表".into());
@@ -579,6 +579,29 @@ pub fn collect() -> Result<Vec<Process>, String> {
         return Err("进程枚举失败，请稍后刷新".into());
     }
     pids.truncate(n as usize);
+    Ok(pids)
+}
+
+pub(crate) fn matching_executables(executables: &HashSet<&str>) -> Result<Vec<Identity>, String> {
+    if executables.is_empty() {
+        return Ok(Vec::new());
+    }
+    let uid = uid();
+    Ok(process_ids()?
+        .into_iter()
+        .filter(|&pid| pid > 1)
+        .filter(|&pid| pid_path(pid).is_some_and(|path| executables.contains(path.as_str())))
+        .filter_map(identity)
+        .filter(|target| {
+            target.uid == uid
+                && executables.contains(target.executable.as_str())
+                && !exited(target)
+        })
+        .collect())
+}
+
+pub fn collect() -> Result<Vec<Process>, String> {
+    let pids = process_ids()?;
     let me = std::process::id() as i32;
     let mut ancestors = HashSet::from([me]);
     let mut next = unsafe { libc::getppid() };

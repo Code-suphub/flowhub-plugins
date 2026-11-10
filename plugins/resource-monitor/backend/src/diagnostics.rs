@@ -348,6 +348,8 @@ pub fn method(name: &str) -> &str {
         | "startup_snapshot"
         | "startup_set"
         | "startup_stop"
+        | "finder_extensions_snapshot"
+        | "finder_extension_set"
         | "login_items_settings"
         | "diagnostic_event" => name,
         _ => "unknown",
