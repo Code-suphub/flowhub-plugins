@@ -305,8 +305,6 @@ export function App({api,context}:{api:Api;context:Context}) {
   const activeInstance=detail?.instances?.find(instance=>instance.id===selectedInstance);
   const shownStats=selectedInstance?activeInstance:detail;
   const detailAppPath=detail?.appPath??undefined;
-  const detailHasExtension=detailAppPath&&detail?.processes.some(process=>
-    !process.exited&&!process.moved&&process.executable.startsWith(detailAppPath+'/')&&process.executable.includes('.appex/Contents/MacOS/'));
   const detailStartup=detailAppPath==='/Applications/pcsuite.app'?'vivo':detailAppPath&&(detailAppPath.endsWith('/OneDrive.app')||applications[detailAppPath]?.bundleId==='com.microsoft.OneDrive')
     ?'com.microsoft.OneDriveLauncher'
     :detail?.processes.map(databaseStartupId).find(Boolean);
@@ -404,7 +402,7 @@ export function App({api,context}:{api:Api;context:Context}) {
           <div className="flex flex-wrap items-center gap-2" role="group" aria-label="应用管理">
             {detailStartup||detailAppPath?<Button size="sm" className="compact-button" onClick={()=>setStartupScope(detailStartup??detailAppPath)}>{detailStartup?.startsWith('homebrew.mxcl.')&&!detailServices.length?'自启动 / 后台服务':'自启动'}</Button>:null}
             {detailAppPath||detailServices.length?<Button size="sm" className="compact-button" onClick={()=>openServices({appPath:detailAppPath,ids:detailServices.map(service=>service.id),name:applicationIdentity(detail,applications).name})}>{detailServices.length?`后台服务 (${detailServices.length})`:'后台服务'}</Button>:null}
-            {detailHasExtension?<Button size="sm" className="compact-button" onClick={()=>setFinderScope({appPath:detailAppPath})}>访达扩展</Button>:null}
+            {detailAppPath?<Button size="sm" className="compact-button" onClick={()=>setFinderScope({appPath:detailAppPath})}>访达扩展</Button>:null}
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {controls.canOpen?<Button size="sm" className="compact-button" disabled={api.preview||linksBusy||!!plan||!!quitPlan} onClick={()=>void openApp(detail)}>打开应用 ↗</Button>:null}

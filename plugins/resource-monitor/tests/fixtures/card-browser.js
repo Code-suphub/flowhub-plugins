@@ -23,7 +23,8 @@
   const vivoAgent={id:'com.vivo.pcsuite.SyncService',name:'vivo 同步服务',kind:'vivo',state:'enabled',revision:'c'.repeat(64)};
   const vivoWatch={id:'com.vivo.control.watch',name:'vivo 远控守护服务',kind:'vivo',state:'enabled',revision:'d'.repeat(64),system:true};
   const vivoLogin={id:'com.vivo.control.serviceAgentLogin',name:'vivo 登录窗口远控服务',kind:'vivo',state:'unknown',revision:null,blockedReason:'此服务在 macOS 登录窗口运行，当前用户会话无法配置。'};
-  const finderExtension={id:'test.finder',name:'测试访达扩展',appPath:'/Applications/Test.app',bundlePath:'/Applications/Test.app/Contents/PlugIns/Finder.appex',state:'enabled',runningCount:1,revision:'finder-enabled'};
+  const finderExtension={id:'test.finder',name:'测试访达扩展',appPath:'/Applications/Codex.app',bundlePath:'/Applications/Codex.app/Contents/PlugIns/Finder.appex',state:'enabled',runningCount:1,revision:'finder-enabled'};
+  const otherExtension={id:'other.finder',name:'另一应用的扩展',appPath:'/Applications/Other.app',bundlePath:'/Applications/Other.app/Contents/PlugIns/Finder.appex',state:'disabled',runningCount:0,revision:null};
   let servicePlan;
   const hosts=new Map();
   addEventListener('message',event=>{
@@ -39,7 +40,7 @@
           finderExtension.revision='finder-'+finderExtension.state;
           finderExtension.runningCount=0;
         }
-        const result=update?{enabled:data.params.enabled,runningCount:finderExtension.runningCount}:{rows:[finderExtension]};
+        const result=update?{enabled:data.params.enabled,runningCount:finderExtension.runningCount}:{rows:[finderExtension,otherExtension]};
         event.source.postMessage({type:'flowhub:response',id:data.id,result},'*');return;
       }
       if(data.method==='privileged_status'){
@@ -413,6 +414,17 @@
     finderDrawer().querySelector('.ant-drawer-close').click();
     await wait(()=>!finderDrawer(),'Finder drawer did not close');
     checks.push('Finder extension list and runtime state; cancel, disable and enable exact confirmed registration');
+    finderExtension.state='disabled';
+    doc(main).querySelector('button[aria-label="查看 Codex 进程"]').click();
+    const finderDetailAction=()=>[...doc(main).querySelectorAll('.detail-modal button')].find(button=>button.textContent==='访达扩展');
+    await wait(finderDetailAction,'Finder shortcut missing when the registered extension process is absent');
+    finderDetailAction().click();
+    await wait(()=>finderAction('启用'),'disabled extension missing in scoped drawer');
+    assert(finderDrawer().querySelectorAll('article').length===1&&finderDrawer().textContent.includes('未运行'),'app details did not show only its registered, stopped extension');
+    finderDrawer().querySelector('.ant-drawer-close').click();
+    await wait(()=>!finderDrawer(),'scoped Finder drawer did not close');
+    doc(main).querySelector('.detail-modal .ant-modal-close').click();
+    checks.push('application detail links to registered Finder extensions even when stopped, scoped to its app');
     const detail=await frame('widget-detail.html',true);
     await wait(()=>detail.messages.some(message=>message.type==='flowhub:widget-ready'),'detail ready missing');
     detail.send({type:'flowhub:widget-init',context:{preview:true,config:{selection:{groupId:'app:codex'}}}});
