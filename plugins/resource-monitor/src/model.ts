@@ -1,4 +1,5 @@
 import type {ApplicationState,Config,ContextEntry,Group,GroupDetail,GroupSummary,Identity,PageContexts,Process,RankingSnapshot,RankingSort,ScriptActivity,Snapshot,StatusSnapshot,Sort} from './types';
+import {cardRowLimit} from './card-preferences';
 
 export function instanceStopReason(group:Group,instance:NonNullable<Group['instances']>[number]) {
   if(instance.canTerminate)return '';
@@ -29,8 +30,7 @@ export function widgetRows(snapshot:StatusSnapshot|undefined,config:Config={}) {
   const value=(row:StatusSnapshot['rows'][number])=>config.sort==='accounting'?row.systemAccounting?.footprint:row.values[sort];
   const rows=[...(snapshot?.rows??[])].filter(row=>!config.groupId||row.id===config.groupId)
     .sort((a,b)=>(value(b)??-1)-(value(a)??-1)||a.id.localeCompare(b.id));
-  const limit=typeof config.limit==='number'&&Number.isFinite(config.limit)?Math.max(3,Math.min(10,Math.floor(config.limit))):5;
-  return config.display==='top'?rows.slice(0,limit):rows;
+  return config.display==='top'?rows.slice(0,cardRowLimit(config.limit)):rows;
 }
 export function sampleScriptActivity():ScriptActivity {
   const at=Date.now();

@@ -5,7 +5,7 @@ import {displayError,errorText} from './errors';
 import type {DisplayError} from './errors';
 import {accountingDisplay,bytes,cpu,widgetRows} from './model';
 import {AppMark,applicationIdentity,useApplications} from './applications';
-import {cardLimits,cardPreferences,cardSortOptions,sortCardBy} from './card-preferences';
+import {cardLimitOptions,cardMetricFields,cardPreferences,cardRowLimit,cardSortOptions,showCardMetric} from './card-preferences';
 import type {Api,Config,Context,Sort,StatusSnapshot} from './types';
 
 export function Card({api,context}:{api:Api;context:Context}) {
@@ -13,7 +13,7 @@ export function Card({api,context}:{api:Api;context:Context}) {
   const [settingsOpen,setSettingsOpen]=useState(false);
   const [overrides,setOverrides]=useState<Partial<Config>>({});
   const saved=context.config;
-  useEffect(()=>setOverrides({}),[saved?.sort,saved?.display,saved?.limit,saved?.showFootprint,saved?.showRss,saved?.groupId]);
+  useEffect(()=>setOverrides({}),[saved?.sort,saved?.display,saved?.limit,saved?.showFootprint,saved?.showRss,saved?.showAccounting,saved?.groupId]);
   useEffect(()=>{if(context.snapshot)setSnapshot(previous=>!previous||context.snapshot!.at>=previous.at?context.snapshot:previous);},[context.snapshot]);
   useEffect(()=>{
     let disposed=false,timer:ReturnType<typeof setTimeout>;
@@ -22,34 +22,36 @@ export function Card({api,context}:{api:Api;context:Context}) {
   },[api]);
   const config={...saved,...overrides};
   const preferences=cardPreferences(config);
-  const {sort,showFootprint,showRss}=preferences;
-  const showAccounting=sort==='accounting';
-  const metrics=cardSortOptions.filter(option=>
-    option.value==='cpu'||(option.value==='footprint'&&showFootprint)||(option.value==='memory'&&showRss)||(option.value==='accounting'&&showAccounting));
-  const rows=widgetRows(snapshot,config);
+  const {sort,showAccounting}=preferences;
+  const metrics=cardSortOptions.filter(({value})=>value==='cpu'||preferences[cardMetricFields[value]]);
+  const rows=widgetRows(snapshot,{...config,sort});
   const applications=useApplications(api,rows);
   const stale=!!snapshot?.at&&Date.now()-snapshot.at>20000;
   const change=(patch:Partial<Config>)=>setOverrides(previous=>({...previous,...patch}));
-  function setMetric(metric:'showFootprint'|'showRss',checked:boolean) {
-    const selected=metric==='showFootprint'?'footprint':'memory';
-    change({[metric]:checked,...(!checked&&sort===selected?{sort:'cpu'}:{})});
-  }
-  const limit=config.display==='top'?config.limit??5:'all';
+  const rowLimit=cardRowLimit(config.limit);
+  const limit=config.display==='top'?rowLimit:'all';
   const style={'--widget-metrics':metrics.length} as CSSProperties;
 
-  return <main className="widget widget--card p-3" style={style} data-expanded={metrics.length>1||undefined}>
+  return <main className="widget widget--card p-3" style={style}>
     <div className="widget-header flex items-center justify-between gap-2 mb-2">
       <strong className="min-w-0 truncate">{config.title||context.title||'应用资源'}</strong>
-      <Button size="sm" className="compact-button widget-settings-trigger" aria-haspopup="dialog" aria-expanded={settingsOpen} onClick={()=>setSettingsOpen(true)}>
+      <Button size="sm" className="compact-button widget-settings-trigger" aria-haspopup="dialog" aria-expanded={settingsOpen} onClick={event=>{
+        // WebKit does not focus buttons on pointer click. Give the dialog the same opener as keyboard input.
+        event.currentTarget.focus({preventScroll:true});
+        setSettingsOpen(true);
+      }}>
         显示设置<span className="widget-settings-chevron" aria-hidden="true"/>
       </Button>
     </div>
     {api.preview?<p className="muted text-xs mb-1">模拟数据</p>:null}
     {error||snapshot?.error||stale?<div className="warning text-xs"><p role="alert">{errorText(error||snapshot?.error||'数据已过期')}</p><RequestDetails error={error}/></div>:null}
     <div className="widget-list" role="region" aria-label="应用资源列表，可滚动查看" tabIndex={0}>
-      <div className="widget-grid widget-columns muted text-xs" aria-hidden="true">
+      <div className="widget-grid widget-columns muted text-xs">
         <span className="widget-identity">应用</span>
-        {metrics.map(metric=><span key={metric.value}>{metric.value==='accounting'?'记账':metric.label}{sort===metric.value?' ↓':''}</span>)}
+        {metrics.map(metric=><button key={metric.value} type="button" className="widget-sort" title={`按${metric.label}从高到低排序`}
+          aria-label={`按${metric.label}排序`} aria-pressed={sort===metric.value} onClick={()=>change({...preferences,sort:metric.value})}>
+          {metric.value==='accounting'?'记账':metric.label}{sort===metric.value?<span aria-hidden="true"> ↓</span>:null}
+        </button>)}
       </div>
       {rows.map(row=>{
         const label=applicationIdentity(row,applications);
@@ -65,7 +67,7 @@ export function Card({api,context}:{api:Api;context:Context}) {
             <AppMark name={label.name} iconKey={row.iconKey} application={row.appPath?applications[row.appPath]:undefined}/>
             <strong className="truncate" title={label.name}>{label.name}</strong>
           </span>
-          {metrics.map(metric=><span key={metric.value} className="numeric" title={metric.value==='accounting'?accounting?.hint:undefined}>
+          {metrics.map(metric=><span key={metric.value} className="numeric" title={metric.value==='accounting'?accounting?.hint:values[metric.value]}>
             <span className="sr-only">{metric.label} </span>{values[metric.value]}
           </span>)}
         </button>;
@@ -77,23 +79,21 @@ export function Card({api,context}:{api:Api;context:Context}) {
       <button type="button" className="text-link" disabled={api.preview} onClick={()=>api.navigate()}>打开排行 →</button>
     </footer>
     <DialogShell open={settingsOpen} onOpenChange={setSettingsOpen} title="显示设置" className="widget-settings-dialog" contentClassName="widget-settings-content"
-      footer={!api.preview?<Button size="sm" className="compact-button" onClick={()=>{setSettingsOpen(false);api.openEditor();}}>编辑默认设置</Button>:undefined}>
+      footer={!api.preview?<><span className="mr-auto muted text-xs">仅本次生效</span><Button size="sm" className="compact-button" onClick={()=>{setSettingsOpen(false);api.openEditor();}}>编辑默认设置</Button></>:undefined}>
       <fieldset className="widget-settings-group">
         <legend>显示指标</legend>
         <div className="flex flex-wrap gap-x-3">
-          <Checkbox label="活跃足迹" checked={showFootprint} onChange={checked=>setMetric('showFootprint',checked)} containerClassName="widget-setting-checkbox"/>
-          <Checkbox label="RSS" checked={showRss} onChange={checked=>setMetric('showRss',checked)} containerClassName="widget-setting-checkbox"/>
+          {cardSortOptions.map(({value,label})=>value==='cpu'?null:<Checkbox key={value} label={label}
+            checked={preferences[cardMetricFields[value]]} onChange={checked=>change(showCardMetric(value,checked,sort))} containerClassName="widget-setting-checkbox"/>)}
         </div>
       </fieldset>
       <fieldset className="widget-settings-group">
-        <legend>排序依据</legend>
-        <div className="flex flex-wrap gap-1">{cardSortOptions.map(option=><Button key={option.value} size="sm" className="compact-button widget-setting-option" aria-pressed={sort===option.value} onClick={()=>change(sortCardBy(option.value))}>{option.label}</Button>)}</div>
-      </fieldset>
-      <fieldset className="widget-settings-group">
         <legend>显示范围</legend>
-        <div className="flex flex-wrap gap-1">{(['all',...cardLimits] as const).map(value=><Button key={value} size="sm" className="compact-button widget-setting-option" aria-pressed={value===limit} onClick={()=>change(value==='all'?{display:'all'}:{display:'top',limit:value})}>{value==='all'?'完整列表':`前 ${value}`}</Button>)}</div>
+        <div className="flex flex-wrap gap-1">{(['all',...cardLimitOptions(rowLimit)] as const).map(value=><Button key={value} size="sm" className="compact-button"
+          variant={value===limit?'primary':'secondary'} aria-pressed={value===limit} onClick={()=>change(value==='all'?{display:'all'}:{display:'top',limit:value})}>
+          {value==='all'?'完整列表':`前 ${value}`}
+        </Button>)}</div>
       </fieldset>
-      {!api.preview?<p className="muted text-xs mt-2">即时调整用于本次查看，默认设置由组件编辑器保存。</p>:null}
     </DialogShell>
   </main>;
 }

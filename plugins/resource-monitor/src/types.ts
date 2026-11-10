@@ -45,7 +45,7 @@ export interface StatusSnapshot {at:number;rows:StatusRow[];system:SystemInfo;er
 export type Sort = 'footprint'|'memory'|'cpu'|'accounting';
 export type RankingSort = Sort|'processCount';
 export type SortOrder = 'ascend'|'descend';
-export interface Config {title?:string;sort?:Sort;display?:'all'|'top';limit?:number;showFootprint?:boolean;showRss?:boolean;groupId?:string;selection?:{groupId?:string};sourceView?:string;scriptEventId?:string}
+export interface Config {title?:string;sort?:Sort;display?:'all'|'top';limit?:number;showFootprint?:boolean;showRss?:boolean;showAccounting?:boolean;groupId?:string;selection?:{groupId?:string};sourceView?:string;scriptEventId?:string}
 export interface ApplicationState {canQuit:boolean;message:string;instances?:number;quitInstances?:string[];contextKind?:'arc'|'codex'|null}
 export interface QuitPlan {token:string;expiresIn:number;name:string;appPath:string;targets:Identity[];instanceId?:string;root?:Identity}
 export interface ContextEntry {id:string;token:string|null;title:string;detail:string;processes:Identity[];source:string;shared:boolean;ambiguous:boolean}

@@ -6,7 +6,7 @@
   const token='card-test-token';
   const snapshot={at:Date.now(),system:{totalMemory:34359738368,swapUsed:1048576},rows:Array.from({length:28},(_,index)=>({
     id:`app:${index}`,name:`Application ${index}`,appPath:index===27?'/Applications/Test.app':index===25?'/Applications/Unavailable.app':null,iconKey:index===26?'python':null,
-    at:Date.now(),count:index+1,instanceCount:2,incomplete:false,systemAccounting:index===27?{footprint:84*1073741824,coalitionCount:1,shared:false}:null,values:{memory:index*1048576,rss:index*1048576,footprint:index*2097152,cpu:index}
+    at:Date.now(),count:index+1,instanceCount:2,incomplete:false,systemAccounting:index===25?{footprint:84*1073741824,coalitionCount:1,shared:false}:null,values:{memory:index*1048576,rss:index*1048576,footprint:index*2097152,cpu:index}
   }))};
   const nativeIcon='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aOWQAAAAASUVORK5CYII=';
   let current=snapshot;
@@ -127,24 +127,48 @@
 
     host.element.scrollIntoView({block:'center'});
     const settingsButton=doc(host).querySelector('.widget-settings-trigger');
+    list.focus();
     settingsButton.click();
     const settings=()=>doc(host).querySelector('dialog.widget-settings-dialog[open]');
     await wait(settings,'display settings did not open');
     const settingButton=label=>[...settings().querySelectorAll('button')].find(button=>button.textContent===label);
-    settingButton('系统归属记账').click();
-    await wait(()=>rows(host)[0].textContent.includes('84.00 GiB'),'saved accounting sort and column no longer available');
+    const metricCheckbox=label=>[...settings().querySelectorAll('label')].find(field=>field.textContent===label).querySelector('input');
+    const sortButton=label=>doc(host).querySelector(`.widget-sort[aria-label="按${label}排序"]`);
+    assert(!settings().textContent.includes('排序依据'),'sorting still appears in display settings');
     settingButton('前 3').click();
     await wait(()=>rows(host).length===3,'quick range did not select top three');
+    const backgroundOf=element=>host.element.contentWindow.getComputedStyle(element).backgroundColor;
+    await wait(()=>settingButton('前 3').getAttribute('aria-pressed')==='true'&&backgroundOf(settingButton('前 3'))!==backgroundOf(settingButton('完整列表')),'selected range did not get a visible fill');
     settingButton('完整列表').click();
     await wait(()=>rows(host).length===28,'quick range did not restore complete list');
-    settingButton('活跃足迹').click();
-    await wait(()=>doc(host).querySelector('.widget-columns').textContent.includes('活跃足迹 ↓'),'sort did not reveal the selected metric');
-    settings().querySelector('input').click();
-    await wait(()=>doc(host).querySelector('.widget-columns').textContent.includes('CPU ↓'),'hiding sorted metric did not reset to CPU');
+    metricCheckbox('活跃足迹').click();
+    metricCheckbox('RSS').click();
+    metricCheckbox('系统归属记账').click();
+    settings().dispatchEvent(new Event('cancel',{cancelable:true}));
+    await wait(()=>!settings()&&doc(host).activeElement===settingsButton,'settings did not restore the clicked opener');
+    sortButton('系统归属记账').click();
+    await wait(()=>sortButton('系统归属记账').getAttribute('aria-pressed')==='true'&&rows(host)[0].textContent.includes('84.00 GiB'),'accounting column header did not sort by its metric');
+    sortButton('活跃足迹').click();
+    await wait(()=>sortButton('活跃足迹').getAttribute('aria-pressed')==='true','footprint column header did not become active');
+    assert(sortButton('系统归属记账'),'switching sort unexpectedly hid the accounting column');
+    for(const width of [315,260]) {
+      host.element.style.width=width+'px';
+      const line=rows(host)[0],identity=line.querySelector('.widget-identity').getBoundingClientRect();
+      assert([...line.querySelectorAll('.numeric')].every(metric=>{
+        const bounds=metric.getBoundingClientRect();
+        return Math.abs(bounds.top+bounds.height/2-identity.top-identity.height/2)<1;
+      }),'name and metrics must remain on the same row at '+width+'px');
+      assert(doc(host).querySelector('.widget-columns .widget-identity').getBoundingClientRect().width>0,'narrow card lost its application header');
+    }
+    host.element.style.width='380px';
+    settingsButton.click();
+    await wait(settings,'could not reopen display settings');
+    metricCheckbox('活跃足迹').click();
+    await wait(()=>!sortButton('活跃足迹')&&sortButton('CPU').getAttribute('aria-pressed')==='true','hiding sorted metric did not reset to CPU');
     settingButton('编辑默认设置').click();
     await wait(()=>host.messages.some(message=>message.type==='flowhub:widget-navigate'&&message.action==='editor'),'card could not open its existing host editor');
     await wait(()=>!settings(),'display settings did not dismiss');
-    checks.push('CPU default; direct card metrics, sort and scope; host editor navigation');
+    checks.push('CPU default; header sorting; visible range selection; single row at 315/260px; opener focus; host editor navigation');
 
     host.send({type:'flowhub:theme',theme:'light'});
     await wait(()=>doc(host).documentElement.dataset.theme==='light','light theme missing');
@@ -191,12 +215,12 @@
     editor.send({type:'flowhub:widget-save',id:'before-init'});
     await wait(()=>editor.messages.some(message=>message.id==='before-init'),'save callback was not registered before ready');
     assert(!editor.messages.find(message=>message.id==='before-init').error,'early editor save failed');
-    editor.send({type:'flowhub:widget-init',context:{preview:true,config:{title:'Saved title',sort:'cpu',display:'top',limit:3,showFootprint:true,showRss:true,groupId:'app:5'},snapshot}});
+    editor.send({type:'flowhub:widget-init',context:{preview:true,config:{title:'Saved title',sort:'cpu',display:'top',limit:3,showFootprint:true,showRss:true,showAccounting:true,groupId:'app:5'},snapshot}});
     await wait(()=>doc(editor).querySelector('input')?.value==='Saved title','editor context missing');
     editor.send({type:'flowhub:widget-save',id:'configured'});
     await wait(()=>editor.messages.some(message=>message.id==='configured'),'configured editor save missing');
     const saved=editor.messages.find(message=>message.id==='configured').config;
-    assert(saved.title==='Saved title'&&saved.sort==='cpu'&&saved.display==='top'&&saved.limit===3&&saved.showFootprint&&saved.showRss&&saved.groupId==='app:5','saved configuration changed');
+    assert(saved.title==='Saved title'&&saved.sort==='cpu'&&saved.display==='top'&&saved.limit===3&&saved.showFootprint&&saved.showRss&&saved.showAccounting&&saved.groupId==='app:5','saved configuration changed');
     checks.push('editor early save registration and initialized configuration');
 
     const main=await frame('index.html');
