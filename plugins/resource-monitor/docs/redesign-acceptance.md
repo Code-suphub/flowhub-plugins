@@ -10,8 +10,21 @@
 
 详情趋势使用宿主页面收到的最近五分钟有效排行采样，页面重新加载后重新积累。桌面卡片的即时设置用于当前卡片页面；通过「编辑默认设置」进入宿主组件编辑器并保存，可持久化到该卡片。
 
-资源监控 0.4.0：`npm run test:resource-monitor` 通过 71 项 Rust 测试、类型检查及 76 项 Node 和打包浏览器测试；`npm run build:resource-monitor` 与包内资源、CSP 检查通过。构建目录为 `plugins/resource-monitor/build/`，尚未替换安装版。
+资源监控 0.4.0：`npm run test:resource-monitor` 通过 71 项 Rust 测试、类型检查及 76 项 Node 和打包浏览器测试；`npm run build:resource-monitor` 与包内资源、CSP 检查通过。构建目录为 `plugins/resource-monitor/build/`，本机替换结果见下文。
 
 插件仓库的 `npm run build`、构建后的 `npm test`、`npm run layout:machines -- --check` 和 `git diff --check` 均通过。全仓日志为 `repo-build-serial.log` 和 `repo-tests-after-build.log`。独立构建和全仓构建得到的资源监控后端、排行和桌面卡片入口指纹一致。
 
 浏览器截图和构建日志保存在 Git 外的 `~/.local/state/flowhub-resource-monitor-redesign/`。排行、详情和卡片截图分别以 `ranking-`、`detail-` 和 `card-` 开头；专项测试和构建日志是 `resource-monitor-tests.log` 和 `resource-monitor-build.log`。使用测试数据，结束操作的验证使用隔离夹具。
+
+## 2026-11-10 本机验收
+
+环境为 macOS 15.5，宿主为 `/Applications/FlowHub.app` 的 `0.1.18-local.20261109093047`，目标包为 `d21e8db` 构建的资源监控 `0.4.0`。旧包也标为 `0.4.0`，排行入口 SHA-256 从 `5f4dd9f2…` 变为 `8a6dd889…`，后端二进制相同。旧包、注册及画布配置备份在 Git 外的 `~/.local/state/flowhub-resource-monitor-redesign/installed-2026-11-10/backup/`。新版暂存目录为 `~/Library/Application Support/FlowHub/local-plugin-builds/resource-monitor-d21e8db`。
+
+| 驱动方式 | 检查 | 结果与证据 |
+| --- | --- | --- |
+| 独立后端 CLI | 从新版暂存包启动独立后端，使用临时数据目录，读取排行、同一采样版本的详情和卡片数据。 | 通过。连续两次真实采样相隔 5,087 ms，返回 77 个排行分组及 77 条卡片数据，选中分组返回 59 个进程和 6 个实例。证据为 `real-rpc.json`。 |
+| 正常安装版／后台 CLI | 插件市场更换目录，核对注册、包文件及宿主启动的进程。 | 通过。首次尝试因清单 ID 与所选插件不符被拒绝。通过「应用资源监控」重选后，注册指向新版目录且保持启用。清单、排行、卡片和后端与构建产物一致，运行中的插件进程为正常宿主的子进程，其他插件注册与备份一致。证据为 `installed-readback.log` 和 `reopened-readback.log`。 |
+| 正常安装版／后台窗口读取 | 桌面卡片显示真实采样、CPU 降序和完整列表。 | 通过。安装版画布读到「显示设置」、CPU 列及完整列表。11:28:25 显示 81 项，11:29:34 显示 78 项，CPU 排序随采样变化。重新打开宿主后仍加载新版。证据为 `canvas-baseline.png`、`canvas-after-reopen.png` 和 `canvas-live-second.png`。 |
+| 正常安装版 | 排行、详情趋势、原生键盘与卡片保存回读。 | 待验。已打开的旧详情窗口仍显示旧页面。后台点击新版卡片的「打开排行」无效，需在前台打开新窗口并完成交互。 |
+
+本机以后可复用已登记的本地包目录。先在工作树构建，将产物部署到该固定目录，再在已安装列表点击「更新」，宿主会在原目录重读清单并重载。换到另一个安装目录时才需要目录选择器。
