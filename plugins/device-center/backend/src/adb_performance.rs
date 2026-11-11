@@ -12,7 +12,8 @@ type Sample = (Instant, Value);
 
 static CACHE: Mutex<Cache> = Mutex::new(Cache { pending: None, samples: BTreeMap::new() });
 const FRESH: Duration = Duration::from_secs(5);
-const QUERY: &str = "head -n 1 /proc/stat; sleep 0.3; head -n 1 /proc/stat; grep -E '^Mem(Total|Available):' /proc/meminfo; :";
+const STORAGE_MARKER: &str = "__FLOWHUB_STORAGE_KIB__";
+const QUERY: &str = "head -n 1 /proc/stat; sleep 0.3; head -n 1 /proc/stat; grep -E '^Mem(Total|Available):' /proc/meminfo; echo __FLOWHUB_STORAGE_KIB__; LC_ALL=C df -k /data; :";
 
 struct Cache {
     pending: Option<Route>,
@@ -54,10 +55,11 @@ fn collect((serial, transport_id): &Route) -> Result<Value, String> {
     let output = std::str::from_utf8(&output).map_err(|_| "ADB 采样格式无效")?;
     let cpu = cpu_usage(output);
     let memory = memory_usage(output);
-    if cpu.is_none() && memory.is_none() {
-        return Err("设备未提供可读取的 CPU 或内存数据".into());
+    let storage = storage_usage(output);
+    if cpu.is_none() && memory.is_none() && storage.is_none() {
+        return Err("设备未提供可读取的 CPU、内存或存储数据".into());
     }
-    Ok(json!({"status":"read","sampledAt":now(),"cpuPercent":cpu,"memory":memory}))
+    Ok(json!({"status":"read","sampledAt":now(),"cpuPercent":cpu,"memory":memory,"storage":storage}))
 }
 
 fn cpu_counters(line: &str) -> Option<[u64; 8]> {
@@ -96,6 +98,29 @@ fn memory_usage(text: &str) -> Option<Value> {
     (total > 0).then(|| json!({"usedKiB":used,"totalKiB":total}))
 }
 
+fn storage_usage(text: &str) -> Option<Value> {
+    let (_, table) = text.split_once(STORAGE_MARKER)?;
+    let mut lines = table.lines().filter(|line| !line.trim().is_empty());
+    let header = lines.next()?;
+    if !header.split_whitespace().any(|field| {
+        field.eq_ignore_ascii_case("1K-blocks") || field.eq_ignore_ascii_case("1024-blocks")
+    }) { return None; }
+    lines.find_map(|line| {
+        let fields: Vec<_> = line.split_whitespace().collect();
+        // Some df versions wrap a long filesystem name onto a separate line.
+        let row = fields.get(fields.len().checked_sub(5)?..)?;
+        let mount = row[4];
+        if mount != "/data" && !mount.starts_with("/data/") { return None; }
+        let total = row[0].parse::<u64>().ok()?;
+        let used = row[1].parse::<u64>().ok()?;
+        let available = row[2].parse::<u64>().ok()?;
+        let percent = row[3].strip_suffix('%')?.parse::<u8>().ok()?;
+        // Available space can exclude reserved blocks; do not infer it from used.
+        if total == 0 || percent > 100 || used.checked_add(available)? > total { return None; }
+        Some(json!({"usedKiB":used,"totalKiB":total,"availableKiB":available,"mountPoint":mount}))
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -117,5 +142,42 @@ mod tests {
         assert!(memory_usage("MemTotal: 10 kB\nMemFree: 10 kB").is_none());
         assert!(memory_usage("MemTotal: 10 kB\nMemAvailable: 20 kB").is_none());
         assert!(memory_usage("MemTotal: 10 MB\nMemAvailable: 2 kB").is_none());
+    }
+
+    #[test]
+    fn storage_accepts_android_mount_alias_and_reserved_blocks() {
+        let table = format!("permission denied\n{STORAGE_MARKER}\nFilesystem 1K-blocks Used Available Use% Mounted on\n/dev/block/dm-61 235354092 107657796 127565224 46% /data/user/0\n");
+        assert_eq!(storage_usage(&table), Some(json!({
+            "usedKiB":107657796,"totalKiB":235354092,"availableKiB":127565224,"mountPoint":"/data/user/0"
+        })));
+    }
+
+    #[test]
+    fn storage_accepts_wrapped_filesystem_and_zero_usage() {
+        let table = format!("{STORAGE_MARKER}\nFilesystem 1024-blocks Used Available Capacity Mounted on\n/dev/long-name\n 100 0 100 0% /data\n");
+        assert_eq!(storage_usage(&table), Some(json!({
+            "usedKiB":0,"totalKiB":100,"availableKiB":100,"mountPoint":"/data"
+        })));
+    }
+
+    #[test]
+    fn storage_rejects_unknown_units_other_mounts_and_invalid_ranges() {
+        for (header, row) in [
+            ("Size", "100G 40G 60G 40% /data"),
+            ("512-blocks", "100 40 60 40% /data"),
+            ("1K-blocks", "100 40 60 40% /sdcard"),
+            ("1K-blocks", "100 40 60 40% /database"),
+            ("1K-blocks", "0 0 0 0% /data"),
+            ("1K-blocks", "100 -1 60 40% /data"),
+            ("1K-blocks", "100 101 0 100% /data"),
+            ("1K-blocks", "100 40 61 40% /data"),
+            ("1K-blocks", "100 40 60 101% /data"),
+            ("1K-blocks", "100 40 60 40 /data"),
+            ("1K-blocks", "18446744073709551615 18446744073709551615 1 100% /data"),
+        ] {
+            assert!(storage_usage(&format!("{STORAGE_MARKER}\nFilesystem {header} Used Available Use% Mounted on\nfs {row}\n")).is_none(), "{header}: {row}");
+        }
+        assert!(storage_usage("Filesystem 1K-blocks\nfs 100 40 60 40% /data").is_none());
+        assert!(storage_usage(&format!("{STORAGE_MARKER}\ndf: Permission denied")).is_none());
     }
 }

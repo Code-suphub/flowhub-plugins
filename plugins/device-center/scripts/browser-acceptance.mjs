@@ -10,7 +10,8 @@ import {buildSync} from 'esbuild';
 // Test the shipped bundle and CSP in an opaque iframe. No real application,
 // keyboard, mouse, clipboard, hardware state or installed plugin is modified.
 const root=fileURLToPath(new URL('../',import.meta.url));
-const out=resolve(process.argv.slice(2).find(arg=>arg!=='--')||join(root,'screenshots'));
+const performanceOnly=process.argv.includes('--performance-only');
+const out=resolve(process.argv.slice(2).find(arg=>!arg.startsWith('--'))||join(root,'screenshots'));
 await mkdir(out,{recursive:true});
 const compiled=buildSync({entryPoints:[join(root,'src/fixtures.ts')],bundle:true,platform:'node',format:'cjs',write:false}).outputFiles[0].text;
 const module={exports:{}};new Function('module','exports',compiled)(module,module.exports);
@@ -52,7 +53,7 @@ const server=createServer(async(req,res)=>{
     const args=widget?m.params.params:m.params;
     if(args.id!=='adb-usb')reply.error='未找到设备';
     else if(!window.__qa.performanceStarted||args.refresh){window.__qa.performanceStarted=true;reply.result={status:'pending'};}
-    else reply.result=window.__qa.performanceReply||{status:'read',sampledAt:Date.now(),cpuPercent:24.5,memory:{usedKiB:4194304,totalKiB:8388608}};
+    else reply.result=window.__qa.performanceReply||{status:'read',sampledAt:Date.now(),cpuPercent:24.5,memory:{usedKiB:4194304,totalKiB:8388608},storage:{usedKiB:50331648,totalKiB:134217728,availableKiB:83886080,mountPoint:'/data/user/0'}};
     frame.contentWindow.postMessage(reply,'*');return;
    }
    if(method==='keyboard_mode'){const args=widget?m.params.params:m.params;if(args.id==='usb-k75')reply.result=window.__qa.keyboardMode||{status:'read',mode:'mac',usbRelease:'0x4023',configurationSupported:true,lighting:'off'};else reply.error='设备不支持';frame.contentWindow.postMessage(reply,'*');return;}
@@ -105,7 +106,7 @@ const profile=await mkdtemp(join(tmpdir(),'flowhub-devices-browser-'));
 const chrome=spawn('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',['--headless=new','--remote-debugging-port=0',`--user-data-dir=${profile}`,'--no-first-run','--disable-gpu','--disable-site-isolation-trials','--disable-features=IsolateOrigins,site-per-process','about:blank'],{stdio:'ignore'});
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 let socket;
-const report={scope:'Shipped bundle in opaque iframe with fixture data and packaged macOS artwork helper; not installed-app acceptance.',checks:[],responsive:[],errors:[],screenshots:[]};
+const report={scope:'Shipped bundle in opaque iframe with fixture data and packaged macOS artwork helper; not installed-app acceptance.',performanceOnly,checks:[],responsive:[],errors:[],screenshots:[]};
 try{
  for(let n=0;n<100&&!existsSync(join(profile,'DevToolsActivePort'));n++)await sleep(100);
  const [port]=(await readFile(join(profile,'DevToolsActivePort'),'utf8')).split('\n');
@@ -246,14 +247,20 @@ try{
  await check('document.querySelector("dialog").textContent.includes("PUBLIC-USB") && document.querySelector("dialog").textContent.includes("Pixel 8 Pro") && !document.querySelector("dialog .dc-display-settings")','ADB detail exposes serial, model and transport without display settings');
  await wait('document.querySelector(\'[aria-label="设备性能"]\').textContent.includes("24.5%")');
  await check('document.querySelector(\'[aria-label="设备性能"]\').textContent.includes("4.0 / 8.0 GiB")','ADB detail shows sampled CPU and used/total memory');
+ await check('(()=>{const text=document.querySelector(\'[aria-label="设备性能"]\').textContent;return text.includes("48.0 / 128.0 GiB · 37.5%") && text.includes("可用 80.0 GiB")})()','ADB detail shows internal storage used/total, percentage and available space');
  await size(390,640);await evaluate('document.documentElement.dataset.theme="dark"');
  await evaluate('document.querySelector(\'[aria-label="设备性能"]\').scrollIntoView({block:"center"})');
  await check('(()=>{const s=document.querySelector(\'[aria-label="设备性能"]\'),r=s.getBoundingClientRect();return r.left>=0 && r.right<=innerWidth && s.scrollWidth<=s.clientWidth+1})()','ADB performance fits the narrow dark detail');
  await capture('adb-performance-dark-narrow');await size(800);await evaluate('document.documentElement.dataset.theme="light"');
- await parent('window.__qa.performanceReply={status:"read",sampledAt:Date.now(),cpuPercent:0,memory:null}');
+ await parent('window.__qa.performanceReply={status:"read",sampledAt:Date.now(),cpuPercent:0,memory:null,storage:null}');
  await click('[aria-label="设备性能"] .dc-button');
  await wait('document.querySelector(\'[aria-label="设备性能"]\').textContent.includes("未提供")');
  await check('document.querySelector(\'[aria-label="设备性能"] dd\').textContent==="0%"','ADB resample preserves real zero and partial data');
+ await check('[...document.querySelectorAll(\'[aria-label="设备性能"] dd\')].slice(1).every(e=>e.textContent==="未提供")','missing memory and storage remain unknown instead of showing zero');
+ await parent('window.__qa.performanceReply={status:"read",sampledAt:Date.now(),cpuPercent:null,memory:null,storage:{usedKiB:50331648,totalKiB:134217728,availableKiB:83886080,mountPoint:"/data/user/0"}}');
+ await click('[aria-label="设备性能"] .dc-button');
+ await wait('document.querySelector(\'[aria-label="设备性能"]\').textContent.includes("可用 80.0 GiB")');
+ await check('document.querySelector(\'[aria-label="设备性能"] dd\').textContent==="未提供"','storage remains visible when the device restricts CPU and memory');
  await fill('测试手机','dialog .dc-adb-preference input');
  await parent('window.__qa.preferenceError="QA 保存失败"');
  await click('dialog .dc-adb-preference .dc-button');
@@ -307,6 +314,7 @@ try{
  await size(800);await navigate('/qa?widget=1&scenario=adb&device=adb-auth');await wait('document.querySelector("dialog").open');await check('document.querySelector("dialog").textContent.includes("未授权") && document.querySelector("dialog").textContent.includes("PUBLIC-AUTH")','widget detail preserves ADB authorization state');
  await check('!document.querySelector(\'[aria-label="设备性能"]\')','unauthorized ADB detail does not start performance sampling');
  await check('document.querySelector(".dc-recent-events p").textContent.includes("本次运行暂无连接变化")','device detail explains when no event has been observed');
+ if(!performanceOnly){
  await navigate('/qa?scenario=catalog');
  await wait('document.querySelector("[data-device=pixel] img[alt=设备型号参考图片]")?.naturalWidth>0');
  await click('[data-device=pixel]');await wait('document.querySelector("dialog").open');
@@ -497,6 +505,7 @@ try{
  await evaluate('[...document.querySelectorAll(".dc-keyboard-presets button")].find(button=>button.textContent==="读取 USB 诊断").click()');
  await wait('document.querySelector(".dc-keyboard-diagnostic")?.textContent.includes("4 / 4")');
  await check('!document.querySelector(".dc-keyboard-diagnostic").textContent.includes("%")','USB diagnostic labels raw power bytes without guessing a battery percentage');
+ }
  if(report.errors.length)throw Error(report.errors.join('\n'));
  await writeFile(join(out,'report.json'),JSON.stringify(report,null,2));console.log(JSON.stringify({checks:report.checks.length,responsive:report.responsive.length,errors:report.errors,output:out}));
 }catch(error){report.failure=String(error);await writeFile(join(out,'report.json'),JSON.stringify(report,null,2));throw error;}

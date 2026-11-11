@@ -51,6 +51,17 @@ fn bind(root: &Path) -> io::Result<(UnixListener, File)> {
     Ok((listener, lock))
 }
 
+fn performance_args(action: &str) -> Option<(&str, bool)> {
+    let fields = action.split_whitespace().collect::<Vec<_>>();
+    let (id, refresh) = match fields.as_slice() {
+        ["adb", "performance", id] => (*id, false),
+        ["adb", "performance", id, "--refresh"] => (*id, true),
+        _ => return None,
+    };
+    (!id.is_empty() && id.len() <= 80 && id.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_'))
+        .then_some((id, refresh))
+}
+
 fn execute(state: &Arc<Mutex<State>>, action: &str) -> Result<Value, String> {
     let value = match action {
         "status" => dispatch(state, "status_snapshot", &Value::Null)?,
@@ -59,7 +70,10 @@ fn execute(state: &Arc<Mutex<State>>, action: &str) -> Result<Value, String> {
             dispatch(state, "status_snapshot", &Value::Null)?
         }
         "k75 status" => super::k75_status()?,
-        _ => return Err("未知 CLI 命令".into()),
+        _ => match performance_args(action) {
+            Some((id, refresh)) => dispatch(state, "adb_performance", &json!({"id":id,"refresh":refresh}))?,
+            None => return Err("未知 CLI 命令".into()),
+        },
     };
     Ok(json!({"pid":std::process::id(),"version":env!("CARGO_PKG_VERSION"),"data":value}))
 }
@@ -90,15 +104,18 @@ pub fn serve(root: &Path, state: Arc<Mutex<State>>) -> io::Result<()> {
 }
 
 pub fn run(args: &[String]) -> Result<Value, String> {
+    let joined = args.join(" ");
+    let commands = ["status", "refresh", "k75 status", "adb performance <id> [--refresh]"];
     let action = match args {
         [cmd] if cmd == "status" => "status",
         [cmd] if cmd == "refresh" => "refresh",
         [group, cmd] if group == "k75" && cmd == "status" => "k75 status",
-        [] => return Ok(json!({"result":{"commands":["status","refresh","k75 status"]}})),
+        [] => return Ok(json!({"result":{"commands":commands}})),
         [arg] if arg == "--help" || arg == "help" => {
-            return Ok(json!({"result":{"commands":["status","refresh","k75 status"]}}));
+            return Ok(json!({"result":{"commands":commands}}));
         }
-        _ => return Err("用法为 --cli status、--cli refresh 或 --cli k75 status".into()),
+        _ if performance_args(&joined).is_some() => &joined,
+        _ => return Err("用法为 --cli status、refresh、k75 status 或 adb performance <id> [--refresh]".into()),
     };
     let root = std::env::var_os("FLOWHUB_PLUGIN_DATA").map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(PathBuf::from).map(|home|
@@ -122,6 +139,17 @@ pub fn run(args: &[String]) -> Result<Value, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn performance_cli_limits_input_and_uses_online_device_validation() {
+        assert_eq!(performance_args("adb performance adb-phone-abc"), Some(("adb-phone-abc", false)));
+        assert_eq!(performance_args("adb performance adb-phone-abc --refresh"), Some(("adb-phone-abc", true)));
+        for action in ["adb shell id", "adb performance ../escape", "adb performance phone --force", "adb performance phone;id"] {
+            assert!(performance_args(action).is_none());
+        }
+        let state = Arc::new(Mutex::new(State::new()));
+        assert!(execute(&state, "adb performance adb-phone-abc").unwrap_err().contains("当前没有可用"));
+    }
 
     #[test]
     fn cli_lease_protects_active_socket_and_recovers_stale_endpoint() {
