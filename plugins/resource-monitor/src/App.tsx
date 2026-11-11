@@ -4,7 +4,7 @@ import type {TableColumnsType,TableProps} from 'antd';
 import {StyleProvider} from '@ant-design/cssinjs';
 import {createCommonAntdTheme} from '@local/common-components/react/antd';
 import {Button,HelpPopover,Input} from '@flowhub/plugin-common/react';
-import {accountingDisplay,bytes,contextRows,cpu,detailControls,detailFrom,filterRanking,instanceStopReason,matchesProcess,newerSnapshot,rankingFrom,processKey,processName,updateDetail} from './model';
+import {accountingDisplay,bytes,contextRows,cpu,defaultRankingOrder,detailControls,detailFrom,filterRanking,instanceStopReason,matchesProcess,newerSnapshot,rankingFrom,processKey,processName,updateDetail} from './model';
 import {AppMark,applicationIdentity,useApplications} from './applications';
 import {readGroupDetail} from './api';
 import {ScriptDrawer} from './ScriptDrawer';
@@ -16,7 +16,7 @@ import {RequestDetails} from './RequestDetails';
 import {displayError,errorText,RequestError} from './errors';
 import type {DisplayError} from './errors';
 import type {ContextRow} from './model';
-import type {Api,ApplicationState,Context,Group,GroupDetail,GroupSummary,Instance,PageContexts,Plan,Process,QuitPlan,RankingSnapshot,RankingSort,Snapshot,SortOrder,TerminateResult} from './types';
+import type {Api,ApplicationState,Context,Group,GroupDetail,GroupSummary,Instance,PageContexts,Plan,Process,QuitPlan,RankingSnapshot,RankingSort,Snapshot,TerminateResult,ViewPreferences} from './types';
 
 export function Theme({children}:{children:React.ReactNode}) {
   const [dark,setDark]=useState(document.documentElement.dataset.theme!=='light');
@@ -49,7 +49,10 @@ export function App({api,context}:{api:Api;context:Context}) {
   const footprintHistory=useRef<FootprintSample[]>([]);
   const [error,setError]=useState<DisplayError>('');const [notice,setNotice]=useState('');
   const [query,setQuery]=useState('');const deferredQuery=useDeferredValue(query);
-  const [sorting,setSorting]=useState<{key:RankingSort;order:SortOrder}>({key:'cpu',order:'descend'});const [system,setSystem]=useState(false);
+  const sorting=data?.sorting??defaultRankingOrder;
+  const [viewSaving,setViewSaving]=useState(false);
+  const viewWriting=useRef(false);
+  const system=data?.includeSystem??false;
   const [detail,setDetail]=useState<Group>();const [detailId,setDetailId]=useState<string>();const [processQuery,setProcessQuery]=useState('');
   const [contextProcesses,setContextProcesses]=useState<Process[]>([]);
   const detailRef=useRef<Group|undefined>(undefined);const detailSelection=useRef<{id:string;generation:number;sample?:Pick<GroupDetail,'at'|'revision'>;request:number;initialSearch:string}>({id:'',generation:0,request:0,initialSearch:''});
@@ -83,8 +86,7 @@ export function App({api,context}:{api:Api;context:Context}) {
   const privilegedOperating=useRef(false);
   const alive=useRef(true);const operation=useRef(false);const reading=useRef(false);const readAgain=useRef(false);
   const queryRef=useRef(deferredQuery);queryRef.current=deferredQuery;
-  const systemRef=useRef(system);systemRef.current=system;
-  const searchSelection=useRef({query:deferredQuery,system});
+  const searchSelection=useRef(deferredQuery);
   const openedSelection=useRef('');const selected=context.config?.selection?.groupId;
   const hasOtherUserProcesses=!!data?.hasRestrictedProcesses;
   const helperMissing=privilegedStatus?.status==='missingHelper'||privilegedStatus?.status==='unsupported';
@@ -151,14 +153,25 @@ export function App({api,context}:{api:Api;context:Context}) {
 
   function rankingError(next:DisplayError){setError(previous=>previous instanceof RequestError&&previous.method!=='ranking_snapshot'&&previous.method!=='refresh_summary'?previous:next);}
   function accept(next:RankingSnapshot){
-    if(next.query!==queryRef.current.trim().toLocaleLowerCase()||next.includeSystem!==systemRef.current||!newerSnapshot(next,dataRef.current))return false;
+    if(next.query!==queryRef.current.trim().toLocaleLowerCase()||!newerSnapshot(next,dataRef.current))return false;
     recordFootprints(footprintHistory.current,next);
     dataRef.current=next;setData(next);return true;
   }
   function acceptFull(next:Snapshot){
-    accept(rankingFrom(next,queryRef.current,systemRef.current));
+    accept(rankingFrom(next,queryRef.current,next.includeSystem??dataRef.current?.includeSystem??false));
     const selection=detailSelection.current;
     if(selection.id){selection.request++;acceptDetail(detailFrom(next,selection.id,(detailRef.current?.processes??[]).map(p=>p.pid),(contextsRef.current?.entries??[]).flatMap(entry=>entry.processes.map(p=>p.pid))),selection.generation);}
+  }
+  async function changeView(patch:Partial<ViewPreferences>){
+    if(viewWriting.current)return;
+    viewWriting.current=true;
+    setViewSaving(true);
+    setError(previous=>previous instanceof RequestError&&previous.method==='set_view_preferences'?'':previous);
+    try{
+      const next=await api.invoke<RankingSnapshot>('set_view_preferences',{...patch,query:queryRef.current});
+      if(alive.current&&!accept(next))void refresh();
+    }catch(error){if(alive.current)setError(displayError(error));}
+    finally{viewWriting.current=false;if(alive.current)setViewSaving(false);}
   }
   async function managePrivileged(action:'enable'|'disable'){
     if(privilegedOperating.current)return;privilegedOperating.current=true;
@@ -185,21 +198,21 @@ export function App({api,context}:{api:Api;context:Context}) {
     if(manual){
       setRefreshing(true);setError('');
       void privilegedCheck.current();
-      try{const next=await api.invoke<RankingSnapshot>('refresh_summary',{query:queryRef.current,includeSystem:systemRef.current});if(alive.current){if(accept(next))rankingError(next.error??'');await Promise.all([refresh(),readDetail()]);}}
+      try{const next=await api.invoke<RankingSnapshot>('refresh_summary',{query:queryRef.current});if(alive.current){if(accept(next))rankingError(next.error??'');await Promise.all([refresh(),readDetail()]);}}
       catch(e){if(alive.current)setError(displayError(e));}
       finally{if(alive.current)setRefreshing(false);}
       return;
     }
     if(reading.current){readAgain.current=true;return;}reading.current=true;
-    try{const next=await api.invoke<RankingSnapshot>('ranking_snapshot',{query:queryRef.current,includeSystem:systemRef.current});if(alive.current&&accept(next))rankingError(next.error??'');}
+    try{const next=await api.invoke<RankingSnapshot>('ranking_snapshot',{query:queryRef.current});if(alive.current&&accept(next))rankingError(next.error??'');}
     catch(e){if(alive.current)setError(displayError(e));}
     finally{reading.current=false;if(alive.current&&readAgain.current){readAgain.current=false;void refresh();}}
   }
   useEffect(()=>{
-    if(searchSelection.current.query===deferredQuery&&searchSelection.current.system===system)return;
-    searchSelection.current={query:deferredQuery,system};
+    if(searchSelection.current===deferredQuery)return;
+    searchSelection.current=deferredQuery;
     const timer=setTimeout(()=>{if(!document.hidden)void refresh();},120);return()=>clearTimeout(timer);
-  },[api,deferredQuery,system]);
+  },[api,deferredQuery]);
   useEffect(()=>{
     alive.current=true;let timer:ReturnType<typeof setTimeout>|undefined;let running=false;
     async function tick(){if(running)return;running=true;clearTimeout(timer);try{if(!document.hidden)await Promise.all([refresh(),readDetail()]);}finally{running=false;if(alive.current)timer=setTimeout(tick,5000);}}
@@ -279,7 +292,7 @@ export function App({api,context}:{api:Api;context:Context}) {
     if(extra.action!=='sort')return;
     const active=Array.isArray(sorter)?sorter[0]:sorter;
     const key=active?.columnKey;
-    if(key==='footprint'||key==='memory'||key==='cpu'||key==='accounting'||key==='processCount')setSorting({key,order:active.order==='ascend'?'ascend':'descend'});
+    if(key==='footprint'||key==='memory'||key==='cpu'||key==='accounting'||key==='processCount')void changeView({sorting:{key,order:active.order==='ascend'?'ascend':'descend'}});
   };
   const sortable=(key:RankingSort)=>({sorter:true,sortOrder:sorting.key===key?sorting.order:null});
   const linkedRows=useMemo(()=>contexts?contextRows(contexts,{groups:[{processes:[...(detail?.processes??[]).filter(p=>!p.exited&&!p.moved),...contextProcesses]}]}):[],[contexts,detail,contextProcesses]);
@@ -305,8 +318,6 @@ export function App({api,context}:{api:Api;context:Context}) {
   const activeInstance=detail?.instances?.find(instance=>instance.id===selectedInstance);
   const shownStats=selectedInstance?activeInstance:detail;
   const detailAppPath=detail?.appPath??undefined;
-  const detailHasExtension=detailAppPath&&detail?.processes.some(process=>
-    !process.exited&&!process.moved&&process.executable.startsWith(detailAppPath+'/')&&process.executable.includes('.appex/Contents/MacOS/'));
   const detailStartup=detailAppPath==='/Applications/pcsuite.app'?'vivo':detailAppPath&&(detailAppPath.endsWith('/OneDrive.app')||applications[detailAppPath]?.bundleId==='com.microsoft.OneDrive')
     ?'com.microsoft.OneDriveLauncher'
     :detail?.processes.map(databaseStartupId).find(Boolean);
@@ -391,7 +402,7 @@ export function App({api,context}:{api:Api;context:Context}) {
     {stale?<Alert type="warning" showIcon title="数据已过期，请刷新后再操作。" className="mb-3"/>:null}
     <div className="flex flex-wrap items-center gap-3 mb-3">
       <Input aria-label="搜索应用、进程、PID 或路径" maxLength={4096} placeholder="搜索应用、进程、PID 或路径" value={query} onChange={e=>setQuery(e.target.value)} className="search-input" style={searchStyle}/>
-      <label className="flex items-center gap-2 muted text-xs"><Switch size="small" checked={system} onChange={setSystem}/>包含系统进程</label>
+      <label className="flex items-center gap-2 muted text-xs" title="同步应用到桌面卡片"><Switch size="small" aria-label="包含系统进程" checked={system} loading={viewSaving} disabled={!data} onChange={includeSystem=>void changeView({includeSystem})}/>包含系统进程</label>
       <span className="muted text-xs ml-auto">{groups.length} 个应用与工具</span>
     </div>
     <Table<GroupSummary> className="ranking-table" size="small" rowKey="id" columns={columns} dataSource={groups} onChange={changeSort} sortDirections={['descend','ascend','descend']} showSorterTooltip={{target:'sorter-icon'}} loading={!data&&!error} scroll={{x:534}} pagination={{pageSize:20,hideOnSinglePage:true,showSizeChanger:false,size:'small'}} locale={{emptyText:query?'没有匹配的应用或进程':'暂无应用数据',triggerDesc:'点击降序',triggerAsc:'点击升序'}}/>
@@ -404,7 +415,7 @@ export function App({api,context}:{api:Api;context:Context}) {
           <div className="flex flex-wrap items-center gap-2" role="group" aria-label="应用管理">
             {detailStartup||detailAppPath?<Button size="sm" className="compact-button" onClick={()=>setStartupScope(detailStartup??detailAppPath)}>{detailStartup?.startsWith('homebrew.mxcl.')&&!detailServices.length?'自启动 / 后台服务':'自启动'}</Button>:null}
             {detailAppPath||detailServices.length?<Button size="sm" className="compact-button" onClick={()=>openServices({appPath:detailAppPath,ids:detailServices.map(service=>service.id),name:applicationIdentity(detail,applications).name})}>{detailServices.length?`后台服务 (${detailServices.length})`:'后台服务'}</Button>:null}
-            {detailHasExtension?<Button size="sm" className="compact-button" onClick={()=>setFinderScope({appPath:detailAppPath})}>访达扩展</Button>:null}
+            {detailAppPath?<Button size="sm" className="compact-button" onClick={()=>setFinderScope({appPath:detailAppPath})}>访达扩展</Button>:null}
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {controls.canOpen?<Button size="sm" className="compact-button" disabled={api.preview||linksBusy||!!plan||!!quitPlan} onClick={()=>void openApp(detail)}>打开应用 ↗</Button>:null}

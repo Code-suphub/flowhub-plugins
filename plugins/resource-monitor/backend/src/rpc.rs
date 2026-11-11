@@ -16,7 +16,7 @@ pub fn read(cache: &Cache, method: &str, params: &Value) -> Option<Result<Value,
         "script_activity" => Some(Ok(cache.get().scripts())),
         "diagnostic_event" => Some(crate::diagnostics::client(params)),
         "widget_api" => match params["action"].as_str() {
-            Some("snapshot") => Some(Ok(cache.get().status())),
+            Some("snapshot") => Some(Ok(cache.get().widget_status())),
             Some("management") => match params["method"].as_str() {
                 Some(method @ ("snapshot" | "ranking_snapshot" | "group_detail" | "script_activity" | "diagnostic_event")) => {
                     read(cache, method, &params["params"])
@@ -125,7 +125,7 @@ pub(super) fn serve_with(
         };
         match request {
             Ok(req) => {
-                let revision = cache.get().revision;
+                let sample_revision = cache.get().sample_revision;
                 let started=std::time::Instant::now();
                 let result = action(Some(&req));
                 if result.is_err()||started.elapsed()>=std::time::Duration::from_secs(1) {
@@ -133,7 +133,7 @@ pub(super) fn serve_with(
                     crate::diagnostics::event("rpc_action",data);
                 }
                 // An action that sampled already satisfies this background tick.
-                if cache.get().revision != revision {
+                if cache.get().sample_revision != sample_revision {
                     next_sample = std::time::Instant::now() + std::time::Duration::from_secs(5);
                 }
                 respond(&output, &req, result);

@@ -38,6 +38,8 @@ pub struct Process {
     // Locally verified bundle attribution; never accepted from sampler RPC.
     #[serde(skip)]
     pub registered_app_path: Option<String>,
+    #[serde(skip)]
+    pub managed_runtime_app_path: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runtime_project: Option<RuntimeProject>,
     pub name: String,
@@ -157,7 +159,7 @@ pub fn app_bundle(executable: &str) -> Option<(String, String)> {
 }
 
 pub(crate) fn process_bundle(process: &Process) -> Option<(String, String)> {
-    process.registered_app_path.as_ref().and_then(|path| {
+    process.registered_app_path.as_ref().or(process.managed_runtime_app_path.as_ref()).and_then(|path| {
         let name = path.rsplit('/').next()?.strip_suffix(".app")?;
         Some((format!("app:{path}"), name.into()))
     }).or_else(|| app_bundle(&process.identity.executable))
@@ -214,6 +216,9 @@ pub fn group_processes(mut processes: Vec<Process>, own_uid: u32) -> Vec<Group> 
             .map(|(id, name, source)| (id, name, source, "路径识别".to_string()))
             .or_else(|| {
                 process_bundle(p).map(|(id, name)| {
+                    if p.managed_runtime_app_path.is_some() {
+                        return (id, name, "应用包及托管运行时".into(), "应用托管运行时".into());
+                    }
                     let launched=p.launch_executable.is_some();
                     let registered=p.registered_app_path.is_some()&&p.identity.executable.is_empty();
                     (id,name,if launched {"进程启动路径"}else if registered {"macOS 应用登记"}else{"应用包路径"}.into(),if launched {"启动路径归属"}else if registered {"应用登记归属"}else{"应用包路径"}.into())
@@ -411,6 +416,7 @@ pub(crate) mod tests {
             process_group: 0,
             terminal_job: false,
             registered_app_path: None,
+            managed_runtime_app_path: None,
             runtime_project: None,
             name: exe.rsplit('/').next().unwrap().into(),
             display_name: None,

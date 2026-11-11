@@ -1,11 +1,48 @@
 //! Immutable read model. A reader holds the lock only long enough to clone an Arc;
 //! collection, enrichment, searching and JSON serialization never hold this lock.
 use crate::model::{Group, Identity, Process};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
     collections::HashSet,
+    fs,
+    io::Write,
+    os::unix::fs::OpenOptionsExt,
+    path::PathBuf,
     sync::{Arc, RwLock},
 };
+
+#[derive(Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+enum SortKey {
+    #[default]
+    Cpu,
+    Footprint,
+    Memory,
+    Accounting,
+    ProcessCount,
+}
+
+#[derive(Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum SortOrder {
+    Ascend,
+    #[default]
+    Descend,
+}
+
+#[derive(Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+struct Sorting {
+    key: SortKey,
+    order: SortOrder,
+}
+
+#[derive(Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase")]
+struct ViewPreferences {
+    include_system: bool,
+    sorting: Sorting,
+}
 
 #[derive(Clone)]
 pub struct Snapshot {
@@ -15,6 +52,8 @@ pub struct Snapshot {
     pub error: Option<String>,
     pub sampling: bool,
     pub revision: u64,
+    pub sample_revision: u64,
+    view: ViewPreferences,
     pub script_records: Arc<Vec<crate::scripts::Record>>,
     summaries: Arc<Vec<Value>>,
     search: Arc<Vec<Vec<String>>>,
@@ -40,6 +79,8 @@ impl Snapshot {
             error: None,
             sampling: false,
             revision: 0,
+            sample_revision: 0,
+            view: ViewPreferences::default(),
             script_records: Arc::new(vec![]),
             summaries: Arc::new(summaries),
             search: Arc::new(search),
@@ -48,6 +89,8 @@ impl Snapshot {
     pub fn full(&self) -> Value {
         let mut result = self.metadata();
         result["groups"] = json!(&*self.groups);
+        result["includeSystem"] = json!(self.view.include_system);
+        result["sorting"] = json!(self.view.sorting);
         result
     }
     pub fn scripts(&self) -> Value {
@@ -72,7 +115,7 @@ impl Snapshot {
             .map(|(g, _)| &g.id)
             .collect();
         let mut result = self.metadata();
-        let include_system = params["includeSystem"].as_bool().unwrap_or(true);
+        let include_system = params["includeSystem"].as_bool().unwrap_or(self.view.include_system);
         result["groups"] = json!(self
             .summaries
             .iter()
@@ -81,6 +124,7 @@ impl Snapshot {
             .map(|(summary, _)| summary)
             .collect::<Vec<_>>());
         result["includeSystem"] = json!(include_system);
+        result["sorting"] = json!(self.view.sorting);
         result["hasRestrictedProcesses"] = json!(self
             .groups
             .iter()
@@ -138,8 +182,16 @@ impl Snapshot {
         Ok(result)
     }
     pub fn status(&self) -> Value {
+        self.status_rows(false)
+    }
+    pub fn widget_status(&self) -> Value {
+        let mut status = self.status_rows(self.view.include_system);
+        status["sorting"] = json!(self.view.sorting);
+        status
+    }
+    fn status_rows(&self, include_system: bool) -> Value {
         // Existing desktop protocol: no PIDs, process paths, cwd or service labels.
-        let rows:Vec<_>=self.groups.iter().filter(|g|!g.system).map(|g|json!({
+        let rows:Vec<_>=self.groups.iter().filter(|g|include_system||!g.system).map(|g|json!({
             "id":g.id,"name":g.name,"appPath":g.app_path,"origin":g.origin,"iconKey":g.icon_key,
             "presentation":g.presentation.as_ref().map(|p|json!({"name":p.name,"sources":p.sources})),"at":self.at,
             "systemAccounting":g.system_accounting,
@@ -202,20 +254,61 @@ fn search_fields(g: &Group) -> Vec<String> {
     fields.into_iter().map(|s| s.to_lowercase()).collect()
 }
 #[derive(Clone)]
-pub struct Cache(Arc<RwLock<Arc<Snapshot>>>);
+pub struct Cache {
+    snapshot: Arc<RwLock<Arc<Snapshot>>>,
+    preferences: Option<PathBuf>,
+}
 impl Cache {
     pub fn new() -> Self {
-        Self(Arc::new(RwLock::new(Arc::new(Snapshot::new(
-            0,
-            vec![],
-            json!({}),
-        )))))
+        let path = std::env::var_os("FLOWHUB_PLUGIN_DATA")
+            .map(|dir| PathBuf::from(dir).join("view-preferences.json"));
+        Self::with_preferences(path)
+    }
+    pub(crate) fn with_preferences(preferences: Option<PathBuf>) -> Self {
+        let mut snapshot = Snapshot::new(0, vec![], json!({}));
+        snapshot.view = preferences.as_ref()
+            .and_then(|path| fs::read(path).ok())
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+            .unwrap_or_default();
+        Self { snapshot: Arc::new(RwLock::new(Arc::new(snapshot))), preferences }
     }
     pub fn get(&self) -> Arc<Snapshot> {
-        self.0.read().unwrap_or_else(|p| p.into_inner()).clone()
+        self.snapshot.read().unwrap_or_else(|p| p.into_inner()).clone()
+    }
+    // Preference writes run on the same worker as sampling. Reads remain lock-free during disk I/O.
+    pub fn set_view_preferences(&self, params: &Value) -> Result<Arc<Snapshot>, String> {
+        let current = self.get();
+        let mut view = current.view;
+        if let Some(value) = params.get("includeSystem") {
+            view.include_system = value.as_bool().ok_or("系统进程设置无效")?;
+        }
+        if let Some(value) = params.get("sorting") {
+            view.sorting = serde_json::from_value(value.clone()).map_err(|_| "排行排序设置无效")?;
+        }
+        if view == current.view {
+            return Ok(current);
+        }
+        let path = self.preferences.as_ref().ok_or("缺少插件数据目录，无法保存显示设置")?;
+        let temporary = path.with_extension(format!("{}.tmp", uuid::Uuid::new_v4()));
+        let mut file = fs::OpenOptions::new().write(true).create_new(true).mode(0o600)
+            .open(&temporary).map_err(|error| format!("无法保存显示设置：{error}"))?;
+        let result = (|| {
+            file.write_all(json!(view).to_string().as_bytes())?;
+            file.sync_all()?;
+            fs::rename(&temporary, path)
+        })();
+        if let Err(error) = result {
+            let _ = fs::remove_file(&temporary);
+            return Err(format!("无法保存显示设置：{error}"));
+        }
+        let mut state = self.snapshot.write().unwrap_or_else(|p| p.into_inner());
+        let next = Arc::make_mut(&mut *state);
+        next.view = view;
+        next.revision += 1;
+        Ok(state.clone())
     }
     pub fn begin(&self) {
-        let mut state = self.0.write().unwrap_or_else(|p| p.into_inner());
+        let mut state = self.snapshot.write().unwrap_or_else(|p| p.into_inner());
         let mut next = (**state).clone();
         next.sampling = true;
         next.revision += 1;
@@ -223,7 +316,7 @@ impl Cache {
     }
     // The single sampling/action thread serializes every writer through begin/finish.
     pub fn finish(&self, result: Result<Snapshot, String>) -> Arc<Snapshot> {
-        let mut state = self.0.write().unwrap_or_else(|p| p.into_inner());
+        let mut state = self.snapshot.write().unwrap_or_else(|p| p.into_inner());
         let mut next = match result {
             Ok(snapshot) => snapshot,
             Err(error) => {
@@ -233,7 +326,9 @@ impl Cache {
             }
         };
         next.sampling = false;
+        next.view = state.view;
         next.revision = state.revision + 1;
+        next.sample_revision = state.sample_revision + 1;
         *state = Arc::new(next);
         state.clone()
     }

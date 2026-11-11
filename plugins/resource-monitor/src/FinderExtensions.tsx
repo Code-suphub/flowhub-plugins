@@ -101,7 +101,7 @@ export function FinderExtensions({api,appPath,onClose,onChanged}:{
       </div>
     </article>)}</div>
     {!rows.length?<Empty image={Empty.PRESENTED_IMAGE_SIMPLE}
-      description={loading?'正在读取访达扩展…':error?'暂无法读取访达扩展':'没有找到已登记的访达扩展'}/>:null}
+      description={loading?'正在读取访达扩展…':error?'暂无法读取访达扩展':appPath?'此应用没有已登记的访达扩展':'没有找到已登记的访达扩展'}/>:null}
     <Modal open={!!selected} className="finder-extension-review" title={selected?.enabled?`启用 ${selected.row.name}？`:`关闭 ${selected?.row.name??''} 的访达扩展？`}
       zIndex={1600} onCancel={()=>{if(!busy)setSelected(undefined);}} onOk={()=>void apply()}
       okText={selected?.enabled?'确认启用':'确认关闭'} cancelText="取消" confirmLoading={busy}

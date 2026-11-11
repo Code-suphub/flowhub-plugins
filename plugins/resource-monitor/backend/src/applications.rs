@@ -83,10 +83,64 @@ fn registered_owner(bundle: &Path, executable: &Path) -> Option<PathBuf> {
     Some(outer)
 }
 
+fn magpie_runtime_owner<'a>(
+    child: &Identity,
+    parent: &'a Identity,
+    bundle_id: &str,
+) -> Option<&'a str> {
+    if bundle_id != "com.yetone.magpie"
+        || child.uid != parent.uid
+        || parent.started == 0
+        || parent.started > child.started
+    {
+        return None;
+    }
+    // Magpie installs this specific runtime under its cache, outside the app bundle.
+    let executable = Path::new(&child.executable);
+    let version_dir = executable.parent()?;
+    let runtime_dir = version_dir.parent()?;
+    let version = version_dir.file_name()?.to_str()?;
+    if !executable.is_absolute()
+        || executable.file_name()?.to_str()? != "magpie-bun"
+        || !runtime_dir.ends_with("magpie/bun")
+        || version.split('.').count() != 3
+        || !version.split('.').all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
+    {
+        return None;
+    }
+    let bundle = parent.executable.strip_suffix("/Contents/MacOS/magpie")?;
+    (Path::new(bundle).extension()?.to_str()? == "app").then_some(bundle)
+}
+
+fn resolve_managed_runtimes(processes: &mut [Process]) {
+    let matches: Vec<_> = processes
+        .iter()
+        .enumerate()
+        .filter(|(_, p)| p.identity.uid == native::uid() && p.identity.executable.ends_with("/magpie-bun"))
+        .filter_map(|(index, child)| {
+            let parent = processes.iter().find(|p| p.identity.pid == child.ppid && p.identity.pid > 1)?;
+            let app = NSRunningApplication::runningApplicationWithProcessIdentifier(parent.identity.pid)?;
+            if app.isTerminated() {
+                return None;
+            }
+            let bundle = magpie_runtime_owner(&child.identity, &parent.identity, &app.bundleIdentifier()?.to_string())?;
+            let app_executable = app.executableURL()?.path()?.to_string();
+            if app_executable != parent.identity.executable || !native::parent_matches(&child.identity, &parent.identity) {
+                return None;
+            }
+            Some((index, bundle.to_owned()))
+        })
+        .collect();
+    for (index, bundle) in matches {
+        processes[index].managed_runtime_app_path = Some(bundle);
+    }
+}
+
 pub fn resolve_bundle_paths(processes: &mut [Process]) {
     autoreleasepool(|_| {
         appkit_turn();
         resolve_display_names(processes);
+        resolve_managed_runtimes(processes);
         let mut clones = Vec::new();
         let mut registered = HashMap::new();
         for process in processes.iter() {
@@ -448,6 +502,27 @@ impl Quitter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn magpie_runtime_counts_with_its_app_and_other_bun_processes_stay_separate() {
+        let app = model::tests::process(10, 1, "/Applications/magpie.app/Contents/MacOS/magpie");
+        let mut runtime = model::tests::process(11, 10, "/Users/test/.cache/magpie/bun/1.4.4/magpie-bun");
+        let bun = model::tests::process(12, 10, "/opt/homebrew/bin/bun");
+        assert!(magpie_runtime_owner(&bun.identity, &app.identity, "com.yetone.magpie").is_none());
+        assert!(magpie_runtime_owner(&runtime.identity, &app.identity, "example.magpie").is_none());
+        runtime.identity.uid = 502;
+        assert!(magpie_runtime_owner(&runtime.identity, &app.identity, "com.yetone.magpie").is_none());
+        runtime.identity.uid = app.identity.uid;
+        let owner = magpie_runtime_owner(&runtime.identity, &app.identity, "com.yetone.magpie").unwrap().to_owned();
+        runtime.managed_runtime_app_path = Some(owner.clone());
+
+        let groups = model::group_processes(vec![app, runtime, bun], 501);
+        let magpie = groups.iter().find(|group| group.app_path.as_deref() == Some(owner.as_str())).unwrap();
+        assert_eq!(magpie.processes.len(), 2);
+        assert_eq!(magpie.footprint, Some(300));
+        assert!(magpie.processes.iter().any(|p| p.identity.pid == 11 && p.attribution == "应用托管运行时"));
+        assert!(groups.iter().any(|group| group.origin.is_some() && group.processes[0].identity.pid == 12));
+    }
+
     #[test]
     fn a_source_association_never_authorizes_application_quit() {
         let mut group=model::group_processes(vec![model::tests::process(10,1,"/Applications/Example.app/Contents/MacOS/Example")],501).remove(0);
