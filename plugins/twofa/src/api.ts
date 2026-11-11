@@ -4,9 +4,9 @@ export interface ImportPreview extends OtpParameters {name:string;issuer:string|
 export interface CodeResult { name: string; code: string; remaining: number;period?:number }
 export interface SaveAccount extends Account { secret: string; previous?: string }
 export type MailProvider = 'netease' | 'qq';
-export interface MailAccount {provider:MailProvider;address:string;status:'connecting'|'live'|'polling'|'offline'|'authorization'}
+export interface MailAccount {provider:MailProvider;address:string;status:'connecting'|'live'|'polling'|'offline'|'authorization';credentialsMissing?:boolean}
 export interface MailCode {id:string;title:string;issuer:string;receivedAt:number;expiresAt:number}
-export interface MailStatus {accounts:MailAccount[];codes:MailCode[]}
+export interface MailStatus {accounts:MailAccount[];codes:MailCode[];credentialStorage?:'local-file'}
 export interface TwofaApi {
   preview: boolean;
   list(): Promise<Account[]>;

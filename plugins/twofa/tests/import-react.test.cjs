@@ -57,6 +57,20 @@ test('mail tab adds the provider suffix to a username and uses the protected hos
   await wait(()=>s.calls.some(call=>call.id==='mail-fixture'));
   assert.deepEqual(s.copies,[]);
 });
+test('legacy mail accounts explain one-time local credential entry and clear the secret form after saving',async t=>{
+  const s=setup(t);let missing=true;
+  s.api.mailStatus=async()=>({credentialStorage:'local-file',accounts:[{provider:'netease',address:'example@163.com',status:missing?'authorization':'live',credentialsMissing:missing}],codes:[]});
+  s.api.addMail=async account=>{assert.equal(account.address,'example@163.com');assert.equal(account.authorizationCode,'fixtureOnly');missing=false;};
+  await wait(()=>s.button('邮件验证码'));s.button('邮件验证码').click();
+  await wait(()=>s.w.document.body.textContent.includes('请补填客户端授权码'));
+  s.button('更新授权').click();await wait(()=>s.w.document.querySelector('#mail-secret'));
+  assert.equal(s.w.document.querySelector('#mail-secret').value,'');
+  s.fill('#mail-secret','fixtureOnly');s.w.document.querySelector('#mail-form').dispatchEvent(new s.w.Event('submit',{bubbles:true,cancelable:true}));
+  await wait(()=>s.w.document.body.textContent.includes('实时接收'));
+  assert.equal(s.w.document.querySelector('#mail-secret'),null);
+  assert.ok(!s.w.document.body.textContent.includes('请补填客户端授权码'));
+  assert.deepEqual(s.copies,[]);
+});
 test('switching mail providers preserves the username and a pasted full address is used once',async t=>{
   const s=setup(t);
   s.api.mailStatus=async()=>({accounts:[],codes:[]});

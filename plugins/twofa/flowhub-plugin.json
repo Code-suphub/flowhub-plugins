@@ -2,7 +2,7 @@
   "schema": 2,
   "id": "twofa",
   "name": "验证码",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "本地生成 TOTP 验证码，并从已连接的邮箱获取邮件验证码",
   "ui": "ui/index.html",
   "executable": "bin/flowhub-twofa",

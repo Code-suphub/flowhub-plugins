@@ -56,7 +56,7 @@ function MailEditor({api,account,onClose,onSaved}:{api:TwofaApi;account?:MailAcc
           {showSuffix?<span id="mail-address-suffix" className="mail-address-suffix">{suffix}</span>:null}
         </div>
       </Field>
-      <Field label={<span className="inline-flex items-center gap-2">客户端授权码<HelpPopover label="授权码说明">先在邮箱设置中开启 IMAP，再生成客户端授权码。授权码保存在本机钥匙串。</HelpPopover></span>} htmlFor="mail-secret">
+      <Field label={<span className="inline-flex items-center gap-2">客户端授权码<HelpPopover label="授权码说明">先在邮箱设置中开启 IMAP，再生成客户端授权码。授权码由 FlowHub 主程序保存在本机，不会传给插件进程。</HelpPopover></span>} htmlFor="mail-secret">
         <Input id="mail-secret" ref={account?input:undefined} type="password" autoComplete="new-password" spellCheck={false} required maxLength={128}
           value={authorizationCode} onChange={event=>setAuthorizationCode(event.target.value)} disabled={busy}/>
       </Field>
@@ -103,16 +103,17 @@ export function MailCodes({api}:{api:TwofaApi}) {
   return <>
     <div className="twofa-toolbar">
       <span className="muted text-xs">{data?.accounts.length??0} 个邮箱</span>
-      <HelpPopover label="邮件验证码说明">后台检查已连接的收件箱。近期验证码可在 FlowHub 启动器的验证码分类中按回车复制。</HelpPopover>
+      <HelpPopover label="邮件验证码说明">后台检查已连接的收件箱。近期验证码可在 FlowHub 启动器的验证码分类中按回车粘贴。{data?.credentialStorage==='local-file'?'授权码保存在仅当前系统用户可读写的独立凭据文件，更新或重启无需系统授权；其他拥有当前用户权限的软件仍可能读取。':''}</HelpPopover>
       <div className="twofa-toolbar-actions"><Button variant="primary" disabled={api.preview} onClick={()=>setEditor({})}>＋ 连接邮箱</Button></div>
     </div>
     {api.preview?<p className="twofa-preview" role="status">只读预览 · 请在 FlowHub 中连接邮箱</p>:null}
     {error?<p className="error mb-3 text-sm" role="alert">{error}</p>:null}
     {notice?<p className="muted mb-3 text-sm" role="status">{notice}</p>:null}
+    {data?.accounts.some(account=>account.credentialsMissing)?<p className="mb-3 text-sm" role="status">邮箱地址已保留。请点“更新授权”，补填一次客户端授权码；之后会自动收件。</p>:null}
     {loadError?<p className="error mb-3 text-sm" role="alert">{loadError}</p>:!data?<p className="muted text-sm">正在读取邮箱连接…</p>:null}
     {data?.accounts.length?<ul className="mail-list" aria-label="已连接邮箱">
       {data.accounts.map(account=><li className="mail-row" key={account.address}>
-        <div className="mail-label"><strong>{account.address}</strong><span className="muted">{statusLabels[account.status]}</span></div>
+        <div className="mail-label"><strong>{account.address}</strong><span className="muted">{account.credentialsMissing?'请补填客户端授权码':statusLabels[account.status]}</span></div>
         <div className="flex flex-wrap gap-1"><Button size="sm" onClick={()=>setEditor({account})}>更新授权</Button><Button size="sm" onClick={()=>setRemove(account)}>断开</Button></div>
       </li>)}
     </ul>:null}
