@@ -964,6 +964,8 @@ async function main() {
       launched.child.once('exit', resolve);
       setTimeout(resolve, 2000);
     });
+    // Chrome helpers can outlive its main process and retain the stderr pipe.
+    launched.child.stderr?.destroy();
     server.close();
     // Chrome 退出时还在写 profile，删除失败不影响度量结果。
     for (let attempt = 0; attempt < 5; attempt += 1) {
