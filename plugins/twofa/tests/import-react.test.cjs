@@ -28,6 +28,61 @@ function setup(t,{preview=false}={}){
   const open=async()=>{await wait(()=>button('导入账户'));const trigger=button('导入账户');trigger.focus();trigger.click();await wait(()=>w.document.querySelector('#twofa-import-uri'));return trigger;};
   return {w,api,accounts,calls,copies,button,fill,submit,open,uri:()=>w.demoImportUri};
 }
+test('mail tab adds the provider suffix to a username and uses the protected host copy API',async t=>{
+  const s=setup(t);
+  const now=Date.now();
+  let connected=false;
+  s.api.mailStatus=async()=>connected?{
+    accounts:[{provider:'netease',address:'example@163.com',status:'live'}],
+    codes:[{id:'mail-fixture',title:'example.test',issuer:'163 邮箱 · 邮件验证码',receivedAt:now,expiresAt:now+300000}],
+  }:{accounts:[],codes:[]};
+  s.api.addMail=async account=>{
+    assert.equal(account.provider,'netease');
+    assert.equal(account.address,'example@163.com');
+    assert.equal(account.authorizationCode,'fixtureOnly');
+    connected=true;
+  };
+  s.api.copyMail=async id=>s.calls.push({method:'copyMail',id});
+  await wait(()=>s.button('邮件验证码'));
+  s.button('邮件验证码').click();
+  await wait(()=>s.button('＋ 连接邮箱'));
+  s.button('＋ 连接邮箱').click();
+  await wait(()=>s.w.document.querySelector('#mail-address'));
+  assert.equal(s.w.document.querySelector('#mail-address-suffix').textContent,'@163.com');
+  s.fill('#mail-address','example');s.fill('#mail-secret','fixtureOnly');
+  s.w.document.querySelector('#mail-form').dispatchEvent(new s.w.Event('submit',{bubbles:true,cancelable:true}));
+  await wait(()=>s.button('复制验证码'));
+  assert.equal(s.w.document.querySelector('#mail-secret'),null);
+  s.button('复制验证码').click();
+  await wait(()=>s.calls.some(call=>call.id==='mail-fixture'));
+  assert.deepEqual(s.copies,[]);
+});
+test('switching mail providers preserves the username and a pasted full address is used once',async t=>{
+  const s=setup(t);
+  s.api.mailStatus=async()=>({accounts:[],codes:[]});
+  s.api.addMail=async account=>s.calls.push({provider:account.provider,address:account.address});
+  await wait(()=>s.button('邮件验证码'));
+  s.button('邮件验证码').click();
+  await wait(()=>s.button('＋ 连接邮箱'));
+  s.button('＋ 连接邮箱').click();
+  await wait(()=>s.w.document.querySelector('#mail-address'));
+  s.fill('#mail-address','example@163.com');
+  await wait(()=>!s.w.document.querySelector('#mail-address-suffix'));
+  s.w.document.querySelector('#mail-provider').click();
+  await wait(()=>[...s.w.document.querySelectorAll('[role="option"]')].some(node=>node.textContent==='QQ 邮箱'));
+  [...s.w.document.querySelectorAll('[role="option"]')].find(node=>node.textContent==='QQ 邮箱').click();
+  await wait(()=>s.w.document.querySelector('#mail-address-suffix')?.textContent==='@qq.com');
+  assert.equal(s.w.document.querySelector('#mail-address').value,'example');
+  s.fill('#mail-address','other@163.com');s.fill('#mail-secret','fixtureOnly');
+  const form=s.w.document.querySelector('#mail-form');
+  form.dispatchEvent(new s.w.Event('submit',{bubbles:true,cancelable:true}));
+  await wait(()=>s.w.document.querySelector('[role="alert"]')?.textContent.includes('@qq.com'));
+  assert.deepEqual(s.calls,[]);
+  s.fill('#mail-address','other@qq.com');
+  form.dispatchEvent(new s.w.Event('submit',{bubbles:true,cancelable:true}));
+  await wait(()=>s.calls.length===1);
+  assert.deepEqual(s.calls,[{provider:'qq',address:'other@qq.com'}]);
+});
 test('import previews first, rejects duplicate names locally, and saves only the renamed account',async t=>{
   const s=setup(t);await s.open();s.fill('#twofa-import-uri',s.uri());s.submit();await wait(()=>s.w.document.querySelector('#twofa-import-name'));
   assert.equal(s.calls.filter(call=>call.method==='import').length,0);assert.match(s.w.document.querySelector('dialog').textContent,/SHA256 · 8 位 · 每 60 秒/);

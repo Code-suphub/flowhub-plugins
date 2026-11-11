@@ -11,7 +11,16 @@ fn key(root:&Path,create:bool)->Result<aead::LessSafeKey,String>{let p=root.join
 fn load(root:&Path)->Result<Vec<Entry>,String>{let p=root.join("twofa.secrets");if !p.exists(){return Ok(vec![])}secure(&p)?;let mut b=fs::read(p).map_err(|e|e.to_string())?;if b.len()<12{return Err("2FA 密钥文件损坏".into())}let nonce:[u8;12]=b[..12].try_into().unwrap();let key=key(root,false)?;let plain=key.open_in_place(aead::Nonce::assume_unique_for_key(nonce),aead::Aad::from(b"flowhub-twofa-v1"),&mut b[12..]).map_err(|_|"2FA 密钥无法解密")?;serde_json::from_slice(plain).map_err(|_|"2FA 配置格式损坏".into())}
 fn save(root:&Path,entries:&[Entry])->Result<(),String>{fs::create_dir_all(root).map_err(|e|e.to_string())?;let key=key(root,true)?;let mut nonce=[0;12];SystemRandom::new().fill(&mut nonce).map_err(|_|"无法生成随机数")?;let mut c=serde_json::to_vec(entries).map_err(|e|e.to_string())?;key.seal_in_place_append_tag(aead::Nonce::assume_unique_for_key(nonce),aead::Aad::from(b"flowhub-twofa-v1"),&mut c).map_err(|_|"2FA 配置加密失败")?;let p=root.join("twofa.secrets");let tmp=root.join("twofa.secrets.tmp");let mut f=OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(&tmp).map_err(|e|e.to_string())?;f.write_all(&nonce).and_then(|_|f.write_all(&c)).and_then(|_|f.sync_all()).map_err(|e|e.to_string())?;fs::rename(tmp,p).map_err(|e|e.to_string())}
 fn now()->u64{SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()}
-fn dispatch(method:&str,p:&Value)->Result<Value,String>{dispatch_in(&root()?,method,p)}
+fn search_totp(root: &Path, query: &str, offset: usize, limit: usize) -> Result<Vec<Value>, String> {
+    Ok(load(root)?.into_iter().filter(|entry| {
+        query.is_empty()
+            || entry.name.to_lowercase().contains(query)
+            || entry.issuer.as_deref().unwrap_or("").to_lowercase().contains(query)
+    }).skip(offset).take(limit).map(|entry| json!({
+        "id":entry.name,"type":"twofa","title":entry.name,"issuer":entry.issuer,"description":"2FA 验证码"
+    })).collect())
+}
+
 fn dispatch_in(root:&Path,method:&str,p:&Value)->Result<Value,String>{
     match method {
         "capture_screen"=>screen_capture::capture(p),
@@ -20,7 +29,7 @@ fn dispatch_in(root:&Path,method:&str,p:&Value)->Result<Value,String>{
         "search"=>{
             let query=p["query"].as_str().unwrap_or("").trim().to_lowercase();
             let limit=p["limit"].as_u64().unwrap_or(12).min(50) as usize;let offset=p["offset"].as_u64().unwrap_or(0) as usize;
-            Ok(json!(load(root)?.into_iter().filter(|e|query.is_empty() || e.name.to_lowercase().contains(&query) || e.issuer.as_deref().unwrap_or("").to_lowercase().contains(&query)).skip(offset).take(limit).map(|e|json!({"id":e.name,"type":"twofa","title":e.name,"issuer":e.issuer,"description":"2FA 验证码"})).collect::<Vec<_>>()))
+            Ok(json!(search_totp(root, &query, offset, limit)?))
         },
         "activate"|"code"=>{
             let name=p["name"].as_str().unwrap_or("");let entry=load(root)?.into_iter().find(|e|e.name==name).ok_or("未找到该 2FA 名称")?;
@@ -52,6 +61,18 @@ fn dispatch_in(root:&Path,method:&str,p:&Value)->Result<Value,String>{
         _=>Err("未知操作".into())
     }
 }
-fn main()->Result<(),Box<dyn std::error::Error>>{let stdin=io::stdin();for line in stdin.lock().lines(){let line=line?;let req:Value=serde_json::from_str(&line)?;let result=dispatch(req["method"].as_str().unwrap_or(""),&req["params"]);let out=match result{Ok(v)=>json!({"id":req["id"],"result":v}),Err(e)=>json!({"id":req["id"],"error":e})};println!("{out}");}Ok(())}
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let root = root()?;
+    for line in io::stdin().lock().lines() {
+        let request: Value = serde_json::from_str(&line?)?;
+        let method = request["method"].as_str().unwrap_or("");
+        let response = match dispatch_in(&root, method, &request["params"]) {
+            Ok(value) => json!({"id":request["id"],"result":value}),
+            Err(error) => json!({"id":request["id"],"error":error}),
+        };
+        println!("{response}");
+    }
+    Ok(())
+}
 
 #[cfg(test)] mod tests;

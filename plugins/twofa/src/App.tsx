@@ -1,8 +1,9 @@
 import {useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent} from 'react';
-import {Button, DialogShell, DropdownMenu, EmptyState, Field, HelpPopover, Input} from '@flowhub/plugin-common/react';
+import {Button, DialogShell, DropdownMenu, EmptyState, Field, HelpPopover, Input, Tabs} from '@flowhub/plugin-common/react';
 import type {Account, TwofaApi} from './api';
 import {CodeCache, filterAccounts,formatCode} from './codes';
 import {ImportAccount} from './ImportAccount';
+import {MailCodes} from './MailCodes';
 
 const message = (error: unknown) => error instanceof Error ? error.message : '操作失败，请重试';
 
@@ -96,7 +97,7 @@ function Editor({account, accounts, api, onClose, onSaved}: {
   </DialogShell>;
 }
 
-export function App({api}: {api: TwofaApi}) {
+function Authenticator({api}: {api: TwofaApi}) {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [query, setQuery] = useState(''), [notice, setNotice] = useState('');
   const [loading, setLoading] = useState(true), [loadError, setLoadError] = useState('');
@@ -123,9 +124,9 @@ export function App({api}: {api: TwofaApi}) {
     catch (error) { setDeleteError(message(error)); }
     finally { setDeleting(false); }
   }
-  return <main className="twofa">
+  return <>
     <header className="twofa-toolbar">
-      <div className="twofa-heading"><h1>验证器</h1><span className="muted text-xs">{accounts.length} 个账户</span></div>
+      <span className="muted text-xs">{accounts.length} 个账户</span>
       <HelpPopover label="验证码说明">输入名称或发行方过滤账户。验证码到期自动刷新；密钥保存在本机加密文件中。</HelpPopover>
       <div className="twofa-toolbar-actions"><Button onClick={()=>setImporting(true)}>导入账户</Button><Button variant="primary" onClick={() => setEditor({account: null})}>＋ 添加账户</Button></div>
     </header>
@@ -143,5 +144,19 @@ export function App({api}: {api: TwofaApi}) {
       <p className="m-0 break-words text-sm leading-6">删除「{removing?.name}」后，需要重新添加密钥才能生成验证码。此操作无法撤销。</p>
       {deleteError ? <p role="alert" className="error text-sm">{deleteError}</p> : null}
     </DialogShell>
+  </>;
+}
+
+export function App({api}: {api: TwofaApi}) {
+  const [tab,setTab]=useState('authenticator');
+  return <main className="twofa">
+    <Tabs value={tab} onValueChange={setTab}>
+      <Tabs.List className="verification-tabs" aria-label="验证码来源">
+        <Tabs.Trigger value="authenticator">验证器</Tabs.Trigger>
+        <Tabs.Trigger value="mail">邮件验证码</Tabs.Trigger>
+      </Tabs.List>
+      <Tabs.Panel value="authenticator">{tab==='authenticator'?<Authenticator api={api}/>:null}</Tabs.Panel>
+      <Tabs.Panel value="mail">{tab==='mail'?<MailCodes api={api}/>:null}</Tabs.Panel>
+    </Tabs>
   </main>;
 }

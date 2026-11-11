@@ -3,6 +3,10 @@ export interface Account extends Partial<OtpParameters> { name: string; issuer?:
 export interface ImportPreview extends OtpParameters {name:string;issuer:string|null}
 export interface CodeResult { name: string; code: string; remaining: number;period?:number }
 export interface SaveAccount extends Account { secret: string; previous?: string }
+export type MailProvider = 'netease' | 'qq';
+export interface MailAccount {provider:MailProvider;address:string;status:'connecting'|'live'|'polling'|'offline'|'authorization'}
+export interface MailCode {id:string;title:string;issuer:string;receivedAt:number;expiresAt:number}
+export interface MailStatus {accounts:MailAccount[];codes:MailCode[]}
 export interface TwofaApi {
   preview: boolean;
   list(): Promise<Account[]>;
@@ -12,6 +16,10 @@ export interface TwofaApi {
   captureScreen?():Promise<{image?:string;cancelled?:boolean}>;
   importAccount(uri:string,name:string):Promise<void>;
   remove(name: string): Promise<void>;
+  mailStatus():Promise<MailStatus>;
+  addMail(account:{provider:MailProvider;address:string;authorizationCode:string}):Promise<void>;
+  removeMail(account:Pick<MailAccount,'provider'|'address'>):Promise<void>;
+  copyMail(id:string):Promise<void>;
   dispose(): void;
 }
 export const demoImportUri='otpauth://totp/Example:demo%40example.com?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&issuer=Example&algorithm=SHA256&digits=8&period=60';
@@ -56,7 +64,8 @@ export function createApi(host: Window): TwofaApi {
       list: async () => [{name: '示例账户', issuer: '模拟数据'}],
       code: async name => ({name, code: '123456', remaining: 30 - Math.floor(Date.now() / 1000) % 30}),
       previewImport:async uri=>{if(uri!==demoImportUri)throw Error('浏览器预览仅解析示例链接，请在 FlowHub 中导入真实账户');return {name:'demo@example.com',issuer:'Example',algorithm:'SHA256',digits:8,period:60};},
-      importAccount:readonly,save: readonly, remove: readonly, dispose() {}
+      importAccount:readonly,save:readonly,remove:readonly,
+      mailStatus:async()=>({accounts:[],codes:[]}),addMail:readonly,removeMail:readonly,copyMail:readonly,dispose() {}
     };
   }
   const transport = createTransport(host);
@@ -69,6 +78,10 @@ export function createApi(host: Window): TwofaApi {
     captureScreen:()=>transport.invoke('capture_screen',{confirmed:true}),
     importAccount:async(uri,name)=>{await transport.invoke('import',{uri,name});},
     remove: async name => { await transport.invoke('remove', {name}); },
+    mailStatus:()=>transport.invoke('mail_status'),
+    addMail:async account=>{await transport.invoke('mail_add',account);},
+    removeMail:async({provider,address})=>{await transport.invoke('mail_remove',{provider,address});},
+    copyMail:async id=>{await transport.invoke('mail_copy',{id});},
     dispose: transport.dispose
   };
 }

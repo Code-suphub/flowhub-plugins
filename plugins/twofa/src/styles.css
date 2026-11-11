@@ -16,8 +16,17 @@
 .muted {color:var(--fh-muted)}
 .error {color:var(--fh-danger)}
 .twofa-toolbar {display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:24px}
-.twofa-heading {display:flex;align-items:baseline;gap:12px}
-.twofa-heading h1 {margin:0;font-size:24px;letter-spacing:-.03em;font-weight:650}
+.verification-tabs {margin-bottom:16px}
+.mail-list {margin:0;padding:0;list-style:none;border:1px solid var(--fh-border);border-radius:12px;background:var(--fh-canvas)}
+.mail-list+.mail-list {margin-top:12px}
+.mail-row {display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px}
+.mail-row+.mail-row {border-top:1px solid var(--fh-border)}
+.mail-label {min-width:0;overflow-wrap:anywhere}
+.mail-label strong,.mail-label span {display:block}
+.mail-label span {font-size:12px;margin-top:3px}
+.mail-address-field {position:relative}
+.mail-address-field .mail-address-with-suffix {padding-inline-end:7rem}
+.mail-address-suffix {position:absolute;inset-inline-end:14px;top:50%;transform:translateY(-50%);pointer-events:none;color:var(--fh-muted);font-size:14px}
 .twofa-toolbar-actions {display:flex;gap:8px;margin-left:auto}
 .twofa-search {display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:22px}
 .search-input {max-width:400px}
@@ -46,7 +55,6 @@
 .twofa-empty {border:0;background:transparent}
 @media(max-width:520px) {
   .twofa {padding:14px}
-  .twofa-heading h1 {font-size:21px}
   .twofa-toolbar {gap:8px;margin-bottom:18px}
   .twofa-toolbar-actions {width:100%;margin-left:0}
   .twofa-toolbar-actions>button {flex:1}
