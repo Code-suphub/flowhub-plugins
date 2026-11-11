@@ -1,7 +1,10 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const path=require('node:path');
-const {buildSync}=require('esbuild');
+const esbuild=require('esbuild');
+// This DOM-only fixture imports the common barrel, including chart styles.
+// The production Vite build still bundles and verifies the real stylesheet.
+const buildSync=options=>esbuild.buildSync({...options,loader:{...options.loader,'.css':'empty'}});
 const {JSDOM}=require('jsdom');
 const plugin=path.resolve(__dirname,'..');
 const code=buildSync({stdin:{contents:`import React from 'react';import{createRoot}from'react-dom/client';import{App}from'./src/App';import{createApi,demoImportUri}from'./src/api';window.demoImportUri=demoImportUri;window.previewApi=()=>createApi(window);window.mount=api=>createRoot(document.getElementById('root')).render(React.createElement(App,{api}));`,resolveDir:plugin,loader:'tsx'},jsx:'automatic',bundle:true,write:false,format:'iife',define:{'process.env.NODE_ENV':'"production"'},alias:{react:path.join(plugin,'node_modules/react'),'react-dom':path.join(plugin,'node_modules/react-dom')},logLevel:'silent'}).outputFiles[0].text;
