@@ -132,7 +132,7 @@ impl Store {
     pub fn value(&self, id: &str, at: u64) -> Value {
         let from = self.cutoff(at);
         let points = self.records.get(id).into_iter().flatten().filter(|point| point.at >= from && point.at <= at).collect::<Vec<_>>();
-        json!({"hours":self.settings.hours,"enabled":self.enabled(),"intervalSeconds":60,"from":from,"to":at,"points":points,"error":self.error})
+        json!({"deviceId":id,"hours":self.settings.hours,"enabled":self.enabled(),"intervalSeconds":60,"from":from,"to":at,"points":points,"error":self.error})
     }
     pub fn pending(&mut self, at: u64) -> Option<Write> {
         self.prune(at);
@@ -227,5 +227,20 @@ mod tests {
         assert_eq!(store.records.len(), MAX_DEVICES);
         assert!(!store.records.contains_key("adb-loaded"));
         assert!(!store.records.contains_key("adb-phone-0"));
+    }
+    #[test]
+    fn reports_bind_to_the_requested_device_and_never_borrow_another_phones_history() {
+        let mut store = Store::default();
+        store.observe("adb-phone-k80", &sample(61_000, json!(14)), 61_000);
+        store.observe("adb-phone-note", &sample(62_000, json!(73)), 62_000);
+        let k80 = store.value("adb-phone-k80", 63_000);
+        let note = store.value("adb-phone-note", 63_000);
+        assert_eq!(k80["deviceId"], "adb-phone-k80");
+        assert_eq!(note["deviceId"], "adb-phone-note");
+        assert_eq!(k80["points"][0]["cpu"].as_f64(), Some(14.0));
+        assert_eq!(note["points"][0]["cpu"].as_f64(), Some(73.0));
+        let absent = store.value("adb-phone-offline", 63_000);
+        assert_eq!(absent["deviceId"], "adb-phone-offline");
+        assert!(absent["points"].as_array().unwrap().is_empty());
     }
 }

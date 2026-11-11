@@ -35,6 +35,7 @@ export function HistoryChart({points,from,to,label,max=100,unit='%',formatValue,
   if(low>0&&at-model.rows[low-1].at<model.rows[low].at-at)low--;
   setActive(low);
  }
+ if(!model.count)return <div className="fh-history-chart__empty" role="status">此指标暂无历史读数</div>;
  return <div className="fh-history-chart">
   <svg viewBox="0 0 400 132" role="img" aria-label={label} aria-describedby={description} tabIndex={0}
    onFocus={()=>{setFocused(true);setActive(model.rows.length-1);}} onBlur={()=>{setFocused(false);setActive(null);}}

@@ -44,6 +44,7 @@ const server=createServer(async(req,res)=>{
      window.__qa.snapshot.catalog['pixel-8-pro'].image={dataUrl:canvas.toDataURL('image/jpeg'),author:'Test Author',license:'CC BY 4.0'};
    }
    let pending=${Boolean(context.pending)};
+   if(${JSON.stringify(context.scenario)}==='adb-dual'){const device=window.__qa.snapshot.devices.find(d=>d.id==='adb-offline');device.name='Note 11T';device.status='connected';device.adb.state='device';}
    window.addEventListener('message',event=>{if(event.source===document.querySelector('iframe').contentWindow&&event.data?.type==='flowhub:widget-config')window.__qa.savedConfig=event.data.config;});
    window.addEventListener('message',event=>{if(event.source===document.querySelector('iframe').contentWindow&&event.data?.type==='flowhub:widget-navigate')window.__qa.navigation=event.data;});
    window.addEventListener('message',event=>{const frame=document.querySelector('iframe');if(event.source!==frame.contentWindow)return;const m=event.data;if(m.type==='flowhub:theme-ready'){frame.contentWindow.postMessage({type:'flowhub:theme',theme:'light'},'*');return;}if(m.type==='flowhub:widget-ready'){frame.contentWindow.postMessage({type:'flowhub:widget-init',token:'qa-token',context:${JSON.stringify(context)}},'*');return;}if(!['flowhub:request','flowhub:widget-rpc'].includes(m.type))return;const widget=m.type==='flowhub:widget-rpc',method=widget?m.params.method:m.method;window.__qa.requests.push(method);const reply={type:widget?'flowhub:widget-result':'flowhub:response',token:widget?'qa-token':undefined,id:m.id};
@@ -51,23 +52,26 @@ const server=createServer(async(req,res)=>{
    if(method==='open_device_reference'){window.__qa.reference=widget?m.params.params:m.params;reply.result={opened:true};frame.contentWindow.postMessage(reply,'*');return;}
    if(method==='adb_performance'){
     const args=widget?m.params.params:m.params;
-    if(args.id!=='adb-usb')reply.error='未找到设备';
+    if(!['adb-usb','adb-offline',window.__qa.canonicalId].includes(args.id))reply.error='未找到设备';
     else if(!window.__qa.performanceStarted||args.refresh){window.__qa.performanceStarted=true;reply.result={status:'pending'};}
-    else reply.result=window.__qa.performanceReply||{status:'read',sampledAt:Date.now(),cpuPercent:24.5,memory:{usedKiB:4194304,totalKiB:8388608},storage:{usedKiB:50331648,totalKiB:134217728,availableKiB:83886080,mountPoint:'/data/user/0'}};
+    else reply.result=window.__qa.performanceReply||{status:'read',sampledAt:Date.now(),cpuPercent:args.id==='adb-offline'?66.6:24.5,memory:{usedKiB:4194304,totalKiB:8388608},storage:{usedKiB:50331648,totalKiB:134217728,availableKiB:83886080,mountPoint:'/data/user/0'}};
     frame.contentWindow.postMessage(reply,'*');return;
    }
    if(['adb_performance_history','adb_performance_history_settings'].includes(method)){
     const args=widget?m.params.params:m.params,at=Date.now();
-    const history=window.__qa.performanceHistory??={hours:48,enabled:true,intervalSeconds:60,from:at-48*3600000,to:at,points:[
+    const histories=window.__qa.performanceHistories??={};
+    if(window.__qa.performanceHistory?.deviceId===args.id)histories[args.id]=window.__qa.performanceHistory;
+    const history=histories[args.id]??={deviceId:args.id,hours:48,enabled:true,intervalSeconds:60,from:at-48*3600000,to:at,points:args.id==='adb-usb'?[
       {at:at-180000,cpu:12,memory:[4194304,8388608],storage:[50331648,134217728,83886080]},
       {at:at-120000,cpu:0,memory:[4194304,8388608],storage:[50331648,134217728,83886080]},
       {at:at-60000,cpu:null,memory:null,storage:null},
-      {at,cpu:24.5,memory:[4194304,8388608],storage:[50331648,134217728,83886080]}],error:null};
+      {at,cpu:24.5,memory:[4194304,8388608],storage:[50331648,134217728,83886080]}]:${JSON.stringify(context.scenario)}==='adb-dual'?[{at:at-60000,cpu:60,memory:[8388608,12582912],storage:[20971520,268435456,247463936]},{at,cpu:66.6,memory:[8388608,12582912],storage:[20971520,268435456,247463936]}]:[],error:null};
+    window.__qa.performanceHistory=history;
     if(method==='adb_performance_history_settings'){
      if(window.__qa.performanceHistoryError)reply.error=window.__qa.performanceHistoryError;
      else{history.hours=args.hours;history.enabled=args.enabled;}
     }
-    if(!reply.error)reply.result=history;
+    if(!reply.error)reply.result=window.__qa.performanceHistoryWrongId?{...history,deviceId:'adb-wrong'}:history;
     frame.contentWindow.postMessage(reply,'*');return;
    }
    if(method==='keyboard_mode'){const args=widget?m.params.params:m.params;if(args.id==='usb-k75')reply.result=window.__qa.keyboardMode||{status:'read',mode:'mac',usbRelease:'0x4023',configurationSupported:true,lighting:'off'};else reply.error='设备不支持';frame.contentWindow.postMessage(reply,'*');return;}
@@ -261,6 +265,10 @@ try{
  await check('document.querySelector("dialog").textContent.includes("PUBLIC-USB") && document.querySelector("dialog").textContent.includes("Pixel 8 Pro") && !document.querySelector("dialog .dc-display-settings")','ADB detail exposes serial, model and transport without display settings');
  await wait('document.querySelector(\'[aria-label="设备性能"]\').textContent.includes("24.5%")');
  await check('document.querySelector(\'[aria-label="设备性能"]\').textContent.includes("4.0 / 8.0 GiB")','ADB detail shows sampled CPU and used/total memory');
+ const beforeRefreshSize=await evaluate('document.querySelector(".dc-dialog-content > div").scrollHeight');
+ await sleep(11_500);
+ await check('document.querySelectorAll(\'[aria-label="设备性能"]\').length===1 && document.querySelectorAll(\'[aria-label="性能历史"]\').length===1 && document.querySelectorAll(".dc-battery-history").length===1 && document.querySelectorAll("dialog .dc-adb-alias").length<=1','repeated snapshot refreshes retain one performance, history and battery section');
+ await check(`document.querySelector('.dc-dialog-content > div').scrollHeight<=${beforeRefreshSize}+2`,'detail scrolling reaches a stable end after repeated snapshots');
  await check('(()=>{const text=document.querySelector(\'[aria-label="设备性能"]\').textContent;return text.includes("48.0 / 128.0 GiB · 37.5%") && text.includes("可用 80.0 GiB")})()','ADB detail shows internal storage used/total, percentage and available space');
  await size(390,640);await evaluate('document.documentElement.dataset.theme="dark"');
  await evaluate('document.querySelector(\'[aria-label="设备性能"]\').scrollIntoView({block:"center"})');
@@ -307,7 +315,7 @@ try{
  await click('[aria-label="性能历史"] input[type=checkbox]');
  await wait('document.querySelector(\'[aria-label="性能历史"]\').textContent.includes("每分钟记录整机")');
  const largeHistoryStart=Date.now();
- await parent('(()=>{const at=Date.now();window.__qa.performanceHistory={hours:168,enabled:true,intervalSeconds:60,from:at-168*3600000,to:at,error:null,points:Array.from({length:10080},(_,i)=>({at:at-(10079-i)*60000,cpu:i%100,memory:[4194304,8388608],storage:[50331648,134217728,83886080]}))};window.__qa.performanceReply.sampledAt=at})()');
+ await parent('(()=>{const at=Date.now();window.__qa.performanceHistory={deviceId:"adb-usb",hours:168,enabled:true,intervalSeconds:60,from:at-168*3600000,to:at,error:null,points:Array.from({length:10080},(_,i)=>({at:at-(10079-i)*60000,cpu:i%100,memory:[4194304,8388608],storage:[50331648,134217728,83886080]}))};window.__qa.performanceReply.sampledAt=at})()');
  await click('[aria-label="设备性能"] .dc-button');
  await wait('document.querySelector(\'[aria-label="性能历史"]\').textContent.includes("10080 次采样")');
  await check('document.querySelectorAll(".fh-history-chart svg *").length<24 && document.querySelector(".fh-history-chart svg > path").getAttribute("d").length>100000','a full week renders as one bounded SVG path without thousands of point elements');
@@ -365,6 +373,31 @@ try{
  await size(800);await navigate('/qa?widget=1&scenario=adb&device=adb-auth');await wait('document.querySelector("dialog").open');await check('document.querySelector("dialog").textContent.includes("未授权") && document.querySelector("dialog").textContent.includes("PUBLIC-AUTH")','widget detail preserves ADB authorization state');
  await check('!document.querySelector(\'[aria-label="设备性能"]\')','unauthorized ADB detail does not start performance sampling');
  await check('document.querySelector(".dc-recent-events p").textContent.includes("本次运行暂无连接变化")','device detail explains when no event has been observed');
+ await navigate('/qa?widget=1&scenario=adb-dual&device=adb-usb');
+ await wait('document.querySelector(".fh-history-chart svg > path")?.getAttribute("d").includes("L")');
+ const firstDevicePath=await evaluate('document.querySelector(".fh-history-chart svg > path").getAttribute("d")');
+ await click('.dc-dialog-content > header > button');await click('[data-device=adb-offline]');
+ await wait('Boolean(document.querySelector(\'[data-history-device="adb-offline"] .fh-history-chart svg\'))');
+ const secondFocus=await evaluate('(()=>{const e=document.querySelector(".fh-history-chart svg");e.scrollIntoView({block:"center"});const r=e.getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2}})()');
+ await send('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',clickCount:1,...secondFocus});await send('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',clickCount:1,...secondFocus});
+ await evaluate('document.querySelector(".fh-history-chart svg").focus()');await keyboard('End','End',35);
+ await check('document.querySelector(".fh-history-chart output").textContent.includes("66.6%")','switching phones shows the second devices own CPU history');
+ if(await evaluate('document.querySelector(".fh-history-chart svg > path").getAttribute("d")')===firstDevicePath)throw Error('Different phone fixtures rendered the same curve');
+ await click('.dc-dialog-content > header > button');await click('[data-device=adb-usb]');
+ await wait('Boolean(document.querySelector(\'[data-history-device="adb-usb"] .fh-history-chart svg\'))');
+ await evaluate('document.querySelector(".fh-history-chart svg").focus()');await keyboard('End','End',35);
+ await check('document.querySelector(".fh-history-chart output").textContent.includes("24.5%")','returning to the first phone restores its own readings');
+ await parent('(()=>{const id="adb-phone-canonical";window.__qa.canonicalId=id;const device=window.__qa.snapshot.devices.find(d=>d.id==="adb-usb");device.id=id;device.adb.legacyIds=["adb-usb"];window.__qa.performanceHistories[id]={...window.__qa.performanceHistories["adb-usb"],deviceId:id}})()');
+ await wait('Boolean(document.querySelector(\'[data-history-device="adb-phone-canonical"] .fh-history-chart svg\'))');
+ await check('document.querySelector("dialog").open && !document.querySelector(\'[aria-label="设备性能"] .dc-button\').disabled','a verified canonical device identity retains the open detail and uses its own history');
+ await parent('window.__qa.performanceHistoryWrongId=true');
+ await click('[aria-label="设备性能"] .dc-button');
+ await wait('document.querySelector(\'[aria-label="性能历史"] [role=alert]\')?.textContent.includes("不匹配")');
+ await check('!document.querySelector(".fh-history-chart svg")','mismatched history identity hides the previous curve and reports the problem');
+ await navigate('/qa?widget=1&scenario=adb&device=adb-offline');
+ await wait('Boolean(document.querySelector(".dc-performance-empty"))');
+ await check('document.querySelector(".dc-performance-empty").textContent.includes("暂无此设备") && document.querySelector(".dc-performance-empty").textContent.includes("离线") && !document.querySelector(".fh-history-chart svg")','offline phones without saved history show an explicit empty state without chart axes');
+ await capture('adb-offline-no-history');
  if(!performanceOnly){
  await navigate('/qa?scenario=catalog');
  await wait('document.querySelector("[data-device=pixel] img[alt=设备型号参考图片]")?.naturalWidth>0');

@@ -45,6 +45,6 @@ export function AdbPerformance({api,id,online=true}:{api:Api;id:string;online?:b
    <div><dt>内存占用</dt><dd>{memory?`${gib(memory.usedKiB)} / ${gib(memory.totalKiB)} GiB`:'未提供'}</dd></div>
    <div className="col-span-full"><dt>内部存储</dt><dd>{storage?<><span>{gib(storage.usedKiB)} / {gib(storage.totalKiB)} GiB · {(storage.usedKiB/storage.totalKiB*100).toFixed(1)}%</span><span className="block text-[var(--fh-muted)]">可用 {gib(storage.availableKiB)} GiB</span></>:'未提供'}</dd></div>
   </dl><p className="dc-detail-note">即时采样 · {time(sample.sampledAt)}</p></>:<p className="dc-detail-note" role="status">{reply.status==='unavailable'?reply.error:'正在读取 CPU、内存和存储…'}</p>}
-  <AdbPerformanceHistory api={api} id={id} sampledAt={sample?.sampledAt}/>
+  <AdbPerformanceHistory api={api} id={id} sampledAt={sample?.sampledAt} online={online}/>
  </section>;
 }
