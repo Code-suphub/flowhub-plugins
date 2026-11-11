@@ -34,6 +34,8 @@ test('card production IIFE excludes management dependencies and stays below half
   assert.ok(modules.some(id=>id.endsWith('/src/applications.tsx')));
   const forbidden=modules.filter(id=>/\/src\/(?:App|Widget)\.tsx$|\/(?:antd|@ant-design|@rc-component|rc-[^/]+|common-components)\//.test(id));
   assert.deepEqual(forbidden,[],'card must not bundle App, editor, antd, cssinjs or shared antd adapters');
+  assert.ok(modules.some(id=>id.endsWith('/src/plasmic/PlasmicResourceMonitorCardLayout.tsx')),'production card must consume the synced Plasmic layout');
+  assert.ok(modules.every(id=>!id.includes('/src/design/')),'Studio fixtures and registration must stay outside production');
   assert.ok(Object.keys(management.modules).some(id=>id.endsWith('/src/App.tsx')));
   for(const chunk of chunks) {
     assert.deepEqual(chunk.imports,[]);
@@ -80,6 +82,29 @@ test('Vite preview selects the card source entry and retains external shared the
     assert.equal(theme.status,200);
     assert.match(await theme.text(),/flowhub:theme-ready/);
   } finally {await new Promise(done=>http.close(done));await server.close();}
+});
+
+test('Studio host ignores documentation writes while retaining normal HTML reloads',async()=>{
+  const sourceRoot=new URL('..',import.meta.url).pathname,root=join(directory,'studio-watch');
+  await mkdir(join(root,'docs'),{recursive:true});
+  await mkdir(join(root,'src/design'),{recursive:true});
+  const documentation=join(root,'docs/watch.md'),html=join(root,'src/design/watch.html');
+  const server=await createServer({root,configFile:join(sourceRoot,'vite.config.mjs'),mode:'plasmic',cacheDir:join(directory,'studio-vite-cache'),server:{port:0,strictPort:false},logLevel:'error'});
+  const events=[],send=server.ws.send.bind(server.ws);
+  server.ws.send=(...args)=>{events.push(args[0]);return send(...args);};
+  try{
+    await server.listen();
+    await new Promise(done=>setTimeout(done,150));
+    await writeFile(documentation,'temporary development watch fixture');
+    await new Promise(done=>setTimeout(done,350));
+    assert.ok(events.every(event=>event.type!=='full-reload'),'a documentation write reset the Studio editor');
+    await writeFile(html,'<!doctype html><title>watch control</title>');
+    for(let i=0;i<100&&!events.some(event=>event.type==='full-reload');i++)await new Promise(done=>setTimeout(done,20));
+    assert.ok(events.some(event=>event.type==='full-reload'),'HTML changes must still reach the development browser');
+  }finally{
+    await server.close();
+    await rm(documentation,{force:true});await rm(html,{force:true});
+  }
 });
 
 test('built card and management surfaces preserve host interactions under desktop script CSP',{skip:!chromeExecutable()},async t=>{

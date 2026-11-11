@@ -63,8 +63,6 @@
   .script-responsibility {padding:10px;background:var(--fh-surface-soft);border-radius:7px;margin:12px 0}
   .confirm-target {display:grid;gap:5px;padding:10px 0;border-bottom:1px solid var(--fh-border)}
   .widget {min-width:0;background:var(--fh-surface)}
-  .widget--card {display:flex;flex-direction:column;height:100dvh;overflow:hidden}
-  .widget--card> :not(.widget-list) {flex-shrink:0}
   .widget-list {flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable}
   .widget-list:focus-visible {outline:2px solid var(--fh-accent);outline-offset:2px}
   .widget-grid {display:grid;grid-template-columns:minmax(0,1fr) repeat(var(--widget-metrics),min(68px,23%,max(0px,calc((100% - 72px) / var(--widget-metrics)))));align-items:center;gap:5px}

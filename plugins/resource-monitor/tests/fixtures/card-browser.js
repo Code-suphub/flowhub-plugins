@@ -155,6 +155,8 @@
     host.config={title:'Configured title',limit:5};
     host.send({type:'flowhub:widget-init',context:{title:'Host title',config:host.config,snapshot,canSaveConfig:true}});
     await wait(()=>rows(host).length===28&&rows(host)[0].textContent.includes('Native Test'),'initial context or metadata missing');
+    assert(doc(host).querySelector('main[data-layout-source="plasmic"]'),'card did not render the synced layout');
+    assert(!doc(host).body.textContent.includes('示例数据'),'Studio example content leaked into the live card');
     assert(doc(host).querySelector('.widget-header strong').textContent==='Configured title','configured title lost');
     assert(rows(host).every(row=>!row.disabled),'live card navigation disabled');
     assert(rows(host)[0].querySelector('img')?.src===nativeIcon,'native application icon missing');

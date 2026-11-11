@@ -1,6 +1,7 @@
 import {useEffect,useRef,useState,type CSSProperties} from 'react';
 import {Button,Checkbox,DialogShell} from '@flowhub/plugin-common/react';
 import {RequestDetails} from './RequestDetails';
+import {ResourceCardFrame} from './ResourceCardFrame';
 import {displayError,errorText} from './errors';
 import type {DisplayError} from './errors';
 import {accountingDisplay,bytes,cpu,defaultRankingOrder,newerSnapshot,widgetRows} from './model';
@@ -8,7 +9,7 @@ import {AppMark,applicationIdentity,useApplications} from './applications';
 import {cardLimitOptions,cardMetricFields,cardPreferences,cardRowLimit,cardSortOptions} from './card-preferences';
 import type {Api,Config,Context,Sort,StatusSnapshot} from './types';
 
-export function Card({api,context}:{api:Api;context:Context}) {
+export function Card({api,context,frameStyle}:{api:Api;context:Context;frameStyle?:CSSProperties}) {
   const [snapshot,setSnapshot]=useState<StatusSnapshot|undefined>(context.snapshot);const [error,setError]=useState<DisplayError>('');
   const hasWidgetSnapshot=useRef(false);
   const [settingsOpen,setSettingsOpen]=useState(false);
@@ -70,10 +71,9 @@ export function Card({api,context}:{api:Api;context:Context}) {
   }
   const rowLimit=cardRowLimit(config.limit);
   const limit=config.display==='top'?rowLimit:'all';
-  const style={'--widget-metrics':metrics.length} as CSSProperties;
+  const style={'--widget-metrics':metrics.length,...frameStyle} as CSSProperties;
 
-  return <main className="widget widget--card p-3" style={style}>
-    <div className="widget-header flex items-center justify-between gap-2 mb-2">
+  return <><ResourceCardFrame style={style} header={<div className="widget-header flex items-center justify-between gap-2 mb-2">
       <strong className="min-w-0 truncate">{config.title||context.title||'应用资源'}</strong>
       <Button size="sm" className="compact-button widget-settings-trigger" aria-haspopup="dialog" aria-expanded={settingsOpen} onClick={event=>{
         // WebKit does not focus buttons on pointer click. Give the dialog the same opener as keyboard input.
@@ -82,12 +82,11 @@ export function Card({api,context}:{api:Api;context:Context}) {
       }}>
         显示设置<span className="widget-settings-chevron" aria-hidden="true"/>
       </Button>
-    </div>
-    {api.preview?<p className="muted text-xs mb-1">模拟数据</p>:null}
+    </div>} alerts={<>{api.preview?<p className="muted text-xs mb-1">模拟数据</p>:null}
     {saveState==='failed'?<div className="flex items-center gap-2 text-xs warning" role="alert">卡片设置未保存<Button size="sm" disabled={!canSave} onClick={()=>change(pending.current)}>重试</Button></div>:null}
     {sortingError?<div className="warning text-xs"><p role="alert">{errorText(sortingError)}</p><RequestDetails error={sortingError}/></div>:null}
     {error||snapshot?.error||stale?<div className="warning text-xs"><p role="alert">{errorText(error||snapshot?.error||'数据已过期')}</p><RequestDetails error={error}/></div>:null}
-    <div className="widget-list" role="region" aria-label="应用资源列表，可滚动查看" tabIndex={0}>
+    </>} list={<div className="widget-list" role="region" aria-label="应用资源列表，可滚动查看" tabIndex={0}>
       <div className="widget-grid widget-columns muted text-xs">
         <span className="widget-identity">应用</span>
         {metrics.map(metric=><button key={metric.value} type="button" className="widget-sort" title={`按${metric.label}${sorting.key===metric.value&&sorting.order==='descend'?'升序':'降序'}排列，排行和卡片同步`}
@@ -115,11 +114,10 @@ export function Card({api,context}:{api:Api;context:Context}) {
         </button>;
       })}
       {!rows.length?<p className="muted text-xs py-4">{snapshot?.at?'当前范围暂无应用':'等待首次采样…'}</p>:null}
-    </div>
-    <footer className="flex flex-wrap items-center justify-between gap-1 mt-2 text-xs muted">
+    </div>} footer={<footer className="flex flex-wrap items-center justify-between gap-1 mt-2 text-xs muted">
       <span>{config.display==='top'?'前 ':'全部 '}{rows.length} 项 · {hiddenSort?`按${hiddenSort} ${arrow}`:snapshot?.at?`${new Date(snapshot.at).toLocaleTimeString()} 更新`:'未采集'}</span>
       <button type="button" className="text-link" disabled={api.preview} onClick={()=>api.navigate()}>打开排行 →</button>
-    </footer>
+    </footer>}/>
     <DialogShell open={settingsOpen} onOpenChange={setSettingsOpen} title="显示设置" className="widget-settings-dialog" contentClassName="widget-settings-content"
       footer={!api.preview?<span className="mr-auto muted text-xs" role="status">{canSave?(saveState==='saving'?'保存中…':saveState==='failed'?'未保存':'修改自动保存'):'当前无法保存卡片设置'}</span>:undefined}>
       <fieldset className="widget-settings-group">
@@ -137,5 +135,5 @@ export function Card({api,context}:{api:Api;context:Context}) {
         </Button>)}</div>
       </fieldset>
     </DialogShell>
-  </main>;
+  </>;
 }

@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "projectId": "rKroot8WmpiogJg8366SaB",
+  "component": "ResourceMonitorCardLayout",
+  "revision": 127,
+  "files": {
+    "PlasmicResourceMonitorCardLayout.tsx": "b308dcbf1ca54e4d7a1d5a870c844cb9d4793f1e892063be353a33ea8080be00",
+    "PlasmicResourceMonitorCardLayout.module.css": "0148d3725e7ae59acacea0328a77d1ba2e112bd19c550990a064d0205932ca1c",
+    "plasmic.css": "7c3c5e55f5341c7735a734ec35ba5b4fd80179fbf72e59ccf56a8fb9aee75603",
+    "plasmic.tsx": "58cdbe30a68375c6f5e018d1b1a98e8a79bb91314c7bd6a9dfd798e27d3d9cdd",
+    "PlasmicStyleTokensProvider.tsx": "6fc912d831c51eed0c026878839317e6de8ec47f74b37247b1abb102a777e52a"
+  }
+}

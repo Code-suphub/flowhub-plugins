@@ -1,0 +1,6 @@
+{
+  "schema": 1,
+  "projectId": "rKroot8WmpiogJg8366SaB",
+  "componentName": "ResourceMonitorCardLayout",
+  "bindings": ["header", "alerts", "list", "footer"]
+}

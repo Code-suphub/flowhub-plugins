@@ -32,8 +32,13 @@ export default defineConfig(({command,mode}) => {
     }] : [])],
     resolve: {alias: {react:resolve(root,'node_modules/react'),'react-dom':resolve(root,'node_modules/react-dom')},dedupe:['react','react-dom']},
     define: command === 'build' ? {'process.env.NODE_ENV':JSON.stringify('production')} : {},
-    server: {strictPort:true,fs:{allow:[resolve(root,'../../../..')]}},
+    server: {strictPort:true,fs:{allow:[resolve(root,'../../../..')]},...(mode==='plasmic'?{
+      // Studio owns an editor inside this host. Backend builds, test fixtures
+      // and documentation must not reset that editor through a full reload.
+      watch:{ignored:['**/build/**','**/bin/**','**/backend/**','**/docs/**',resolve(root,'design/**'),'**/tests/**','**/scripts/**','**/*.md','**/src/.plasmic-*/**','**/src/plasmic/generated.json']}
+    }:{})},
     build: {
+      ...(card?{minify:'terser',terserOptions:{ecma:2020,compress:{passes:3}}}:{}),
       outDir:resolve(root,'build/ui/react'),emptyOutDir:false,sourcemap:false,
       lib:{entry:resolve(root,card?'src/card-main.tsx':'src/main.tsx'),formats:['iife'],name:card?'FlowHubResourceCard':'FlowHubResourceMonitor',fileName:()=>card?'card.js':'monitor.js',cssFileName:card?'card':'monitor'}
     }
