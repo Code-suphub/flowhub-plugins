@@ -214,7 +214,7 @@ export function App({api}:{api:Api}) {
      <h4>最近连接事件</h4>
      {recentEvents.length?<ul>{recentEvents.map((event,index)=><li key={event.at+'-'+index}><span>{eventLabel(event)}</span><time>{time(event.at)}</time></li>)}</ul>:<p>本次运行暂无连接变化</p>}
     </section>
-    {open&&current?.adb?.state==='device'&&!adbStale(snapshot.adb)?<AdbPerformance key={current.id} api={api} id={current.id}/>:null}
+    {open&&detail.adb&&['device','offline'].includes(detail.adb.state)?<AdbPerformance key={detail.id} api={api} id={detail.id} online={current?.adb?.state==='device'&&!adbStale(snapshot.adb)}/>:null}
     {open&&(detail.category==='bluetooth'||detail.adb)?<BatteryHistory key={detail.id} api={api} id={detail.id}/>:null}
     {open&&detail.adb&&!api.preview?<AdbPreferenceEditor key={detail.id} kind="alias" saved={deviceAlias(detail,snapshot.adbPreferences)} disabled={removed} sharedAlias={detail.adb.sharedAlias} save={alias=>saveAdbPreference('adb_set_alias',{id:detail.id,alias})}/>:null}
     {detail.category==='display'?<><p className="dc-detail-note">点击“显示设置”，在 macOS 中选择屏幕并调整分辨率、刷新率、镜像／扩展和排列。</p>{settingsError?<p role="alert" className="dc-warning">{settingsError}</p>:null}</>:null}{detail.adb?.state==='unauthorized'?<p className="dc-warning" role="status">请在 Android 设备上确认调试授权，然后刷新。</p>:null}{detail.adb&&snapshot.adb?.error?<p role="alert" className="dc-warning">{snapshot.adb.error}</p>:null}{level===null&&detail.category==='bluetooth'?<p className="dc-detail-note">macOS 未提供当前电量。</p>:null}<p className="dc-detail-note">{(detail.adb?adbStale(snapshot.adb):stale)||removed?'上次采集于 ':'采集于 '}{time(detail.adb?snapshot.adb?.at:snapshot.at)} · 数据来自 {detail.adb?'本机 ADB':'macOS'}</p></>:null}

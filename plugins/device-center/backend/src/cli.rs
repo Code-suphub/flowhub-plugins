@@ -14,7 +14,7 @@ use std::{
 };
 
 const REQUEST_LIMIT: u64 = 128;
-const REPLY_LIMIT: u64 = 256 * 1024;
+const REPLY_LIMIT: u64 = 2 * 1024 * 1024;
 
 fn directory(root: &Path) -> PathBuf {
     root.join("cli")
@@ -61,6 +61,13 @@ fn performance_args(action: &str) -> Option<(&str, bool)> {
     (!id.is_empty() && id.len() <= 80 && id.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_'))
         .then_some((id, refresh))
 }
+fn history_id(action: &str) -> Option<&str> {
+    let fields = action.split_whitespace().collect::<Vec<_>>();
+    match fields.as_slice() {
+        ["adb", "history", id] if crate::performance_history::valid_id(id) => Some(id),
+        _ => None,
+    }
+}
 
 fn execute(state: &Arc<Mutex<State>>, action: &str) -> Result<Value, String> {
     let value = match action {
@@ -72,7 +79,10 @@ fn execute(state: &Arc<Mutex<State>>, action: &str) -> Result<Value, String> {
         "k75 status" => super::k75_status()?,
         _ => match performance_args(action) {
             Some((id, refresh)) => dispatch(state, "adb_performance", &json!({"id":id,"refresh":refresh}))?,
-            None => return Err("未知 CLI 命令".into()),
+            None => match history_id(action) {
+                Some(id) => dispatch(state, "adb_performance_history", &json!({"id":id}))?,
+                None => return Err("未知 CLI 命令".into()),
+            },
         },
     };
     Ok(json!({"pid":std::process::id(),"version":env!("CARGO_PKG_VERSION"),"data":value}))
@@ -105,7 +115,7 @@ pub fn serve(root: &Path, state: Arc<Mutex<State>>) -> io::Result<()> {
 
 pub fn run(args: &[String]) -> Result<Value, String> {
     let joined = args.join(" ");
-    let commands = ["status", "refresh", "k75 status", "adb performance <id> [--refresh]"];
+    let commands = ["status", "refresh", "k75 status", "adb performance <id> [--refresh]", "adb history <id>"];
     let action = match args {
         [cmd] if cmd == "status" => "status",
         [cmd] if cmd == "refresh" => "refresh",
@@ -114,7 +124,7 @@ pub fn run(args: &[String]) -> Result<Value, String> {
         [arg] if arg == "--help" || arg == "help" => {
             return Ok(json!({"result":{"commands":commands}}));
         }
-        _ if performance_args(&joined).is_some() => &joined,
+        _ if performance_args(&joined).is_some() || history_id(&joined).is_some() => &joined,
         _ => return Err("用法为 --cli status、refresh、k75 status 或 adb performance <id> [--refresh]".into()),
     };
     let root = std::env::var_os("FLOWHUB_PLUGIN_DATA").map(PathBuf::from)
@@ -162,6 +172,11 @@ mod tests {
         assert!(UnixStream::connect(&path).is_ok());
         drop(listener);
         drop(lock);
+        // macOS can finish closing the listening socket asynchronously.
+        for _ in 0..20 {
+            if UnixStream::connect(&path).is_err() { break; }
+            thread::sleep(Duration::from_millis(10));
+        }
         assert!(UnixStream::connect(&path).is_err());
         let (listener, lock) = bind(&root).unwrap();
         assert!(UnixStream::connect(&path).is_ok());

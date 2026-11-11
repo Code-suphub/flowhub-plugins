@@ -56,6 +56,20 @@ const server=createServer(async(req,res)=>{
     else reply.result=window.__qa.performanceReply||{status:'read',sampledAt:Date.now(),cpuPercent:24.5,memory:{usedKiB:4194304,totalKiB:8388608},storage:{usedKiB:50331648,totalKiB:134217728,availableKiB:83886080,mountPoint:'/data/user/0'}};
     frame.contentWindow.postMessage(reply,'*');return;
    }
+   if(['adb_performance_history','adb_performance_history_settings'].includes(method)){
+    const args=widget?m.params.params:m.params,at=Date.now();
+    const history=window.__qa.performanceHistory??={hours:48,enabled:true,intervalSeconds:60,from:at-48*3600000,to:at,points:[
+      {at:at-180000,cpu:12,memory:[4194304,8388608],storage:[50331648,134217728,83886080]},
+      {at:at-120000,cpu:0,memory:[4194304,8388608],storage:[50331648,134217728,83886080]},
+      {at:at-60000,cpu:null,memory:null,storage:null},
+      {at,cpu:24.5,memory:[4194304,8388608],storage:[50331648,134217728,83886080]}],error:null};
+    if(method==='adb_performance_history_settings'){
+     if(window.__qa.performanceHistoryError)reply.error=window.__qa.performanceHistoryError;
+     else{history.hours=args.hours;history.enabled=args.enabled;}
+    }
+    if(!reply.error)reply.result=history;
+    frame.contentWindow.postMessage(reply,'*');return;
+   }
    if(method==='keyboard_mode'){const args=widget?m.params.params:m.params;if(args.id==='usb-k75')reply.result=window.__qa.keyboardMode||{status:'read',mode:'mac',usbRelease:'0x4023',configurationSupported:true,lighting:'off'};else reply.error='设备不支持';frame.contentWindow.postMessage(reply,'*');return;}
    if(['keyboard_presets','keyboard_record_preset','keyboard_apply_preset','keyboard_delete_preset','keyboard_diagnostics'].includes(method)){
     const args=widget?m.params.params:m.params;
@@ -261,6 +275,43 @@ try{
  await click('[aria-label="设备性能"] .dc-button');
  await wait('document.querySelector(\'[aria-label="设备性能"]\').textContent.includes("可用 80.0 GiB")');
  await check('document.querySelector(\'[aria-label="设备性能"] dd\').textContent==="未提供"','storage remains visible when the device restricts CPU and memory');
+ await wait('document.querySelector(".fh-history-chart svg > path")?.getAttribute("d").includes("L")');
+ await check('document.querySelector(".fh-history-chart svg > path").getAttribute("d").split("M").length===3','performance chart breaks the path across a missing sample');
+ await evaluate('document.querySelector(".fh-history-chart svg").scrollIntoView({block:"center"})');
+ const performanceFocus=await evaluate('(()=>{const r=document.querySelector(".fh-history-chart svg").getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2}})()');
+ await send('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',clickCount:1,...performanceFocus});await send('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',clickCount:1,...performanceFocus});
+ await keyboard('Home','Home',36);await check('document.querySelector(\'[aria-label="性能历史"] output\').textContent.includes("12.0%")','history chart keyboard selects the first real sample');
+ await keyboard('ArrowRight','ArrowRight',39);await check('document.querySelector(\'[aria-label="性能历史"] output\').textContent.includes("0.0%")','history chart preserves a real zero reading');
+ await click('[aria-label="性能历史"] [data-tabs-value=memory]');
+ await evaluate('document.querySelector(\'[aria-label="性能历史"] [data-tabs-value=memory]\').focus()');
+ await keyboard('ArrowRight','ArrowRight',39);
+ await check('document.querySelector(\'[aria-label="性能历史"] [data-tabs-value=storage]\').getAttribute("aria-selected")==="true" && !!document.querySelector(\'svg[aria-label="存储占用历史曲线"]\')','metric tabs use shared keyboard navigation and active highlighting');
+ await evaluate('document.querySelector(".fh-history-chart svg").focus()');await keyboard('End','End',35);
+ await check('document.querySelector(\'[aria-label="性能历史"] output\').textContent.includes("48.0 / 128.0 GiB · 37.5%")','storage curve shows absolute usage and percent for its selected sample');
+ for(const theme of ['light','dark']){
+  await size(390,640);await evaluate(`document.documentElement.dataset.theme='${theme}';document.querySelector('[aria-label="性能历史"]').scrollIntoView({block:'center'})`);
+  await sleep(200);
+  await check('(()=>{const e=document.querySelector(\'[aria-label="性能历史"]\'),r=e.getBoundingClientRect();return r.left>=0 && r.right<=innerWidth && e.scrollWidth<=e.clientWidth+1})()','performance history '+theme+' narrow layout fits');
+  (report.historyThemes??=[]).push(await evaluate(`(()=>{const e=document.querySelector('[aria-label="性能历史"] [aria-selected=true]'),style=getComputedStyle(e);return {theme:'${theme}',background:style.backgroundColor,color:style.color,accent:style.getPropertyValue('--fh-accent'),surface:style.getPropertyValue('--fh-surface-soft')}})()`));
+  await capture('adb-performance-history-'+theme+'-narrow');
+ }
+ await size(800);await evaluate('document.documentElement.dataset.theme="light"');
+ await click('[aria-label="性能历史保留时间"]');await click('[aria-label="性能历史"] .dc-history-select [role=option]:last-child');
+ await wait('document.querySelector(\'[aria-label="性能历史保留时间"]\').textContent.includes("7 天")');
+ await click('[aria-label="性能历史"] input[type=checkbox]');
+ await wait('document.querySelector(\'[aria-label="性能历史"]\').textContent.includes("已暂停记录")');
+ await parent('window.__qa.performanceHistoryError="QA 性能设置保存失败"');
+ await click('[aria-label="性能历史保留时间"]');await click('[aria-label="性能历史"] .dc-history-select [role=option]:first-child');
+ await check('document.querySelector(\'[aria-label="性能历史"] [role=alert]\')?.textContent.includes("保存失败") && document.querySelector(\'[aria-label="性能历史保留时间"]\').textContent.includes("7 天")','failed history settings retain the saved retention and show a visible error');
+ await parent('window.__qa.performanceHistoryError=null');
+ await click('[aria-label="性能历史"] input[type=checkbox]');
+ await wait('document.querySelector(\'[aria-label="性能历史"]\').textContent.includes("每分钟记录整机")');
+ const largeHistoryStart=Date.now();
+ await parent('(()=>{const at=Date.now();window.__qa.performanceHistory={hours:168,enabled:true,intervalSeconds:60,from:at-168*3600000,to:at,error:null,points:Array.from({length:10080},(_,i)=>({at:at-(10079-i)*60000,cpu:i%100,memory:[4194304,8388608],storage:[50331648,134217728,83886080]}))};window.__qa.performanceReply.sampledAt=at})()');
+ await click('[aria-label="设备性能"] .dc-button');
+ await wait('document.querySelector(\'[aria-label="性能历史"]\').textContent.includes("10080 次采样")');
+ await check('document.querySelectorAll(".fh-history-chart svg *").length<24 && document.querySelector(".fh-history-chart svg > path").getAttribute("d").length>100000','a full week renders as one bounded SVG path without thousands of point elements');
+ report.largeHistoryMs=Date.now()-largeHistoryStart;
  await fill('测试手机','dialog .dc-adb-preference input');
  await parent('window.__qa.preferenceError="QA 保存失败"');
  await click('dialog .dc-adb-preference .dc-button');

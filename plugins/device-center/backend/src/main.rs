@@ -9,6 +9,7 @@ mod battery_history;
 mod usb_hid;
 mod adb;
 mod adb_performance;
+mod performance_history;
 mod adb_preferences;
 mod local_preferences;
 mod toolkit_adb;
@@ -116,6 +117,7 @@ struct CatalogDevice<'a> {
 struct State {
     keyboard_presets: keyboard_presets::Store,
     battery_history: battery_history::Store,
+    performance_history: performance_history::Store,
     catalog: device_catalog::Store,
     widget_order: widget_order::Store,
     adb_preferences: adb_preferences::Store,
@@ -444,7 +446,7 @@ fn profile() -> Result<Scan, String> {
 }
 impl State {
     fn new() -> Self {
-        Self { keyboard_presets: keyboard_presets::Store::default(), battery_history:battery_history::Store::default(), catalog:device_catalog::Store::default(), widget_order:widget_order::Store::default(), adb_preferences:adb_preferences::Store::default(), adb:adb::Report::default(), adb_query:Arc::new(Mutex::new(())), scan: Scan { devices: vec![], power: power(&Value::Null) },
+        Self { keyboard_presets: keyboard_presets::Store::default(), performance_history:performance_history::Store::default(), battery_history:battery_history::Store::default(), catalog:device_catalog::Store::default(), widget_order:widget_order::Store::default(), adb_preferences:adb_preferences::Store::default(), adb:adb::Report::default(), adb_query:Arc::new(Mutex::new(())), scan: Scan { devices: vec![], power: power(&Value::Null) },
             at: 0, error: None, events: VecDeque::new(), power_sample: None, power_checked_at: 0 }
     }
     fn apply(&mut self, result: Result<Scan, String>) {
@@ -650,6 +652,17 @@ fn dispatch(state: &Arc<Mutex<State>>, method: &str, params: &Value) -> Result<V
             }
             Ok(s.battery_history.value(id, at))
         },
+        "adb_performance_history" | "adb_performance_history_settings" => {
+            let id = params["id"].as_str().filter(|id| performance_history::valid_id(id)).ok_or("设备标识无效")?;
+            let mut s = state.lock().map_err(|_| "状态缓存不可用")?;
+            let at = now();
+            if method == "adb_performance_history_settings" {
+                let hours = params["hours"].as_u64().ok_or("性能记录保留时间无效")?;
+                let enabled = params["enabled"].as_bool().ok_or("性能记录状态无效")?;
+                s.performance_history.settings(hours, enabled, at)?;
+            }
+            Ok(s.performance_history.value(id, at))
+        },
         "open_device_reference" => {
             let key = params["key"].as_str().ok_or("缺少设备型号")?;
             let kind = params["kind"].as_str().ok_or("缺少资料类型")?;
@@ -674,11 +687,13 @@ fn dispatch(state: &Arc<Mutex<State>>, method: &str, params: &Value) -> Result<V
         },
         "adb_performance" => {
             let id = params["id"].as_str().ok_or("缺少设备标识")?;
-            let state = state.lock().map_err(|_| "状态缓存不可用")?;
+            let mut state = state.lock().map_err(|_| "状态缓存不可用")?;
             let info = state.adb.devices.iter().find(|device| device.id == id)
                 .and_then(|device| device.adb.as_ref()).filter(|info| info.state == "device" && !state.adb.stale())
                 .ok_or("该设备当前没有可用的 ADB 连接")?;
-            adb_performance::request(info, params["refresh"].as_bool() == Some(true))
+            let sample = adb_performance::request(info, params["refresh"].as_bool() == Some(true))?;
+            state.performance_history.observe(id, &sample, now());
+            Ok(sample)
         },
         "adb_refresh" => { refresh_adb(state); state.lock().map_err(|_| "状态缓存不可用".to_string()).map(|s|s.full()) },
         "open_display_settings" => {
@@ -719,6 +734,7 @@ fn dispatch(state: &Arc<Mutex<State>>, method: &str, params: &Value) -> Result<V
                 Some("open_device_reference") => dispatch(state, "open_device_reference", &params["params"]),
                 Some("open_display_settings") => dispatch(state, "open_display_settings", &params["params"]),
                 Some(method @ ("adb_refresh" | "adb_performance")) => dispatch(state, method, &params["params"]),
+                Some(method @ ("adb_performance_history" | "adb_performance_history_settings")) => dispatch(state, method, &params["params"]),
                 Some(method @ ("adb_set_alias" | "adb_set_low_battery_threshold")) => dispatch(state, method, &params["params"]),
                 Some("widget_order_set") => dispatch(state, "widget_order_set", &params["params"]),
                 _ => Err("不支持的组件操作".into()),
@@ -735,6 +751,45 @@ fn persist_battery_history(state: &Mutex<State>, writer: &Mutex<()>) {
         let success = write.save();
         if let Ok(mut s) = state.lock() { s.battery_history.finish(write.revision, success); }
     }
+    let pending = state.lock().ok().and_then(|mut s| s.performance_history.pending(now()));
+    if let Some(write) = pending {
+        let success = write.save();
+        if let Ok(mut s) = state.lock() { s.performance_history.finish(write.revision, success); }
+    }
+}
+
+fn sample_performance_history(state: &Mutex<State>) {
+    let devices = {
+        let Ok(mut s) = state.lock() else { return; };
+        if !s.performance_history.enabled() { return; }
+        let devices = if s.adb.stale() { vec![] } else {
+            s.adb.devices.iter().filter_map(|device| device.adb.as_ref()
+                .filter(|info| info.state == "device").map(|info| (device.id.clone(), info.clone())))
+                .take(performance_history::MAX_DEVICES).collect::<Vec<_>>()
+        };
+        s.performance_history.offline(&devices.iter().map(|(id, _)| id.clone()).collect(), now());
+        devices
+    };
+    for (id, info) in devices {
+        if !state.lock().is_ok_and(|s| s.performance_history.enabled()) { break; }
+        let deadline = Instant::now() + Duration::from_secs(4);
+        let sample = loop {
+            if !state.lock().is_ok_and(|s| s.performance_history.enabled()) { return; }
+            let sample = adb_performance::request(&info, false);
+            if sample.as_ref().is_ok_and(|value| value["status"] == "pending") && Instant::now() < deadline {
+                thread::sleep(Duration::from_millis(100)); continue;
+            }
+            break sample;
+        };
+        if let Ok(mut s) = state.lock() {
+            let current = !s.adb.stale() && s.adb.devices.iter().any(|device| device.id == id && device.adb.as_ref()
+                .is_some_and(|current| current.state == "device" && current.serial == info.serial && current.transport_id == info.transport_id));
+            match sample {
+                Ok(sample) if current && sample["status"] == "read" => s.performance_history.observe(&id, &sample, now()),
+                _ => s.performance_history.gap(&id, now()),
+            }
+        }
+    }
 }
 fn main() {
     let mut args = std::env::args().skip(1);
@@ -750,6 +805,7 @@ fn main() {
     initial.keyboard_presets = keyboard_presets::Store::open(root.clone());
     initial.adb_preferences = adb_preferences::Store::open(root.clone());
     initial.battery_history = battery_history::Store::open(root.clone(), now());
+    initial.performance_history = performance_history::Store::open(root.clone(), now());
     initial.catalog.root = root.clone();
     let state = Arc::new(Mutex::new(initial));
     if let Some(root) = root.as_deref() {
@@ -766,6 +822,12 @@ fn main() {
     });
     let adb_worker=Arc::clone(&state);
     thread::spawn(move || loop { refresh_adb(&adb_worker); thread::sleep(Duration::from_secs(10)); });
+    let performance_worker = Arc::clone(&state);
+    thread::spawn(move || loop {
+        let start = Instant::now();
+        sample_performance_history(&performance_worker);
+        thread::sleep(Duration::from_millis(performance_history::INTERVAL).saturating_sub(start.elapsed()));
+    });
     let worker = Arc::clone(&state);
     thread::spawn(move || {
         loop {
