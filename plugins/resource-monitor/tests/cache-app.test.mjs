@@ -5,9 +5,10 @@ import assert from 'node:assert/strict';
 import {build} from 'esbuild';
 const hookKey=Symbol.for('flowhub.cache-app.hooks');
 const result=await build({entryPoints:[new URL('../src/App.tsx',import.meta.url).pathname],bundle:true,write:false,platform:'node',format:'esm',plugins:[{name:'controlled-app',setup(build){
- build.onResolve({filter:/^react(?:\/jsx-runtime)?$|^antd$|^@ant-design\/cssinjs$|^@local\/common-components\/react\/antd$|^@flowhub\/plugin-common\/react$|^\.\/applications$/},args=>({path:args.path,namespace:'controlled-app'}));
+ build.onResolve({filter:/^react(?:\/jsx-runtime)?$|^antd$|^@ant-design\/cssinjs$|^@local\/common-components\/react\/antd$|^@flowhub\/plugin-common\/react$|^\.\/applications$|^\.\/ResourceHistory$/},args=>({path:args.path,namespace:'controlled-app'}));
  build.onLoad({filter:/.*/,namespace:'controlled-app'},({path})=>({contents:path==='react'?`const hooks=()=>globalThis[Symbol.for('flowhub.cache-app.hooks')];${['useState','useRef','useEffect','useMemo','useDeferredValue'].map(name=>`export const ${name}=(...args)=>hooks().${name}(...args);`).join('')}`:
  path==='react/jsx-runtime'?`export const jsx=(type,props)=>({type,props});export const jsxs=jsx;export const Fragment='Fragment';`:
+ path==='./ResourceHistory'?`export const ResourceHistory='ResourceHistory';`:
  path==='./applications'?`export const AppMark='AppMark';const empty={};export const useApplications=()=>empty;export const applicationIdentity=g=>({name:g.presentation?.name||g.name,description:g.source||'',originName:g.origin?.name||'',sourceText:''});export const sourceNames=s=>s.map(x=>x.name).join('、');`:
  path==='@local/common-components/react/antd'?`export const createCommonAntdTheme=()=>({});`:
  `${['Alert','ConfigProvider','Descriptions','Drawer','Empty','Switch','Table','Tabs','Tag','StyleProvider','Button','HelpPopover','Input'].map(name=>`export const ${name}='${name}';`).join('')}export const Modal=Object.assign(function Modal(){},{displayName:'Modal',confirm:options=>globalThis[Symbol.for('flowhub.cache-app.hooks')].confirm(options)});export const theme={};`}));

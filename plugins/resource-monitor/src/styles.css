@@ -37,12 +37,13 @@
   .detail-metrics {margin:0;padding:10px 0}
   .detail-metrics dt {font-size:11px;color:var(--fh-muted)}
   .detail-metrics dd {margin:3px 0 0;font-size:14px;font-weight:600}
-  .footprint-trend {margin:0 0 9px;padding:8px 10px;border:1px solid var(--fh-border);border-radius:8px;background:var(--fh-surface-soft)}
-  .footprint-trend-plot {display:grid;grid-template-columns:62px minmax(0,1fr);gap:5px;margin-top:4px}
-  .footprint-trend svg {display:block;width:100%;height:64px}
-  .footprint-trend line {stroke:var(--fh-border);vector-effect:non-scaling-stroke}
-  .footprint-trend path {fill:none;stroke:var(--fh-accent);stroke-width:1.7;vector-effect:non-scaling-stroke}
-  .footprint-trend-time {margin-left:67px}
+  .resource-history {margin-bottom:10px;padding-top:10px;border-top:1px solid var(--fh-border)}
+  .resource-history-plot {min-height:132px}
+  .resource-history-plot .fh-history-chart {max-width:560px;margin-inline:auto}
+  .resource-history .fh-select {width:106px}
+  .resource-history .fh-select__trigger {min-height:27px;font-size:11px;letter-spacing:0}
+  .resource-history-tab {border:0;border-bottom:2px solid transparent;background:transparent;color:var(--fh-muted);min-height:27px;padding:4px 10px;font-size:11px;letter-spacing:0}
+  .resource-history-tab[aria-selected=true] {color:var(--fh-accent);background:var(--fh-surface-soft);border-bottom-color:var(--fh-accent)}
   .detail-accounting {padding:6px 0;border-bottom:1px solid var(--fh-border)}
   .detail-accounting summary {cursor:pointer;color:var(--fh-accent)}
   .detail-accounting p {margin:5px 0}

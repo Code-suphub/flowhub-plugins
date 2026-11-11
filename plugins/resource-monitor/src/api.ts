@@ -27,7 +27,7 @@ export function createApi(host:Window):Api {
   }
   function timedOut(id:string,item:Request){
     pending.delete(id);expired.set(id,{method:item.method,traceId:item.traceId,started:item.started,hidden:item.hidden});if(expired.size>32)expired.delete(expired.keys().next().value!);
-    const action=['terminate_confirm','quit_confirm','service_confirm','startup_set','startup_stop','finder_extension_set','script_observer_config','privileged_enable','privileged_disable'].includes(item.method);
+    const action=['terminate_confirm','quit_confirm','service_confirm','startup_set','startup_stop','finder_extension_set','script_observer_config','privileged_enable','privileged_disable','resource_history_settings'].includes(item.method);
     const message=action?'请求等待超时，操作结果尚未确认。请刷新核实状态，再决定是否重试。':`${requestLabel(item.method)}超时，请稍后刷新。`;
     failed.add(item.method);diagnose('timeout',item);item.reject(requestError(message,item,'timeout'));
   }
@@ -74,6 +74,7 @@ export function createApi(host:Window):Api {
         }
         if(method==='ranking_snapshot'||method==='refresh_summary'||method==='set_view_preferences')return Promise.resolve(rankingFrom({...sampleSnapshot(),sorting:previewSorting},String(params.query??''),typeof params.includeSystem==='boolean'?params.includeSystem:previewIncludeSystem) as T);
         if(method==='group_detail')return Promise.resolve(detailFrom(sampleSnapshot(),String(params.groupId??''),params.trackedPids as number[]|undefined,params.contextPids as number[]|undefined) as T);
+        if(method==='resource_history')return Promise.resolve({groupId:params.groupId,hours:48,intervalSeconds:60,from:Date.now()-48*3600000,to:Date.now(),points:[],truncated:false,error:null} as T);
         if(method==='services_snapshot')return Promise.resolve({at:Date.now(),supported:true,services:[]} as T);
         if(method==='finder_extensions_snapshot')return Promise.resolve({rows:[
           {id:'example.finder',name:'文件同步扩展',appPath:'/Applications/Example.app',bundlePath:'/Applications/Example.app/Contents/PlugIns/Finder.appex',state:'enabled',runningCount:1,revision:null},

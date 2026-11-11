@@ -11,7 +11,7 @@ import {ScriptDrawer} from './ScriptDrawer';
 import {StartupSettings} from './StartupSettings';
 import {FinderExtensions} from './FinderExtensions';
 import {BackgroundServices,restartLabel,sameServiceProcess,useBackgroundServices} from './BackgroundServices';
-import {FootprintTrend,recordFootprints,type FootprintSample} from './FootprintTrend';
+import {ResourceHistory} from './ResourceHistory';
 import {RequestDetails} from './RequestDetails';
 import {displayError,errorText,RequestError} from './errors';
 import type {DisplayError} from './errors';
@@ -46,7 +46,6 @@ const settledPrivilege=(value:PrivilegedStatus,action:'enable'|'disable')=>!valu
 export function App({api,context}:{api:Api;context:Context}) {
   const [data,setData]=useState<RankingSnapshot>();
   const dataRef=useRef<RankingSnapshot|undefined>(undefined);
-  const footprintHistory=useRef<FootprintSample[]>([]);
   const [error,setError]=useState<DisplayError>('');const [notice,setNotice]=useState('');
   const [query,setQuery]=useState('');const deferredQuery=useDeferredValue(query);
   const sorting=data?.sorting??defaultRankingOrder;
@@ -154,7 +153,6 @@ export function App({api,context}:{api:Api;context:Context}) {
   function rankingError(next:DisplayError){setError(previous=>previous instanceof RequestError&&previous.method!=='ranking_snapshot'&&previous.method!=='refresh_summary'?previous:next);}
   function accept(next:RankingSnapshot){
     if(next.query!==queryRef.current.trim().toLocaleLowerCase()||!newerSnapshot(next,dataRef.current))return false;
-    recordFootprints(footprintHistory.current,next);
     dataRef.current=next;setData(next);return true;
   }
   function acceptFull(next:Snapshot){
@@ -428,7 +426,7 @@ export function App({api,context}:{api:Api;context:Context}) {
           <div><dt>RSS</dt><dd className="numeric">{bytes(shownStats?.memory)}{shownStats?.incomplete?' *':''}</dd></div>
           <div><dt>CPU</dt><dd className="numeric">{detail.processes.length>0&&detail.processes.every(permissionLimited)?'—':cpu(shownStats?.cpu)}</dd></div>
         </dl>
-        <FootprintTrend history={footprintHistory.current} groupId={detail.id}/>
+        <ResourceHistory key={detail.id} api={api} groupId={detail.id}/>
         <details className="detail-accounting muted text-xs">
           <summary>统计口径与归组</summary>
           <p>系统归属记账（应用级参考） <strong className="numeric">{detailAccounting?.text}</strong>。{detailAccounting?.hint}{detail.systemAccounting?.shared?'此资源组由多条记录共享。':''}</p>

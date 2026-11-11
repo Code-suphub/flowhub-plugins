@@ -12,6 +12,7 @@
   let current=snapshot;
   let includeSystem=false;
   let sorting={key:'cpu',order:'descend'};
+  let historyHours=48;
   const systemRow={...snapshot.rows[0],id:'system:window-server',name:'WindowServer'};
   const changeView=params=>{
     if(typeof params.includeSystem==='boolean')includeSystem=params.includeSystem;
@@ -39,6 +40,16 @@
     const data=event.data;host.messages.push(data);
     if(data.type==='flowhub:request') {
       if(data.method===host.failMethod){delete host.failMethod;event.source.postMessage({type:'flowhub:response',id:data.id,error:'Error: fixture request failure'},'*');return;}
+      if(['resource_history','resource_history_settings'].includes(data.method)){
+        if(data.method==='resource_history_settings')historyHours=data.params.hours;
+        const at=Date.now(),second=data.params.groupId==='postgres';
+        const result={groupId:host.wrongHistory?'wrong-group':data.params.groupId,hours:historyHours,intervalSeconds:60,from:at-historyHours*3600000,to:at,truncated:false,error:null,points:host.emptyHistory?[]:[
+          {at:at-180000,cpu:second?75:2,footprint:1073741824,rss:536870912,run:1,segment:1},
+          {at:at-120000,cpu:second?80:3,footprint:2147483648,rss:1073741824,run:1,segment:1},
+          {at:at-60000,cpu:null,footprint:null,rss:null,run:1,segment:1},
+          {at,cpu:second?85:4,footprint:3221225472,rss:1610612736,run:2,segment:1}
+        ]};event.source.postMessage({type:'flowhub:response',id:data.id,result},'*');return;
+      }
       if(data.method==='finder_extensions_snapshot'||data.method==='finder_extension_set'){
         const update=data.method==='finder_extension_set';
         if(update){
@@ -344,6 +355,32 @@
     doc(main).querySelector('button[aria-label="查看 Codex 进程"]').click();
     await wait(()=>doc(main).querySelector('input[aria-label="选择实例 PID 103"]'),'instance checkboxes missing');
     await wait(()=>doc(main).querySelector('.detail-modal').textContent.includes('会自动重启'),'verified service restart hint missing');
+    const history=()=>doc(main).querySelector('.resource-history');
+    await wait(()=>history()?.querySelector('.fh-history-chart svg'),'saved history did not load');
+    assert(history().querySelector('[role=tab][aria-selected=true]').textContent==='活跃足迹','default history metric changed');
+    const historyTab=label=>[...history().querySelectorAll('[role=tab]')].find(tab=>tab.textContent===label);
+    const historySvg=()=>history().querySelector('.fh-history-chart svg');
+    const firstHeight=history().offsetHeight;
+    for(const [label,value] of [['CPU','4.0%'],['RSS','1.50 GiB'],['活跃足迹','3.00 GiB']]){
+      historyTab(label).click();await wait(()=>historySvg()?.getAttribute('aria-label')===label+'历史曲线','history metric did not switch');
+      historySvg().dispatchEvent(new KeyboardEvent('keydown',{key:'End',bubbles:true}));
+      await wait(()=>history().querySelector('output')?.textContent.includes(value),'keyboard cursor lost selected metric');
+      assert(Math.abs(history().offsetHeight-firstHeight)<2,'history metric changed outer size');
+    }
+    for(const width of [1024,600,380])for(const theme of ['light','dark']){
+      main.element.style.width=width+'px';doc(main).documentElement.dataset.theme=theme;
+      await new Promise(done=>setTimeout(done,20));
+      assert(history().querySelector('.resource-history-plot').scrollHeight<240,'history plot is unbounded');
+      assert(doc(main).querySelectorAll('.resource-history').length===1,'duplicate history block');
+      const body=doc(main).querySelector('.detail-modal .ant-modal-body');assert(body.clientHeight>0&&body.scrollHeight>=body.clientHeight,'detail scroll region missing');
+    }
+    main.element.style.width='380px';
+    const retention=()=>history().querySelector('[aria-label="资源历史保留时间"]');
+    retention().click();await wait(()=>history().querySelector('[role=option]'),'retention options missing');
+    [...history().querySelectorAll('[role=option]')].find(option=>option.textContent==='7 天').click();
+    await wait(()=>retention().textContent.includes('7 天'),'retention save was not reflected');
+    assert(main.messages.some(m=>m.method==='resource_history_settings'&&m.params.hours===168),'retention did not use persistent API');
+    checks.push('persisted CPU/footprint/RSS; chart keyboard cursor; fixed plot; light/dark 1024/600/380; retention save');
     const rootCheckbox=doc(main).querySelector('input[aria-label="选择实例 PID 103"]');
     assert(rootCheckbox.disabled,'root instance must remain protected');
     assert(doc(main).body.textContent.includes('root 进程：当前授权仅用于采集，不支持结束。'),'root protection reason missing');
@@ -440,6 +477,16 @@
     doc(main).querySelector('button[aria-label="查看 PostgreSQL 14 进程"]').click();
     const postgresShortcut=()=>[...doc(main).querySelectorAll('.detail-modal button')].find(button=>button.textContent==='自启动 / 后台服务');
     await wait(postgresShortcut,'PostgreSQL service shortcut missing without privileged match');
+    await wait(()=>history()?.dataset.historyGroup==='postgres'&&retention()?.textContent.includes('7 天'),'reopened detail lost saved global retention');
+    historyTab('CPU').click();await wait(()=>historySvg()?.getAttribute('aria-label')==='CPU历史曲线','second application chart missing');
+    historySvg().dispatchEvent(new KeyboardEvent('keydown',{key:'End',bubbles:true}));
+    await wait(()=>history().querySelector('output')?.textContent.includes('85.0%'),'application history was reused from the previous selection');
+    const pollHistory=()=>{const probe=main.element.contentWindow.__probe,entry=[...probe.timeouts].find(([,timer])=>timer.delay===15000);assert(entry,'history timer missing');main.element.contentWindow.clearTimeout(entry[0]);entry[1].fn();};
+    main.emptyHistory=true;pollHistory();await wait(()=>history().textContent.includes('暂无此应用的历史记录'),'empty history displayed a fake chart');
+    main.emptyHistory=false;main.wrongHistory=true;pollHistory();await wait(()=>history().textContent.includes('历史记录与当前应用不匹配'),'mismatched application identity was accepted');
+    assert(!historySvg(),'mismatched history retained the previous plot');
+    main.wrongHistory=false;pollHistory();await wait(()=>historySvg(),'history did not recover after identity mismatch');
+    checks.push('reopen retains global retention; separate application histories; genuine empty state; reject mismatched response; recover');
     postgresShortcut().click();
     await wait(()=>startupRow(postgresStartup.name),'scoped PostgreSQL startup row missing');
     assert(startupDrawer().querySelectorAll('article').length===1,'PostgreSQL shortcut exposed an unrelated service');

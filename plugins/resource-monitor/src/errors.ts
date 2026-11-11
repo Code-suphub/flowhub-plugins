@@ -2,6 +2,7 @@ const labels:Record<string,string>={script_observer_status:'读取自动观察�
 Object.assign(labels,{startup_snapshot:'读取自启动状态',startup_set:'更改自启动设置',startup_stop:'停止数据库后台服务',login_items_settings:'打开登录项设置'});
 Object.assign(labels,{finder_extensions_snapshot:'读取访达扩展',finder_extension_set:'更改访达扩展'});
 Object.assign(labels,{configureCard:'保存卡片设置',set_view_preferences:'保存排行显示设置'});
+Object.assign(labels,{resource_history:'读取资源历史',resource_history_status:'读取后台记录状态',resource_history_settings:'保存历史保留时间'});
 export const requestLabel=(method:string)=>Object.hasOwn(labels,method)?labels[method]:'插件请求';
 export type DisplayError=Error|string;
 export const displayError=(error:unknown):DisplayError=>error instanceof Error?error:String(error);

@@ -7,6 +7,7 @@ mod diagnostics;
 mod accounting;
 mod scripts;
 mod rpc;
+mod history;
 #[cfg(test)]
 mod cache_tests;
 mod projects;
@@ -82,6 +83,7 @@ impl Monitor {
         let result = collect(self);
         let error = result.as_ref().err().cloned();
         self.snapshot = self.cache.finish(result);
+        self.cache.history.observe(&self.snapshot);
         diagnostics::sample_finished(error.as_deref(),self.snapshot.groups.iter().map(|g|g.processes.len()).sum(),self.snapshot.groups.len());
         error.map_or(Ok(()), Err)
     }
@@ -276,6 +278,9 @@ impl Monitor {
                 Ok(self.snapshot.ranking(&json!({"query":params["query"]})))
             }
             "group_detail" => self.snapshot.detail(params),
+            "resource_history" => self.cache.history.report(params,now()),
+            "resource_history_settings" => self.cache.history.retention(params),
+            "resource_history_status" => self.cache.history.status(),
             "script_activity" => Ok(self.snapshot.scripts()),
             "diagnostic_event" => diagnostics::client(params),
             "services_snapshot" | "service_preview" | "service_confirm" => native::service_request(method,params),
@@ -346,6 +351,9 @@ impl Monitor {
                         "ranking_snapshot",
                         "set_view_preferences",
                         "group_detail",
+                        "resource_history",
+                        "resource_history_settings",
+                        "resource_history_status",
                         "script_activity",
                         "diagnostic_event",
                         "services_snapshot",
@@ -392,6 +400,12 @@ fn validate_plan(plan: &Plan) -> Result<(), String> {
 }
 
 fn main() {
+    let args=std::env::args().skip(1).collect::<Vec<_>>();
+    if args.first().is_some_and(|arg|arg=="--cli") {
+        let result=history::cli(&args[1..]);
+        let response=match &result{Ok(value)=>json!({"version":env!("CARGO_PKG_VERSION"),"source":"persisted-database","result":value}),Err(error)=>json!({"error":error})};
+        println!("{response}");if result.is_err(){std::process::exit(1);}return;
+    }
     diagnostics::init();
     // Keep AppKit's run loop, collection and action state on this one thread.
     // rpc's input thread serves immutable cache reads independently.

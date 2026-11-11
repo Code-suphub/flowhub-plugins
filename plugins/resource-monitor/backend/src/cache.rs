@@ -257,12 +257,15 @@ fn search_fields(g: &Group) -> Vec<String> {
 pub struct Cache {
     snapshot: Arc<RwLock<Arc<Snapshot>>>,
     preferences: Option<PathBuf>,
+    pub(crate) history: crate::history::History,
 }
 impl Cache {
     pub fn new() -> Self {
         let path = std::env::var_os("FLOWHUB_PLUGIN_DATA")
             .map(|dir| PathBuf::from(dir).join("view-preferences.json"));
-        Self::with_preferences(path)
+        let mut cache=Self::with_preferences(path);
+        cache.history=crate::history::History::open(std::env::var_os("FLOWHUB_PLUGIN_DATA").map(PathBuf::from));
+        cache
     }
     pub(crate) fn with_preferences(preferences: Option<PathBuf>) -> Self {
         let mut snapshot = Snapshot::new(0, vec![], json!({}));
@@ -270,7 +273,7 @@ impl Cache {
             .and_then(|path| fs::read(path).ok())
             .and_then(|bytes| serde_json::from_slice(&bytes).ok())
             .unwrap_or_default();
-        Self { snapshot: Arc::new(RwLock::new(Arc::new(snapshot))), preferences }
+        Self { snapshot: Arc::new(RwLock::new(Arc::new(snapshot))), preferences,history:crate::history::History::unavailable() }
     }
     pub fn get(&self) -> Arc<Snapshot> {
         self.snapshot.read().unwrap_or_else(|p| p.into_inner()).clone()
