@@ -7,7 +7,9 @@
     "build": "node scripts/build.mjs",
     "build:ui": "vite build --config vite.config.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "cargo test --manifest-path backend/Cargo.toml && pnpm run typecheck && node --test tests/*.test.cjs"
+    "test": "cargo test --manifest-path backend/Cargo.toml && pnpm run typecheck && node --test tests/*.test.cjs",
+    "plasmic:dev": "vite --config vite.plasmic.config.mjs --mode plasmic-pages --host 127.0.0.1 --port 5206",
+    "plasmic:layouts:sync": "node ../../scripts/plasmic/cli.mjs social-hub"
   },
   "dependencies": {
     "@flowhub/plugin-common": "link:../common",
