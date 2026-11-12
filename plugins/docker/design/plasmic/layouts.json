@@ -1,0 +1,62 @@
+{
+  "schema": 1,
+  "output": "ui/plasmic-layouts.css",
+  "layouts": [
+    {
+      "id": "main",
+      "component": "联动 · Docker · main",
+      "designSource": "Docker · 容器",
+      "page": "docker-main",
+      "entry": "index.html",
+      "preview": "ui/index.html",
+      "regions": {
+        "root": "body"
+      },
+      "designPaths": {
+        "root": []
+      }
+    },
+    {
+      "id": "card",
+      "component": "联动 · Docker · card",
+      "designSource": "Docker · Widget 卡片",
+      "page": "docker-card",
+      "entry": "widget-card.html",
+      "preview": "ui/widget-card.html",
+      "regions": {
+        "root": "body"
+      },
+      "designPaths": {
+        "root": []
+      }
+    },
+    {
+      "id": "detail",
+      "component": "联动 · Docker · detail",
+      "designSource": "Docker · Widget 详情",
+      "page": "docker-detail",
+      "entry": "widget-detail.html",
+      "preview": "ui/widget-detail.html",
+      "regions": {
+        "root": "body"
+      },
+      "designPaths": {
+        "root": []
+      }
+    },
+    {
+      "id": "editor",
+      "component": "联动 · Docker · editor",
+      "designSource": "Docker · Widget 编辑器",
+      "page": "docker-editor",
+      "entry": "widget-editor.html",
+      "preview": "ui/widget-editor.html",
+      "regions": {
+        "root": "body"
+      },
+      "designPaths": {
+        "root": []
+      }
+    }
+  ]
+}
