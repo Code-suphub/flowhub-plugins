@@ -22,6 +22,11 @@
 - [x] 实际原生后端 + 隔离 HTTP 宿主 + Chromium：读取本机实际进程，确认采样发布时间前进；列头排序到达真实后端，配置写入测试目录并在重载后恢复，Esc 回到打开按钮。该测试不改安装版卡片配置，不执行进程结束或真实导航。
 - [x] 最终卡片 JS 为 334,762 字节 / gzip 109,923 字节；基线为 291,853 / gzip 95,788 字节，gzip 增加约 14.1 KB，仍满足原有预算。Studio 注册代码与预览夹具不进入生产 IIFE。
 - [x] 打包资源检查通过，0.5.1 可独立加载；构建与运行使用已同步的本地文件，无 Google Fonts 或 Plasmic CDN 依赖。
-- [ ] 正常安装版替换、真实 macOS 键盘 / IME / 双屏冒烟：本轮未执行，不能由隔离 Chromium 结果替代。
+- [x] 正常安装版后台替换：备份 0.5.0 包和登记后，在原登记目录完整替换为 0.5.1，`plugin reload --dry-run` 不改登记，正式重载后核对 12 项 SHA256、版本与入口资源、新插件进程路径及宿主父进程；宿主未重启，其他插件登记及资源监控配置文件不变。
+- [x] 正常安装版真实采样：两次 `plugin verify` 的采样时间前进，读取到 94 个应用组；只读历史 CLI 确认原有历史起点保留、最新记录继续前进、保留期仍为 48 小时，历史写入进程是新安装的后端。
+- [x] 正常安装版卡片只读检查：通过 `toolkit desktop` 读取实际窗口截图及 AX，确认应用名称、CPU、活跃足迹、列头排序状态、显示设置和打开排行入口正常显示；未发送系统鼠标或键盘事件。
+- [ ] 正常安装版卡片配置保存 / 导航、真实 macOS 键盘 / IME / 双屏交互：本轮未执行，不能由隔离 Chromium 或只读截图结果替代。
 
 证据、截图、实际采样数据与日志保留在 Git 外：`~/.local/state/flowhub-plasmic-resource-card/`。主要文件为 `design-roundtrip.json`、`preview-acceptance.json`、`studio-cua-acceptance.json`、`studio-components.png`、`live-acceptance.json`、`resource-tests-final.log`、`card-tests-watch.log`、`resource-build-final.log`、`repo-tests-final.log`、`repo-build.log` 与 `layout.log`。
+
+安装版替换记录位于该目录的 `installed-gdjcbc1y/`：`installation-receipt.json`、替换前后 CLI 读回、包指纹、进程核对及 `installed-widget.png`。安装来源为提交 `0ca07e6`，继续保留在独立试点分支，未合入 main。
