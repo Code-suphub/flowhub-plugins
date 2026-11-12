@@ -2,7 +2,7 @@
   "schema": 1,
   "projectId": "rKroot8WmpiogJg8366SaB",
   "component": "ResourceMonitorCardLayout",
-  "revision": 135,
+  "revision": 155,
   "files": {
     "PlasmicResourceMonitorCardLayout.tsx": "b308dcbf1ca54e4d7a1d5a870c844cb9d4793f1e892063be353a33ea8080be00",
     "PlasmicResourceMonitorCardLayout.module.css": "0148d3725e7ae59acacea0328a77d1ba2e112bd19c550990a064d0205932ca1c",
