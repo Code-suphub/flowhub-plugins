@@ -1,0 +1,54 @@
+{
+  "schema": 1,
+  "projectId": "rKroot8WmpiogJg8366SaB",
+  "revision": 143,
+  "cssHash": "55e292c85bed406d39376ca2804350b1e17c9da627b6be02a3928dfe76bdba05",
+  "baseline": {
+    "main": {
+      "nodes": {
+        "root": {
+          "position": "relative",
+          "display": "block",
+          "width": "100%",
+          "height": "429.59px",
+          "max-width": "100%",
+          "padding-left": "0px",
+          "padding-right": "0px",
+          "padding-bottom": "0px",
+          "padding-top": "0px",
+          "margin-top": "0px",
+          "margin-right": "0px",
+          "margin-bottom": "0px",
+          "margin-left": "0px",
+          "border-top-width": "0px",
+          "border-right-width": "0px",
+          "border-bottom-width": "0px",
+          "border-left-width": "0px",
+          "background": "linear-gradient(transparent, transparent)",
+          "row-gap": "0px",
+          "column-gap": "0px",
+          "min-width": "0px",
+          "color": "rgb(36, 51, 72)",
+          "font-family": "system-ui",
+          "font-size": "16px",
+          "font-weight": "400",
+          "font-style": "normal",
+          "line-height": "normal",
+          "letter-spacing": "normal",
+          "text-align": "start",
+          "white-space": "normal",
+          "text-transform": "none",
+          "flex-direction": "row",
+          "flex-wrap": "nowrap",
+          "box-sizing": "border-box",
+          "object-fit": "fill",
+          "text-overflow": "clip",
+          "grid-auto-flow": "row",
+          "transform-origin": "500px 214.797px",
+          "min-height": "0px"
+        }
+      },
+      "structure": "88b75b58066aac4837211884dcb95c00574bd355f769d8b88443a07d388b9d18"
+    }
+  }
+}

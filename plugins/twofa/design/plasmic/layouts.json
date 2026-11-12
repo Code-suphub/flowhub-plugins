@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "output": "ui/plasmic-layouts.css",
+  "layouts": [
+    {
+      "id": "main",
+      "component": "联动 · 验证码 · main",
+      "designSource": "验证码 · 验证器主页面 · 稳定示例码",
+      "page": "twofa-main",
+      "entry": "index.html",
+      "preview": "ui/index.html",
+      "regions": {
+        "root": "body"
+      },
+      "designPaths": {
+        "root": []
+      }
+    }
+  ]
+}
