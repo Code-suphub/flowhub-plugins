@@ -4,13 +4,14 @@ import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import {defineConfig} from 'vite';
 import {inlineCommonHtml} from '../../scripts/inline-common.mjs';
+import {plasmicAutoSync} from './scripts/plasmic-watch.mjs';
 
 const root = import.meta.dirname;
 export default defineConfig(({command,mode}) => {
   const card=mode==='card';
   return {
     root, base: './',
-    plugins: [react(), tailwindcss(), ...(command === 'serve' ? [{
+    plugins: [react(), tailwindcss(), ...(command==='serve'&&mode==='plasmic'?[plasmicAutoSync()]:[]), ...(command === 'serve' ? [{
       name: 'resource-monitor-preview',
       transformIndexHtml(html) {
         return inlineCommonHtml(html.replace(/<link rel="stylesheet" href="react\/(?:monitor|card)\.css">/g, '')
@@ -35,7 +36,7 @@ export default defineConfig(({command,mode}) => {
     server: {strictPort:true,fs:{allow:[resolve(root,'../../../..')]},...(mode==='plasmic'?{
       // Studio owns an editor inside this host. Backend builds, test fixtures
       // and documentation must not reset that editor through a full reload.
-      watch:{ignored:['**/build/**','**/bin/**','**/backend/**','**/docs/**',resolve(root,'design/**'),'**/tests/**','**/scripts/**','**/*.md','**/src/.plasmic-*/**','**/src/plasmic/generated.json']}
+      watch:{ignored:['**/build/**','**/bin/**','**/backend/**','**/docs/**',resolve(root,'design/**'),'**/tests/**','**/scripts/**','**/*.md','**/src/.plasmic-*','**/src/.plasmic-*/**','**/src/plasmic/**']}
     }:{})},
     build: {
       ...(card?{minify:'terser',terserOptions:{ecma:2020,compress:{passes:3}}}:{}),

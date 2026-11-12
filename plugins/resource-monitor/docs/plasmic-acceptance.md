@@ -30,3 +30,14 @@
 证据、截图、实际采样数据与日志保留在 Git 外：`~/.local/state/flowhub-plasmic-resource-card/`。主要文件为 `design-roundtrip.json`、`preview-acceptance.json`、`studio-cua-acceptance.json`、`studio-components.png`、`live-acceptance.json`、`resource-tests-final.log`、`card-tests-watch.log`、`resource-build-final.log`、`repo-tests-final.log`、`repo-build.log` 与 `layout.log`。
 
 安装版替换记录位于该目录的 `installed-gdjcbc1y/`：`installation-receipt.json`、替换前后 CLI 读回、包指纹、进程核对及 `installed-widget.png`。安装来源为提交 `0ca07e6`，继续保留在独立试点分支，未合入 main。
+
+## 自动同步增补（2026-11-12）
+
+- [x] `plasmic:host` 开发模式每 3 秒检查已保存的 main 分支 revision，仅在变化时请求 Codegen；独立预览展示版本及同步状态。普通开发、生产构建和安装版不启动自动拉取。
+- [x] 13 项同步专项测试通过：未变化不重复生成、单次与自动任务互斥、请求期间本地手改保护、旧版 / 无效布局拒绝写入、失败退避与恢复、停服取消、预览刷新重试、真实 Vite 服务的只读状态与关闭清理。
+- [x] 真实 Plasmic 保存 API + 本机 Vite + 隔离 headless Chromium：卡片间距 12px → 16px，约 11.1 秒后独立预览自动显示变化，预览导航 1 次，App Host 导航 0 次；恢复为 12px 后再次自动更新。最终 revision 131，五份生成文件内容指纹与原 revision 127 一致，四份业务文件指纹始终不变。该结果不代替真实 Studio 人工编辑手势或正常安装版原生输入验收。
+- [x] 恢复后的深浅主题 × 240 / 380 / 600px 共 6 组预览检查通过，无横向溢出，页面错误 0。认证只在开发服务读取，浏览器只读状态不包含账户、Token 或认证文件路径。
+- [x] 全仓库 `npm test`、`npm run layout:machines -- --check`、`npm run build` 与 `git diff --check` 通过；资源监控为 80 项 Rust、94 项 Node / 浏览器测试。生产卡片仍为 334,762 字节 / gzip 109,923 字节，没有打入开发预览与同步逻辑。
+- [x] 安装版隔离检查：现有 0.5.1 的 12 项文件指纹、宿主和后端进程均未变化；本次不执行插件替换或重载。后续设计修改先验收，再单独构建和更新安装版。
+
+原始证据保留在 Git 外 `~/.local/state/flowhub-plasmic-autosync/run-njapssq3/`，包括 `live-roundtrip.json`、往返截图、`installed-isolation.json`、`repo-tests.log`、`layout.log` 和 `repo-build.log`。本机开发预览服务保持运行，App Host 地址沿用 `http://127.0.0.1:5189/plasmic-host.html`。

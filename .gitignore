@@ -3,6 +3,7 @@
 **/node_modules/
 **/dist/
 **/build/
+**/src/.plasmic-*
 .DS_Store
 /release-output/
 *.key
