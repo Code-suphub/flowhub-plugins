@@ -8,7 +8,9 @@
     "typecheck": "tsc --noEmit",
     "test:browser": "node scripts/browser-acceptance.mjs",
     "build:ui": "vite build --config vite.config.mjs",
-    "dev": "vite --config vite.config.mjs --host 127.0.0.1 --port 5188"
+    "dev": "vite --config vite.config.mjs --host 127.0.0.1 --port 5188",
+    "plasmic:dev": "vite --config vite.plasmic.config.mjs --mode plasmic-pages --host 127.0.0.1 --port 5203",
+    "plasmic:layouts:sync": "node ../../scripts/plasmic/cli.mjs device-center"
   },
   "dependencies": {
     "@flowhub/plugin-common": "link:../common",

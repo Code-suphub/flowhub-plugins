@@ -1,0 +1,62 @@
+{
+  "schema": 1,
+  "output": "ui/plasmic-layouts.css",
+  "layouts": [
+    {
+      "id": "main",
+      "component": "联动 · 外设中心 · main",
+      "designSource": "外设中心 · 设备",
+      "page": "device-center-main",
+      "entry": "index.html",
+      "preview": "ui/index.html",
+      "regions": {
+        "root": "body"
+      },
+      "designPaths": {
+        "root": []
+      }
+    },
+    {
+      "id": "card",
+      "component": "联动 · 外设中心 · card",
+      "designSource": "外设中心 · Widget 卡片",
+      "page": "device-center-card",
+      "entry": "widget-card.html",
+      "preview": "ui/widget-card.html",
+      "regions": {
+        "root": "body"
+      },
+      "designPaths": {
+        "root": []
+      }
+    },
+    {
+      "id": "detail",
+      "component": "联动 · 外设中心 · detail",
+      "designSource": "外设中心 · Widget 详情",
+      "page": "device-center-detail",
+      "entry": "widget-detail.html",
+      "preview": "ui/widget-detail.html",
+      "regions": {
+        "root": "body"
+      },
+      "designPaths": {
+        "root": []
+      }
+    },
+    {
+      "id": "editor",
+      "component": "联动 · 外设中心 · editor",
+      "designSource": "外设中心 · Widget 编辑器",
+      "page": "device-center-editor",
+      "entry": "widget-editor.html",
+      "preview": "ui/widget-editor.html",
+      "regions": {
+        "root": "body"
+      },
+      "designPaths": {
+        "root": []
+      }
+    }
+  ]
+}
