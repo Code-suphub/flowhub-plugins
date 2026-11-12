@@ -1,0 +1,62 @@
+{
+  "schema": 1,
+  "output": "ui/plasmic-layouts.css",
+  "layouts": [
+    {
+      "id": "main",
+      "component": "联动 · 机器管理 · main",
+      "designSource": "机器管理 · 机器",
+      "page": "machines-main",
+      "entry": "machines.html",
+      "preview": "machines.html",
+      "regions": {
+        "root": "body"
+      },
+      "designPaths": {
+        "root": []
+      }
+    },
+    {
+      "id": "card",
+      "component": "联动 · 机器管理 · card",
+      "designSource": "机器管理 · Widget 卡片",
+      "page": "machines-card",
+      "entry": "widget-card.html",
+      "preview": "widget-card.html",
+      "regions": {
+        "root": "body"
+      },
+      "designPaths": {
+        "root": []
+      }
+    },
+    {
+      "id": "detail",
+      "component": "联动 · 机器管理 · detail",
+      "designSource": "机器管理 · Widget 详情",
+      "page": "machines-detail",
+      "entry": "widget-detail.html",
+      "preview": "widget-detail.html",
+      "regions": {
+        "root": "body"
+      },
+      "designPaths": {
+        "root": []
+      }
+    },
+    {
+      "id": "editor",
+      "component": "联动 · 机器管理 · editor",
+      "designSource": "机器管理 · Widget 编辑器",
+      "page": "machines-editor",
+      "entry": "widget-editor.html",
+      "preview": "widget-editor.html",
+      "regions": {
+        "root": "body"
+      },
+      "designPaths": {
+        "root": []
+      }
+    }
+  ]
+}

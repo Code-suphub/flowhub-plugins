@@ -12,7 +12,9 @@
     "test": "cargo test --manifest-path backend/Cargo.toml && pnpm run typecheck && node --test --test-concurrency=1 tests/*.test.cjs && node scripts/layout-audit.mjs --check && node scripts/preview-fingerprint.mjs",
     "layout": "node scripts/layout-audit.mjs",
     "fingerprint": "node scripts/preview-fingerprint.mjs --write",
-    "prune-css": "node scripts/prune-dead-css.mjs"
+    "prune-css": "node scripts/prune-dead-css.mjs",
+    "plasmic:dev": "vite --config vite.plasmic.config.mjs --mode plasmic-pages --host 127.0.0.1 --port 5205",
+    "plasmic:layouts:sync": "node ../../scripts/plasmic/cli.mjs machines"
   },
   "dependencies": {
     "@flowhub/plugin-common": "link:../common",
