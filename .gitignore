@@ -1,9 +1,12 @@
 **/backend/target/
 **/bin/
 **/node_modules/
+**/node_modules
 **/dist/
 **/build/
 **/src/.plasmic-*
+**/.layout-sync-lock
+**/plasmic-layouts.css.next
 .DS_Store
 /release-output/
 *.key

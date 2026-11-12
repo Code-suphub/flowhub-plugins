@@ -10,7 +10,9 @@
     "typecheck": "tsc --noEmit",
     "build:ui": "node scripts/build-ui.mjs",
     "build": "node scripts/build.mjs",
-    "test": "cargo test --manifest-path backend/Cargo.toml && pnpm run typecheck && node --test tests/*.test.mjs"
+    "test": "cargo test --manifest-path backend/Cargo.toml && pnpm run typecheck && node --test tests/*.test.mjs",
+    "plasmic:dev": "vite --config vite.plasmic.config.mjs --mode plasmic-pages --host 127.0.0.1 --port 5201",
+    "plasmic:layouts:sync": "node ../../scripts/plasmic/cli.mjs resource-monitor"
   },
   "dependencies": {
     "@ant-design/cssinjs": "^2.0.0",
@@ -33,5 +35,10 @@
     "typescript": "5.9.3",
     "vite": "6.4.3"
   },
-  "pnpm": {"onlyBuiltDependencies": ["esbuild", "fsevents"]}
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "fsevents"
+    ]
+  }
 }

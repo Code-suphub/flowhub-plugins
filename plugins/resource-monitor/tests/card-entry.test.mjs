@@ -17,6 +17,7 @@ before(async()=>{
   await mkdir(join(directory,'ui/_common'),{recursive:true});
   outputs=await buildUi({outDir:join(directory,'ui/react'),logLevel:'error'});
   await copyFile(new URL('../flowhub-plugin.json',import.meta.url),join(directory,'flowhub-plugin.json'));
+  await copyFile(new URL('../ui/plasmic-layouts.css',import.meta.url),join(directory,'ui/plasmic-layouts.css'));
   for(const name of ['index.html','widget-card.html','widget-editor.html','widget-detail.html']) {
     const source=await readFile(new URL('../ui/'+name,import.meta.url),'utf8');
     await writeFile(join(directory,'ui',name),inlineCommonHtml(source,{scriptPrefix:'_common'}));

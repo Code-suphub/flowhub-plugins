@@ -1,0 +1,48 @@
+{
+  "schema": 1,
+  "output": "ui/plasmic-layouts.css",
+  "layouts": [
+    {
+      "id": "main",
+      "component": "联动 · 资源监控 · main",
+      "designSource": "资源监控 · 应用与工具排行",
+      "page": "resource-monitor-main",
+      "entry": "index.html",
+      "preview": "ui/index.html",
+      "regions": {
+        "root": "body"
+      },
+      "designPaths": {
+        "root": []
+      }
+    },
+    {
+      "id": "detail",
+      "component": "联动 · 资源监控 · detail",
+      "designSource": "资源监控 · Widget 详情",
+      "page": "resource-monitor-detail",
+      "entry": "widget-detail.html",
+      "preview": "ui/widget-detail.html",
+      "regions": {
+        "root": "body"
+      },
+      "designPaths": {
+        "root": []
+      }
+    },
+    {
+      "id": "editor",
+      "component": "联动 · 资源监控 · editor",
+      "designSource": "资源监控 · Widget 编辑器",
+      "page": "resource-monitor-editor",
+      "entry": "widget-editor.html",
+      "preview": "ui/widget-editor.html",
+      "regions": {
+        "root": "body"
+      },
+      "designPaths": {
+        "root": []
+      }
+    }
+  ]
+}
