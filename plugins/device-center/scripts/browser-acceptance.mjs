@@ -11,6 +11,8 @@ import {buildSync} from 'esbuild';
 // keyboard, mouse, clipboard, hardware state or installed plugin is modified.
 const root=fileURLToPath(new URL('../',import.meta.url));
 const performanceOnly=process.argv.includes('--performance-only');
+const mirrorOnly=process.argv.includes('--mirror-only');
+const phoneOnly=process.argv.includes('--phone-only');
 const out=resolve(process.argv.slice(2).find(arg=>!arg.startsWith('--'))||join(root,'screenshots'));
 await mkdir(out,{recursive:true});
 const compiled=buildSync({entryPoints:[join(root,'src/fixtures.ts')],bundle:true,platform:'node',format:'cjs',write:false}).outputFiles[0].text;
@@ -50,6 +52,34 @@ const server=createServer(async(req,res)=>{
    window.addEventListener('message',event=>{const frame=document.querySelector('iframe');if(event.source!==frame.contentWindow)return;const m=event.data;if(m.type==='flowhub:theme-ready'){frame.contentWindow.postMessage({type:'flowhub:theme',theme:'light'},'*');return;}if(m.type==='flowhub:widget-ready'){frame.contentWindow.postMessage({type:'flowhub:widget-init',token:'qa-token',context:${JSON.stringify(context)}},'*');return;}if(!['flowhub:request','flowhub:widget-rpc'].includes(m.type))return;const widget=m.type==='flowhub:widget-rpc',method=widget?m.params.method:m.method;window.__qa.requests.push(method);const reply={type:widget?'flowhub:widget-result':'flowhub:response',token:widget?'qa-token':undefined,id:m.id};
    if(method==='open_display_settings'){if(window.__qa.settingsError)reply.error=window.__qa.settingsError;else reply.result={opened:true};if(window.__qa.holdSettings){window.__qa.finishSettings=()=>frame.contentWindow.postMessage(reply,'*');return;}frame.contentWindow.postMessage(reply,'*');return;}
    if(method==='open_device_reference'){window.__qa.reference=widget?m.params.params:m.params;reply.result={opened:true};frame.contentWindow.postMessage(reply,'*');return;}
+   if(method.startsWith('phone_')){
+    const args=widget?m.params.params:m.params;
+    const phone={id:'phone-test-123456789',name:'K80 测试手机',canRecover:true,connected:true,route:'EasyTier',health:{version:'0.2.3',accessibilityConnected:true,batteryExempt:true}};
+    if(method==='phone_list')reply.result={phones:${JSON.stringify(context.scenario)}==='phone'?[phone]:[]};
+    else if(method==='phone_connect')reply.result=phone;
+    else if(method==='phone_disconnect'){window.__qa.phoneDisconnected=true;reply.result={ok:true};}
+    else if(method==='phone_recover'){window.__qa.recoveryStarts=(window.__qa.recoveryStarts||0)+1;window.__qa.recoveryRunning=true;reply.result={status:'running',stage:'easytier'};}
+    else if(method==='phone_recovery_status'){reply.result={...(!window.__qa.recoveryRunning?{status:'idle'}:window.__qa.recoveryError?{status:'failed',stage:'connecting-adb',error:window.__qa.recoveryError}:window.__qa.recoveryDone?{status:'success',stage:'ready',identityVerified:true}:{status:'running',stage:'wireless-settings'}),autoEnabled:window.__qa.phoneAuto===true,automatic:{reason:'online',attempts:0,maxAttempts:3}};}
+    else if(method==='phone_auto_recovery'){window.__qa.phoneAuto=args.enabled;reply.result={status:'idle',autoEnabled:args.enabled,automatic:{reason:'online',attempts:0,maxAttempts:3}};}
+    else if(method==='phone_frame'){
+     if(window.__qa.phoneFrameError)reply.error=window.__qa.phoneFrameError;
+     else {const c=document.createElement('canvas');c.width=720;c.height=1280;const ctx=c.getContext('2d');ctx.fillStyle='#3b5275';ctx.fillRect(0,0,720,1280);reply.result={id:'frame-'+Date.now(),image:c.toDataURL('image/jpeg').split(',')[1],width:1440,height:3200,rotation:0,capturedAt:Date.now(),route:window.__qa.phoneRoute||'EasyTier'};window.__qa.phoneFrames=(window.__qa.phoneFrames||0)+1;}
+    } else if(method==='phone_action'){window.__qa.phoneAction=args.action;reply.result={ok:true};}
+    else reply.result={ok:true};
+    frame.contentWindow.postMessage(reply,'*');return;
+   }
+   if(method.startsWith('adb_mirror_')){
+    const args=widget?m.params.params:m.params;
+    const sessions=window.__qa.mirrorSessions??={};
+    if(method==='adb_mirror_start'){
+      window.__qa.mirrorTarget=args.id;
+      if(window.__qa.mirrorError)reply.error=window.__qa.mirrorError;
+      else reply.result=sessions[args.id]={status:'connecting',route:'EasyTier'};
+    }else if(method==='adb_mirror_stop')reply.result=sessions[args.id]={status:'idle'};
+    else reply.result=sessions[args.id]||{status:'idle'};
+    if(window.__qa.holdMirror&&method==='adb_mirror_start'){window.__qa.finishMirror=()=>frame.contentWindow.postMessage(reply,'*');return;}
+    frame.contentWindow.postMessage(reply,'*');return;
+   }
    if(method==='adb_performance'){
     const args=widget?m.params.params:m.params;
     if(!['adb-usb','adb-offline',window.__qa.canonicalId].includes(args.id))reply.error='未找到设备';
@@ -124,7 +154,7 @@ const profile=await mkdtemp(join(tmpdir(),'flowhub-devices-browser-'));
 const chrome=spawn('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',['--headless=new','--remote-debugging-port=0',`--user-data-dir=${profile}`,'--no-first-run','--disable-gpu','--disable-site-isolation-trials','--disable-features=IsolateOrigins,site-per-process','about:blank'],{stdio:'ignore'});
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 let socket;
-const report={scope:'Shipped bundle in opaque iframe with fixture data and packaged macOS artwork helper; not installed-app acceptance.',performanceOnly,checks:[],responsive:[],errors:[],screenshots:[]};
+const report={scope:'Shipped bundle in opaque iframe with fixture data and packaged macOS artwork helper; not installed-app acceptance.',performanceOnly,mirrorOnly,checks:[],responsive:[],errors:[],screenshots:[]};
 try{
  for(let n=0;n<100&&!existsSync(join(profile,'DevToolsActivePort'));n++)await sleep(100);
  const [port]=(await readFile(join(profile,'DevToolsActivePort'),'utf8')).split('\n');
@@ -167,6 +197,82 @@ try{
  const tab=async name=>click('[role=tab][data-tabs-value="'+name+'"]');
  const refresh=async()=>{await parent('window.__qa.snapshot.at=Date.now()');await click('[aria-label="刷新设备"]');await wait('!document.querySelector("[aria-label=刷新设备]").disabled');};
  await send('Page.enable');await send('Runtime.enable');await send('Network.enable');await send('Emulation.setFocusEmulationEnabled',{enabled:true});await size(800);await navigate();
+ acceptance:{
+ if(phoneOnly){
+  await navigate('/qa?scenario=phone');
+  await wait('document.querySelector(".dc-phone-row")?.textContent.includes("K80 测试手机")');
+  await check('!document.querySelector(".dc-phone-row").textContent.includes("token")','paired list exposes no credentials');
+  await wait('Boolean(document.querySelector(".dc-phone-row input[type=checkbox]"))');
+  await check('!document.querySelector(".dc-phone-row input[type=checkbox]").checked','new phones default to manual recovery');
+  await click('.dc-phone-row input[type=checkbox]');
+  await wait('document.querySelector(".dc-phone-row input[type=checkbox]").checked');
+  await check('document.querySelector("[data-auto-recovery-state]").textContent.includes("ADB 在线")','auto recovery toggle saves and shows monitor state');
+  await navigate('/qa?scenario=phone');await wait('document.querySelector(".dc-phone-row input[type=checkbox]")?.checked===false');
+  report.checks.push('fresh pairing keeps automatic recovery disabled until explicitly enabled');
+  await evaluate('[...document.querySelectorAll(".dc-phone-row button")].find(b=>b.textContent==="连接与操控").click()');
+  await wait('Boolean(document.querySelector(".dc-phone-screen img"))');
+  await sleep(1100);
+  if(await parent('window.__qa.phoneFrames')<2)throw Error('Continuous frames did not refresh');report.checks.push('continuous view refreshes without ADB');
+  const phoneImage=await evaluate('(()=>{const r=document.querySelector(".dc-phone-screen img").getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2,dy:r.height*.15};})()');
+  await send('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',buttons:1,clickCount:1,x:phoneImage.x,y:phoneImage.y});
+  await send('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',buttons:0,clickCount:1,x:phoneImage.x,y:phoneImage.y});
+  await sleep(100);const tapped=await parent('window.__qa.phoneAction');
+  if(tapped?.type!=='tap'||Math.abs(tapped.x-720)>2||Math.abs(tapped.y-1600)>2)throw Error('Phone coordinate scaling failed');report.checks.push('pointer tap scales image coordinates to native phone pixels');
+  await wait('document.querySelector(".dc-phone-screen img")?.style.cursor==="crosshair"');
+  await send('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',buttons:1,clickCount:1,x:phoneImage.x,y:phoneImage.y});
+  await send('Input.dispatchMouseEvent',{type:'mouseMoved',buttons:1,x:phoneImage.x,y:phoneImage.y-phoneImage.dy});
+  await send('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',buttons:0,clickCount:1,x:phoneImage.x,y:phoneImage.y-phoneImage.dy});
+  await sleep(100);const dragged=await parent('window.__qa.phoneAction');if(dragged?.type!=='swipe'||dragged.y2>=dragged.y1)throw Error('Phone drag failed');report.checks.push('pointer drag emits one bounded swipe');
+  await wait('document.querySelector(".dc-phone-screen img")?.style.cursor==="crosshair"');
+  await evaluate('[...document.querySelectorAll(".dc-phone-dialog button")].find(b=>b.textContent==="主页").click()');
+  await sleep(100);if(await parent('window.__qa.phoneAction?.type')!=='home')throw Error('Home action missing');report.checks.push('toolbar sends a bounded phone action');
+  for(const width of [800,390]){await size(width,800);for(const theme of ['light','dark']){await parent(`document.querySelector('iframe').contentWindow.postMessage({type:'flowhub:theme',theme:'${theme}'},'*')`);await sleep(100);await check('document.documentElement.scrollWidth<=innerWidth','phone view fits '+width+' '+theme);await capture('phone-'+width+'-'+theme);}}
+  await parent('window.__qa.phoneFrameError="当前页面含受保护内容，系统禁止截图"');
+  await wait('document.querySelector(".dc-phone-dialog [role=alert]")?.textContent.includes("受保护内容")');
+  await check('!document.querySelector(".dc-phone-screen img")','protected-page error removes the previous frame');
+  await evaluate('[...document.querySelectorAll(".dc-phone-dialog button")].find(b=>b.textContent==="主页").click()');
+  await sleep(100);const escape=await parent('window.__qa.phoneAction');if(escape?.type!=='home'||escape.frameId!=='')throw Error('Protected-page navigation unavailable');report.checks.push('protected pages retain explicit home navigation without enabling coordinates');
+  await evaluate('[...document.querySelectorAll(".dc-phone-dialog button")].find(b=>b.textContent==="断开").click()');
+  await wait('!document.querySelector(".dc-phone-dialog")');await sleep(500);
+  if(!await parent('window.__qa.phoneDisconnected'))throw Error('Close did not stop phone view');report.checks.push('closing the viewer disconnects');
+  await click('[data-phone-recover]');await click('[data-phone-recover]');
+  if(await parent('window.__qa.recoveryStarts')!==1)throw Error('Duplicate recovery started');
+  await check('document.querySelector("[data-phone-recover]").disabled','recovery is single flight and disables repeated clicks');
+  await parent('window.__qa.recoveryDone=true');
+  await wait(`document.querySelector('[aria-label="ADB 恢复"]')?.textContent.includes("手机身份已核对")`);report.checks.push('recovery success requires identity verification');
+  await parent('window.__qa.recoveryDone=false;window.__qa.recoveryError="ADB 需要重新配对"');await click('[data-phone-recover]');
+  await wait(`document.querySelector('[aria-label="ADB 恢复"] [role=alert]')?.textContent.includes("重新配对")`);
+  await check('!document.querySelector("[data-phone-recover]").disabled','failed recovery keeps its reason visible and permits an explicit retry');
+  await navigate('/ui/index.html');await check('[...document.querySelectorAll("button")].find(b=>b.textContent==="添加手机").disabled','standalone preview cannot pair or control');
+  break acceptance;
+ }
+ if(mirrorOnly){
+  await navigate('/qa?scenario=adb-toolkit');await click('[data-device=adb-usb]');await wait('Boolean(document.querySelector("[data-mirror-start]"))');
+  await check('!document.querySelector("[data-mirror-start]").disabled','selected phone exposes a mirror action');
+  if(await parent('window.__qa.requests.includes("adb_mirror_start")'))throw Error('Opening details started mirroring');report.checks.push('opening details does not start a phone session');
+  await parent('window.__qa.holdMirror=true');
+  await evaluate('document.querySelector("[data-mirror-start]").click();document.querySelector("[data-mirror-start]").click()');
+  await wait('document.querySelector("[data-mirror-start]").disabled');
+  if(await parent('window.__qa.requests.filter(m=>m==="adb_mirror_start").length')!==1)throw Error('Duplicate mirror request');
+  if(await parent('window.__qa.mirrorTarget')!=='adb-usb')throw Error('Wrong phone selected');report.checks.push('double click sends one start for the selected opaque phone ID');
+  await parent('window.__qa.finishMirror();window.__qa.holdMirror=false');await wait('Boolean(document.querySelector("[data-mirror-stop]"))');
+  await parent('window.__qa.mirrorSessions["adb-usb"]={status:"running",route:"Tailscale"}');
+  await wait('document.querySelector("[aria-label=手机投屏]").textContent.includes("投屏窗口已打开 · Tailscale")');report.checks.push('current video status shows the actual selected route');
+  for(const theme of ['light','dark'])for(const width of [800,390]){
+   await size(width);await evaluate(`document.documentElement.dataset.theme='${theme}'`);await sleep(100);
+   await check('(()=>{const s=document.querySelector("[aria-label=手机投屏]"),r=s.getBoundingClientRect();return r.top>=0&&r.bottom<innerHeight-40&&r.left>=0&&r.right<=innerWidth&&s.scrollWidth<=s.clientWidth+1})()','mirror '+theme+' '+width+' action is visible without scrolling and fits');
+   await capture('mirror-'+theme+'-'+width);
+  }
+  await size(800);await keyboard('Escape','Escape',27);
+  if(await parent('window.__qa.requests.includes("adb_mirror_stop")'))throw Error('Closing details stopped mirroring');report.checks.push('closing details leaves the mirror session running');
+  await click('[data-device=adb-usb]');await wait('Boolean(document.querySelector("[data-mirror-stop]"))');await click('[data-mirror-stop]');await wait('Boolean(document.querySelector("[data-mirror-start]"))');report.checks.push('reopening details can stop the same session');
+  await parent('window.__qa.mirrorError="QA 未找到 scrcpy"');await click('[data-mirror-start]');await wait('document.querySelector("[aria-label=手机投屏] [role=alert]")?.textContent.includes("未找到 scrcpy")');report.checks.push('missing tools and connection errors stay visible beside the action');
+  await navigate('/qa?scenario=adb');await click('[data-device=adb-auth]');await wait('document.querySelector("[data-mirror-start]")?.disabled');report.checks.push('unauthorized phone cannot start mirroring');
+  await navigate('/qa?widget=1&scenario=adb-toolkit&device=adb-usb');await wait('Boolean(document.querySelector("[data-mirror-start]"))');await click('[data-mirror-start]');await wait('Boolean(document.querySelector("[data-mirror-stop]"))');
+  if(await parent('window.__qa.mirrorTarget')!=='adb-usb')throw Error('Widget targeted a different phone');report.checks.push('desktop widget details use the same authenticated selected-device action');
+  await navigate('/ui/index.html?scenario=adb-toolkit');await click('[data-device=adb-usb]');await wait('document.querySelector("[data-mirror-start]")?.disabled');report.checks.push('standalone preview never starts or polls real mirroring');
+  break acceptance;
+ }
  await wait('document.documentElement.dataset.theme==="light"');
  const geometry=await evaluate(`([...document.querySelectorAll('[data-device]')].map(e=>{const r=e.getBoundingClientRect();return {id:e.dataset.device,visible:r.top>=49&&r.bottom<=innerHeight-26}}))`);
  if(!geometry.every(x=>x.visible))throw Error('800x560 cards are clipped: '+JSON.stringify(geometry));report.checks.push('all nine devices fit 800x560');
@@ -589,6 +695,7 @@ try{
  await evaluate('[...document.querySelectorAll(".dc-keyboard-presets button")].find(button=>button.textContent==="读取 USB 诊断").click()');
  await wait('document.querySelector(".dc-keyboard-diagnostic")?.textContent.includes("4 / 4")');
  await check('!document.querySelector(".dc-keyboard-diagnostic").textContent.includes("%")','USB diagnostic labels raw power bytes without guessing a battery percentage');
+ }
  }
  if(report.errors.length)throw Error(report.errors.join('\n'));
  await writeFile(join(out,'report.json'),JSON.stringify(report,null,2));console.log(JSON.stringify({checks:report.checks.length,responsive:report.responsive.length,errors:report.errors,output:out}));

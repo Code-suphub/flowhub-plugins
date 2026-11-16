@@ -1,6 +1,6 @@
 [package]
 name = "flowhub-device-center"
-version = "0.3.21"
+version = "0.4.2"
 edition = "2021"
 rust-version = "1.89"
 
@@ -9,6 +9,10 @@ base64 = "0.23"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 plist = "1"
+libc = "0.2"
+ring = "0.17"
+reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "rustls-no-provider"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 
 [profile.release]
 strip = true

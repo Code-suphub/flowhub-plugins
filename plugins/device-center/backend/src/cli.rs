@@ -69,7 +69,33 @@ fn history_id(action: &str) -> Option<&str> {
     }
 }
 
+fn mirror_args(action:&str)->Option<(&str,&str)> {
+    let fields=action.split_whitespace().collect::<Vec<_>>();
+    match fields.as_slice(){
+        ["adb","mirror",method @ ("start"|"status"|"stop"),id] if crate::performance_history::valid_id(id)=>Some((method,id)),
+        _=>None,
+    }
+}
+fn phone_args(action:&str)->Option<(&str,&str)> {
+    let fields=action.split_whitespace().collect::<Vec<_>>();
+    match fields.as_slice(){
+        ["phone","list"]=>Some(("list","")),
+        ["phone",method @ ("connect"|"disconnect"|"frame"|"wake"|"recover"|"recovery_status"),id]
+            if (16..=80).contains(&id.len())&&id.bytes().all(|c|c.is_ascii_alphanumeric()||c==b'-')=>Some((method,id)),
+        _=>None,
+    }
+}
+
+fn auto_args(action:&str)->bool {
+    matches!(action.split_whitespace().collect::<Vec<_>>().as_slice(),["phone","auto","on"|"off",id] if crate::phone_bridge::valid_id(id))
+}
 fn execute(state: &Arc<Mutex<State>>, action: &str) -> Result<Value, String> {
+    let fields=action.split_whitespace().collect::<Vec<_>>();
+    if let ["phone","auto",mode @ ("on"|"off"),id]=fields.as_slice() {
+        if !crate::phone_bridge::valid_id(id){return Err("手机标识无效".into());}
+        let data=dispatch(state,"phone_auto_recovery",&json!({"id":id,"enabled":*mode=="on"}))?;
+        return Ok(json!({"version":env!("CARGO_PKG_VERSION"),"pid":std::process::id(),"data":data}));
+    }
     let value = match action {
         "status" => dispatch(state, "status_snapshot", &Value::Null)?,
         "refresh" => {
@@ -77,6 +103,14 @@ fn execute(state: &Arc<Mutex<State>>, action: &str) -> Result<Value, String> {
             dispatch(state, "status_snapshot", &Value::Null)?
         }
         "k75 status" => super::k75_status()?,
+        _ if phone_args(action).is_some() => {
+            let (method,id)=phone_args(action).expect("validated phone command");
+            dispatch(state,&format!("phone_{method}"),&json!({"id":id}))?
+        },
+        _ if mirror_args(action).is_some() => {
+            let (method,id)=mirror_args(action).expect("validated mirror command");
+            dispatch(state,&format!("adb_mirror_{method}"),&json!({"id":id}))?
+        },
         _ => match performance_args(action) {
             Some((id, refresh)) => dispatch(state, "adb_performance", &json!({"id":id,"refresh":refresh}))?,
             None => match history_id(action) {
@@ -115,7 +149,7 @@ pub fn serve(root: &Path, state: Arc<Mutex<State>>) -> io::Result<()> {
 
 pub fn run(args: &[String]) -> Result<Value, String> {
     let joined = args.join(" ");
-    let commands = ["status", "refresh", "k75 status", "adb performance <id> [--refresh]", "adb history <id>"];
+    let commands = ["status", "refresh", "k75 status", "adb performance <id> [--refresh]", "adb history <id>","adb mirror start|status|stop <id>","phone list","phone connect|disconnect|frame|wake|recover|recovery_status <id>","phone auto on|off <id>"];
     let action = match args {
         [cmd] if cmd == "status" => "status",
         [cmd] if cmd == "refresh" => "refresh",
@@ -124,7 +158,7 @@ pub fn run(args: &[String]) -> Result<Value, String> {
         [arg] if arg == "--help" || arg == "help" => {
             return Ok(json!({"result":{"commands":commands}}));
         }
-        _ if performance_args(&joined).is_some() || history_id(&joined).is_some() => &joined,
+        _ if performance_args(&joined).is_some() || history_id(&joined).is_some() || mirror_args(&joined).is_some() || phone_args(&joined).is_some() || auto_args(&joined) => &joined,
         _ => return Err("用法为 --cli status、refresh、k75 status 或 adb performance <id> [--refresh]".into()),
     };
     let root = std::env::var_os("FLOWHUB_PLUGIN_DATA").map(PathBuf::from)
@@ -149,6 +183,30 @@ pub fn run(args: &[String]) -> Result<Value, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test] fn automatic_cli_accepts_paired_uuid_but_no_extra_commands(){
+        assert!(auto_args("phone auto on 05e9e626-23c0-49d4-8223-b04ccb9fbe66"));
+        assert!(auto_args("phone auto off paired-phone-123456"));
+        for value in ["phone auto enable paired-phone-123456","phone auto on http://example.com","phone auto on ../../private","phone auto on paired-phone-123456 --force"] {assert!(!auto_args(value));}
+    }
+
+    #[test] fn phone_cli_does_not_accept_urls_commands_or_unpaired_paths(){
+        assert_eq!(phone_args("phone list"),Some(("list","")));
+        assert_eq!(phone_args("phone connect paired-phone-123456"),Some(("connect","paired-phone-123456")));
+        for s in ["phone shell paired-phone-123456","phone connect http://example.com","phone frame ../private","phone connect paired-phone-123456 --force"]{assert!(phone_args(s).is_none());}
+    }
+
+    #[test]
+    fn mirror_cli_accepts_only_fixed_actions_and_observed_device_ids() {
+        assert_eq!(mirror_args("adb mirror start adb-phone"),Some(("start","adb-phone")));
+        for text in ["adb mirror start 192.0.2.1:5555","adb mirror shell adb-phone","adb mirror start ../phone","adb mirror start adb-phone --record"] {
+            assert!(mirror_args(text).is_none());
+        }
+        let state=Arc::new(Mutex::new(State::new()));
+        assert!(execute(&state,"adb mirror start adb-phone").unwrap_err().contains("不在列表"));
+        assert_eq!(execute(&state,"adb mirror status adb-phone").unwrap()["data"]["status"],"idle");
+        assert_eq!(execute(&state,"adb mirror stop adb-phone").unwrap()["data"]["status"],"idle");
+    }
 
     #[test]
     fn performance_cli_limits_input_and_uses_online_device_validation() {

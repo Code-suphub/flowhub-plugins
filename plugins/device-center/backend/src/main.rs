@@ -9,6 +9,8 @@ mod battery_history;
 mod usb_hid;
 mod adb;
 mod adb_performance;
+mod adb_mirror;
+mod phone_bridge;
 mod performance_history;
 mod adb_preferences;
 mod local_preferences;
@@ -638,6 +640,7 @@ fn keyboard_operation(state: &Mutex<State>, method: &str, params: &Value) -> Res
 
 fn dispatch(state: &Arc<Mutex<State>>, method: &str, params: &Value) -> Result<Value, String> {
     match method {
+        "phone_list" | "phone_pair" | "phone_remove" | "phone_connect" | "phone_disconnect" | "phone_frame" | "phone_action" | "phone_wake" | "phone_recover" | "phone_recovery_status" | "phone_auto_recovery" => phone_bridge::dispatch(method,params),
         "health" => Ok(json!({"protocol":2,"name":"device-center","version":env!("CARGO_PKG_VERSION")})),
         "device_icons" => Ok(device_icons::snapshot()),
         "keyboard_mode" | "keyboard_diagnostics" | "keyboard_presets" | "keyboard_record_preset" |
@@ -695,6 +698,16 @@ fn dispatch(state: &Arc<Mutex<State>>, method: &str, params: &Value) -> Result<V
             state.performance_history.observe(id, &sample, now());
             Ok(sample)
         },
+        "adb_mirror_start" => {
+            let id=params["id"].as_str().ok_or("缺少设备标识")?;
+            let selected=state.lock().map_err(|_|"状态缓存不可用")?.adb.devices.iter()
+                .find(|device|device.id==id).cloned().ok_or("该设备已不在列表中，请刷新后重试")?;
+            serde_json::to_value(adb_mirror::request(&selected,"start")?).map_err(|_|"无法读取投屏状态".into())
+        },
+        "adb_mirror_status" | "adb_mirror_stop" => {
+            let id=params["id"].as_str().filter(|id|performance_history::valid_id(id)).ok_or("设备标识无效")?;
+            serde_json::to_value(adb_mirror::control(id,method=="adb_mirror_stop")?).map_err(|_|"无法读取投屏状态".into())
+        },
         "adb_refresh" => { refresh_adb(state); state.lock().map_err(|_| "状态缓存不可用".to_string()).map(|s|s.full()) },
         "open_display_settings" => {
             if !cfg!(target_os = "macos") { return Err("显示器设置仅支持 macOS".into()); }
@@ -734,6 +747,8 @@ fn dispatch(state: &Arc<Mutex<State>>, method: &str, params: &Value) -> Result<V
                 Some("open_device_reference") => dispatch(state, "open_device_reference", &params["params"]),
                 Some("open_display_settings") => dispatch(state, "open_display_settings", &params["params"]),
                 Some(method @ ("adb_refresh" | "adb_performance")) => dispatch(state, method, &params["params"]),
+                Some(method @ ("adb_mirror_start" | "adb_mirror_status" | "adb_mirror_stop")) => dispatch(state, method, &params["params"]),
+                Some(method @ ("phone_list" | "phone_pair" | "phone_remove" | "phone_connect" | "phone_disconnect" | "phone_frame" | "phone_action" | "phone_wake" | "phone_recover" | "phone_recovery_status" | "phone_auto_recovery")) => dispatch(state, method, &params["params"]),
                 Some(method @ ("adb_performance_history" | "adb_performance_history_settings")) => dispatch(state, method, &params["params"]),
                 Some(method @ ("adb_set_alias" | "adb_set_low_battery_threshold")) => dispatch(state, method, &params["params"]),
                 Some("widget_order_set") => dispatch(state, "widget_order_set", &params["params"]),
@@ -808,6 +823,7 @@ fn main() {
     initial.performance_history = performance_history::Store::open(root.clone(), now());
     initial.catalog.root = root.clone();
     let state = Arc::new(Mutex::new(initial));
+    phone_bridge::automatic::spawn(Arc::clone(&state));
     if let Some(root) = root.as_deref() {
         if let Err(error) = cli::serve(root, Arc::clone(&state)) {
             eprintln!("外设中心 CLI 未启动: {error}");
@@ -837,7 +853,8 @@ fn main() {
     });
     let input = std::io::stdin();
     let mut lines = input.lock();
-    let mut output = std::io::stdout().lock();
+    let output = Arc::new(Mutex::new(std::io::stdout()));
+    let phone_workers = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     loop {
         let mut line = String::new();
         match (&mut lines).take(65_537).read_line(&mut line) {
@@ -846,13 +863,31 @@ fn main() {
         }
         if line.len() > 65_536 { break; }
         let Ok(req) = serde_json::from_str::<Value>(&line) else { continue; };
+        let requested=req["method"].as_str().unwrap_or("");
+        let phone_request=requested.starts_with("phone_") || requested=="widget_api" && req["params"]["method"].as_str().is_some_and(|m|m.starts_with("phone_"));
+        if phone_request {
+            if phone_workers.fetch_add(1,std::sync::atomic::Ordering::SeqCst)>=4 {
+                phone_workers.fetch_sub(1,std::sync::atomic::Ordering::SeqCst);
+                if let Ok(mut out)=output.lock(){let message=json!({"id":req["id"],"error":"手机请求较多，请稍后再试"});let _=writeln!(out,"{message}").and_then(|_|out.flush());}
+                continue;
+            }
+            let state=Arc::clone(&state);let output=Arc::clone(&output);let workers=Arc::clone(&phone_workers);
+            thread::spawn(move||{
+                let result=dispatch(&state,req["method"].as_str().unwrap_or(""),&req["params"]);
+                let message=match result{Ok(v)=>json!({"id":req["id"],"result":v}),Err(e)=>json!({"id":req["id"],"error":e})};
+                if let Ok(mut out)=output.lock(){let _=writeln!(out,"{message}").and_then(|_|out.flush());}
+                workers.fetch_sub(1,std::sync::atomic::Ordering::SeqCst);
+            });continue;
+        }
         let result = dispatch(&state, req["method"].as_str().unwrap_or(""), &req["params"]);
         let message = match result {
             Ok(v) => json!({"id":req["id"],"result":v}),
             Err(e) => json!({"id":req["id"],"error":e})
         };
-        if writeln!(output, "{message}").and_then(|_| output.flush()).is_err() { break; }
+        if output.lock().map_or(true,|mut out|writeln!(out,"{message}").and_then(|_|out.flush()).is_err()) { break; }
     }
+    phone_bridge::automatic::shutdown();
+    adb_mirror::shutdown();
     persist_battery_history(&state, &writer);
 }
 

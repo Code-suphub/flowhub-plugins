@@ -4,6 +4,8 @@ import type {Api} from './api';
 import {DeviceArt,Icon} from './Icons';
 import {AdbPreferenceEditor} from './AdbPreferenceEditor';
 import {AdbPerformance} from './AdbPerformance';
+import {AdbMirror} from './AdbMirror';
+import {PhoneBridge} from './PhoneBridge';
 import {BatteryHistory} from './BatteryHistory';
 import {KeyboardMode} from './KeyboardMode';
 import {KeyboardConnections,UsbPath,UsbTree} from './UsbConnections';
@@ -162,6 +164,7 @@ export function App({api}:{api:Api}) {
      return devices.length?<section key={category.id} className="dc-group"><div className="dc-group-heading"><h2><Icon name={category.id}/>{category.label}<small>({devices.length})</small></h2>{category.id==='display'?<Button className="dc-button dc-display-settings" disabled={api.preview||settingsBusy} title={api.preview?'只读预览不打开系统设置':'在 macOS 中调整分辨率、刷新率、镜像／扩展和屏幕排列'} onClick={()=>void openDisplaySettings()}><Icon name="external"/>{settingsBusy?'正在打开…':'显示设置'}</Button>:null}</div>{category.id==='usb'?<UsbTree devices={devices} renderCard={card}/>:<div className="dc-device-grid">{devices.map(card)}</div>}</section>:null;
     })}
     {showAdb?<AdbSection snapshot={snapshot} devices={visible.filter(d=>d.category==='adb')} artwork={artwork} busy={busy} query={query} preview={api.preview} onRefresh={()=>reload.current(true,true)} onOpen={openDevice} onThreshold={value=>saveAdbPreference('adb_set_low_battery_threshold',{threshold:Number(value)})}/>:null}
+    {filter==='all'?<PhoneBridge api={api} query={query}/>:null}
    </Tabs.Panel>
    <Tabs.Panel value="power" className="dc-power-panel" tabIndex={-1}><PowerView snapshot={snapshot} stale={stale}/></Tabs.Panel>
    <Tabs.Panel value="events" className="dc-events" tabIndex={-1}>
@@ -175,7 +178,7 @@ export function App({api}:{api:Api}) {
   </div>
   <footer className="dc-footer"><span>{busy?'正在采集…':filter==='adb'&&page==='devices'?adbStale(snapshot.adb)?'上次更新 ':'更新于 ':stale?'上次更新 ':'更新于 '}{busy?'':time(page==='power'?snapshot.power.sampledAt:filter==='adb'?snapshot.adb?.at:snapshot.at)}</span><span>{page==='power'?'功率每 '+interval+' 秒 · 设备每 45 秒':page==='events'?'仅在本次运行保留':filter==='adb'?'ADB 每 10 秒 · 点击查看详情':'点击设备查看详情'}</span></footer>
   <DialogShell open={open&&Boolean(detail)} onOpenChange={value=>{setOpen(value);if(!value&&!current)requestAnimationFrame(()=>inputRef.current?.focus());}} title="设备详情" className="dc-dialog" contentClassName="dc-dialog-content" footer={<><span className="dc-copy-status" role="status">{copyState}</span>{detail?.category==='display'?<Button className="dc-button dc-display-settings" disabled={api.preview||settingsBusy} title={api.preview?'只读预览不打开系统设置':'打开 macOS 显示器设置'} onClick={()=>void openDisplaySettings()}><Icon name="external"/>{settingsBusy?'正在打开…':'显示设置'}</Button>:null}<Button className="dc-button" onClick={()=>void copy()}><Icon name="copy"/>{detail?.adb?'复制序列号':'复制摘要'}</Button><Button variant="ghost" className="dc-button" onClick={()=>{setOpen(false);setPage('events');setEventFilter({name:detailName,ids:detailIds});}}>相关事件</Button></>}>
-   {detail?<><div className="dc-detail-hero"><DeviceArt device={detail} artwork={artwork} catalog={snapshot.catalog}/><div><h3>{detailName}</h3><p>{removed?'本次扫描未检测到':(detail.adb?adbStale(snapshot.adb):stale)?'上次采集结果':detail.adb?adbState(detail.adb.state):'已连接'}</p></div>{level!==null?<strong className={'dc-detail-battery '+(lowBattery?'low':'')} aria-label={lowBattery?`低电量 ${level}%`:undefined}>{level}<small>%</small></strong>:detail.adb?<small>电量未知</small>:detail.category==='display'?<strong className="dc-detail-spec">{displaySpec(detail)}</strong>:null}</div>{removed?<p className="dc-warning" role="status">设备已离开当前连接列表，以下为上次信息。</p>:null}
+   {detail?<><div className="dc-detail-hero"><DeviceArt device={detail} artwork={artwork} catalog={snapshot.catalog}/><div><h3>{detailName}</h3><p>{removed?'本次扫描未检测到':(detail.adb?adbStale(snapshot.adb):stale)?'上次采集结果':detail.adb?adbState(detail.adb.state):'已连接'}</p></div>{level!==null?<strong className={'dc-detail-battery '+(lowBattery?'low':'')} aria-label={lowBattery?`低电量 ${level}%`:undefined}>{level}<small>%</small></strong>:detail.adb?<small>电量未知</small>:detail.category==='display'?<strong className="dc-detail-spec">{displaySpec(detail)}</strong>:null}{open&&detail.adb?<AdbMirror key={'mirror:'+detail.id} api={api} id={detail.id} unauthorized={detail.adb.state==='unauthorized'}/>:null}</div>{removed?<p className="dc-warning" role="status">设备已离开当前连接列表，以下为上次信息。</p>:null}
     {detailProfile?.image?<div className="dc-device-reference">
      <span>参考图片 · {detailProfile.image.author}</span>
      <Button variant="ghost" className="dc-button" disabled={api.preview} onClick={()=>void openReference('photo')}>来源</Button>

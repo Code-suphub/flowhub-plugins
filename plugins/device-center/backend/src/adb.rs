@@ -91,7 +91,7 @@ pub(crate) fn read() -> Result<Vec<Device>, Error> {
     let mut devices = read_program(&program, Duration::from_secs(5))?;
     let catalog = crate::toolkit_adb::Catalog::load();
     let network = crate::toolkit_adb::NetworkSources::read(&devices);
-    sample_devices(&program, &mut devices, catalog.has_identities());
+    sample_devices(&program, &mut devices, true);
     Ok(crate::toolkit_adb::group(devices, &catalog, &network))
 }
 fn read_program(program: &std::path::Path, timeout: Duration) -> Result<Vec<Device>, Error> {

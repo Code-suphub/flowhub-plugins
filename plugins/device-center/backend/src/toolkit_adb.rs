@@ -53,8 +53,28 @@ impl Catalog {
         }).collect())
     }
 
-    pub fn has_identities(&self) -> bool {
-        self.0.values().any(|profile| profile.identity.is_some())
+    pub fn mirror_routes(&self, identity: &str) -> Vec<Connection> {
+        let mut routes=Vec::new();
+        for profile in self.0.values().filter(|profile|profile.identity.as_deref()==Some(identity)) {
+            for (endpoint,role) in [Some((&profile.primary,"primary")),profile.fallback.as_ref().map(|endpoint|(endpoint,"fallback"))].into_iter().flatten() {
+                if endpoint.host.is_none() && is_tcp_endpoint(&endpoint.serial)
+                    && !routes.iter().any(|route:&Connection|route.serial==endpoint.serial) {
+                    routes.push(Connection{serial:endpoint.serial.clone(),state:"offline".into(),transport:"tcp".into(),
+                        source:None,role:Some(role.into()),identity_verified:Some(false)});
+                }
+            }
+        }
+        routes.truncate(8);routes
+    }
+
+    pub fn mirror_identity(&self,id:&str)->Option<String> {
+        self.0.values().find_map(|profile|{
+            let identity=profile.identity.as_ref()?;
+            let canonical=stable_id("adb","toolkit",identity)==id;
+            let recorded=[Some(&profile.primary),profile.fallback.as_ref()].into_iter().flatten()
+                .any(|endpoint|endpoint.host.is_none()&&stable_id("adb","",&endpoint.serial)==id);
+            (canonical||recorded).then(||identity.clone())
+        })
     }
 
     fn endpoint(&self, serial: &str) -> Option<(&str, &Profile, &'static str)> {
@@ -131,6 +151,8 @@ fn tcp_address(serial: &str) -> Option<(IpAddr, u16)> {
     let host = host.trim_start_matches('[').trim_end_matches(']').parse().ok()?;
     Some((host, port.parse().ok()?))
 }
+
+pub(crate) fn is_tcp_endpoint(serial:&str) -> bool { tcp_address(serial).is_some_and(|(_,port)|port>0) }
 
 fn tailscale_peers(status: &Value) -> BTreeSet<IpAddr> {
     status["Peer"].as_object().into_iter().flat_map(|peers| peers.values())
@@ -223,6 +245,20 @@ pub(crate) fn group(devices: Vec<Device>, catalog: &Catalog, network: &NetworkSo
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn mirror_alternatives_only_come_from_the_same_identity_and_local_adb_routes() {
+        let catalog=Catalog(serde_json::from_value(json!({
+            "phone":{"serial":"127.0.0.1:17354","identity":"A","fallback":{"serial":"100.64.0.2:1234"}},
+            "remote":{"serial":"USB-A","host":"mac-mini","identity":"A"},
+            "other":{"serial":"100.64.0.3:1234","identity":"B"}
+        })).unwrap());
+        assert_eq!(catalog.mirror_routes("A").iter().map(|r|r.serial.as_str()).collect::<Vec<_>>(),vec!["127.0.0.1:17354","100.64.0.2:1234"]);
+        assert!(catalog.mirror_routes("UNKNOWN").is_empty());
+        assert_eq!(catalog.mirror_identity(&stable_id("adb","","127.0.0.1:17354")).as_deref(),Some("A"));
+        assert_eq!(catalog.mirror_identity(&stable_id("adb","toolkit","A")).as_deref(),Some("A"));
+        assert!(catalog.mirror_identity("adb-unknown").is_none());
+    }
 
     #[test]
     fn verified_phone_groups_registered_network_routes_and_local_usb() {
