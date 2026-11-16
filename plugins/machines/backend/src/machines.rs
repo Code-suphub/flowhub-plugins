@@ -811,7 +811,7 @@ pub(crate) async fn machines_api(
             let path=crate::ssh::shared::path(rt.path.parent().unwrap()).ok_or("请先选择共享 SSH 配置文件")?;
             crate::ssh::shared::request(path,json!({"action":"list"})).await
         }
-        "trafficRead" | "trafficSave" | "trafficQuery" | "tencentRead" | "tencentSave" | "tencentQuery" => {
+        "trafficRead" | "trafficSave" | "trafficQuery" | "trafficRestoreCloud" | "tencentRead" | "tencentSave" | "tencentQuery" => {
             let provider=payload["provider"].as_str().unwrap_or("tencent");
             let key={
                 let c=rt.config.lock().unwrap();
@@ -820,7 +820,11 @@ pub(crate) async fn machines_api(
                 let host=payload["hostId"].as_str().ok_or("请选择机器")?;if !c.hosts.iter().any(|h|h.id==host){return Err("机器不存在".into());}host.to_string()
             };
             let root=rt.path.parent().ok_or("数据目录不存在")?;
-            match action.as_str(){"trafficRead"|"tencentRead"=>{
+            match action.as_str(){"trafficRestoreCloud"=>{
+                let restored=crate::traffic::cloud_traffic::restore_cloud(root,&key)?;
+                rt.traffic_cache.lock().unwrap().remove(&key);
+                Ok(restored)
+            },"trafficRead"|"tencentRead"=>{
                 let saved=crate::traffic::cloud_traffic::read(root,&key);
                 if saved["configured"]==true||action!="trafficRead"{Ok(saved)}else{
                     // 兼容早期版本按 Netdata ID 保存的 localNet 配置，并迁移到机器 ID。
@@ -1983,6 +1987,28 @@ pub(crate) fn start_monitor(app: &Context) {
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn traffic_cli_restores_only_saved_provider_and_enforces_permissions() {
+        let root=std::env::temp_dir().join(format!("fh-traffic-cli-{}",chrono::Utc::now().timestamp_nanos_opt().unwrap()));
+        let rt=Arc::new(Runtime::new(root.clone()).unwrap());
+        rt.config.lock().unwrap().hosts.push(Host {id:"zgo".into(),alias:"zgo-alias".into(),name:"Zgo".into(),group:String::new(),country_code:String::new(),expires_at:None,read_only:false,bastion:None});
+        let app=Context {runtime:rt.clone(),gate:Arc::new(tokio::sync::RwLock::new(())),backup:Arc::new(crate::data::backup::Manager::new(root.clone()))};
+        crate::traffic::cloud_traffic::save(&root,"zgo",&json!({"provider":"zgocloudCookie","cookie":"private-cookie","xsrfToken":"private-xsrf","serverId":"19383","limitGB":"500"})).unwrap();
+        crate::traffic::cloud_traffic::save(&root,"zgo",&json!({"provider":"localSsh","limitGB":"500"})).unwrap();
+        rt.traffic_cache.lock().unwrap().insert("zgo".into(),json!({"used":540123828605u64}));
+        let active=crate::cli::request(app.clone(),json!({"action":"traffic-read","target":"zgo-alias"})).await.unwrap();
+        assert_eq!(active["provider"],"localSsh");
+        assert!(crate::cli::request(app.clone(),json!({"action":"traffic-source-cloud","target":"missing"})).await.is_err());
+        let restored=crate::cli::request(app.clone(),json!({"action":"traffic-source-cloud","target":"zgo"})).await.unwrap();
+        assert_eq!(restored["provider"],"zgocloudCookie");
+        assert!(!restored.to_string().contains("private-"));
+        assert!(!rt.traffic_cache.lock().unwrap().contains_key("zgo"));
+        rt.config.lock().unwrap().enabled=false;
+        for action in ["traffic-read","traffic-query","traffic-source-cloud"] {
+            assert!(crate::cli::request(app.clone(),json!({"action":action,"target":"zgo"})).await.unwrap_err().contains("权限"));
+        }
+        drop(app);drop(rt);std::fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn history_summary_masks_and_bounds_command_previews() {
         let mut job = super::Job { id: "preview".into(), host_id: "host".into(), alias: "demo".into(), kind: "command".into(), command: Some("curl --password 'fixture secret' --token=fixture-token".into()), started_at: 1, finished_at: Some(2), status: "success".into(), exit_code: Some(0), stdout: "private output".into(), stderr: String::new(), truncated: false };

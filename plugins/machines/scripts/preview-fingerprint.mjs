@@ -216,6 +216,14 @@ const INTERACTIONS = `(async () => {
     check(document.querySelector('.card') === card, '重复初始化不能重复创建 React root');
     check(document.querySelector('h2')?.textContent.includes('自定义标题'), '宿主标题必须保留');
     check(document.querySelector('.gauges svg'), '兼容旧 widget 视图');
+    for (const [traffic,label] of [
+      [{source:'localSsh',mode:'usage',partial:true,used:540123828605,total:536870912000},'已采集 503.03/500 GiB'],
+      [{remaining:499.92*1073741824,total:500*1073741824},'剩余 499.92/500 GiB'],
+      [{error:'zgoCloud 认证已过期，请重新从浏览器复制 Cookie 和 XSRF Token'},'流量需认证']
+    ]) {
+      init({config:{row:'a',metrics:['traffic']},snapshot:{rows:[{id:'a',name:'zogcloud',status:'healthy',traffic:{...traffic,at:new Date().toISOString()}}]}});
+      await waitFor(() => document.querySelector('.traffic-metric b')?.textContent === label, '流量类型与数值必须在卡片上明确显示：'+label);
+    }
     init({config:{row:'removed'},snapshot}); await tick();
     check(document.body.textContent.includes('目标已移除'), '已删除目标不能回退显示另一机器');
   }
@@ -304,7 +312,7 @@ async function main() {
         if(getComputedStyle(rates).fontFamily!==getComputedStyle(countdown).fontFamily || getComputedStyle(rates).fontSize!==getComputedStyle(countdown).fontSize)throw Error('网速和其他元数据字体不统一');
         if(innerWidth>=220 && Math.abs(rates.getBoundingClientRect().top-countdown.getBoundingClientRect().top)>1)throw Error('正常宽度下网速和倒计时仍换行');
         const traffic=document.querySelector('.traffic-metric b');
-        if(traffic.textContent!=='247.66/300 GB'||traffic.getBoundingClientRect().height>15)throw Error('流量数值和单位被拆行');
+        if(traffic.textContent!=='剩余 247.66/300 GB'||traffic.getBoundingClientRect().height>15)throw Error('流量含义、数值或单位错误，或被拆行');
         if(document.querySelector('.network-rates').getBoundingClientRect().top<document.querySelector('.network-row').getBoundingClientRect().bottom)throw Error('网速未放到用量下一行');
         for(const node of document.querySelectorAll('.network-row,.traffic-metric,.bottom-metrics,.network-rates,.network-rates span')){
           const rect=node.getBoundingClientRect();if(rect.left<0||rect.right>innerWidth)throw Error('指标横向溢出');

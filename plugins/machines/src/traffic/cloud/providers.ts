@@ -11,7 +11,7 @@ export const CLOUD_PROVIDERS:readonly CloudProvider[]=[
  {id:'vultr',name:'Vultr · 共享流量',fields:['apiKey'],required:[],help:'账户本月至今共享额度和出站用量。'},
  {id:'aws',name:'AWS · Lightsail 监控用量',fields:['region','instanceId','secretId','secretKey','token'],required:['region','instanceId'],help:'本月 UTC 监控用量，只表示已用量。'},
  {id:'zgocloud',name:'ZgoCloud · API Token',fields:['apiToken','serverId','limitGB'],required:['apiToken','serverId'],help:'填写 API Token 与整数 Server ID；直接使用服务商返回的当前流量周期，不按自然月推算。'},
- {id:'zgocloudCookie',name:'ZgoCloud · Session Cookie',fields:['cookie','xsrfToken','serverId','limitGB'],required:['cookie','xsrfToken','serverId'],help:'填写浏览器 Cookie 和 x-xsrf-token；Cookie 过期后需更新。查询使用服务商返回的当前流量周期。'},
+ {id:'zgocloudCookie',name:'ZgoCloud · Session Cookie',fields:['cookie','xsrfToken','serverId'],required:['cookie','xsrfToken','serverId'],help:'填写浏览器 Cookie 和 x-xsrf-token；Cookie 过期后需更新。读取官网总览的实时流量、套餐额度、计费方向和当前周期，不使用历史图表累计。'},
  {id:'localNet',name:'网卡流量 · 本地 Netdata 估算',fields:['netdataId','direction','limitGB','cycleStart'],required:['netdataId'],help:'可按网卡双向或仅出站累计；仅出站仍可能包含非公网流量，不等同服务商计费。周期留空暂按北京时间自然月。建议 Agent 保留至少 32 天历史；不足时仅显示已覆盖用量。'},
  {id:'localSsh',name:'网卡流量 · SSH 计数器估算',fields:['direction','limitGB','cycleStart'],required:[],help:'无需安装 Agent，使用基础 SSH 采集保存的网卡累计字节数；可按双向或仅出站统计。若周期起点与机器开机时间吻合且计数器未重置，可从开机累计值估算本期用量。仅出站仍不等同服务商计费。'},
 ];

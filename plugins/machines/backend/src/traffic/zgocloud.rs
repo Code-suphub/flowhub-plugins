@@ -2,6 +2,7 @@
 use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
 use serde_json::{json, Value};
 use std::time::Duration;
+use super::zgocloud_session::{Session, Renewal, EXPIRED};
 
 const GIB: f64 = 1_073_741_824.0;
 
@@ -109,22 +110,49 @@ async fn query_token(config: &Value) -> Result<Value, String> {
     ))
 }
 
-/// Session cookie mode: hits the customer-facing /resource/traffic.json endpoint.
-/// No package limit is exposed; honour `limitGB` from config if set.
-async fn query_cookie(config: &Value) -> Result<Value, String> {
-    let cookie = config["cookie"].as_str().ok_or("缺少 Cookie")?;
-    let xsrf = config["xsrfToken"].as_str().ok_or("缺少 XSRF Token")?;
+/// Use the same live counters and package metadata as the panel overview.
+/// traffic.json is the historical chart and can lag behind state.json.
+pub(super) async fn query_session(config: &Value) -> (Result<Value, String>, Option<Renewal>) {
+    let server_id = match validate_server_id(config["serverId"].as_str().unwrap_or("")) {
+        Ok(id) => id,
+        Err(error) => return (Err(error), None),
+    };
+    let base = format!("https://server.zgocloud.cc/server/{server_id}/resource/");
+    query_session_at(config, &base).await
+}
+
+async fn query_session_at(config: &Value, base: &str) -> (Result<Value, String>, Option<Renewal>) {
+    let url = match reqwest::Url::parse(base) { Ok(url) => url, Err(_) => return (Err("zgoCloud 地址无效".into()), None) };
+    let mut session = match Session::new(config["cookie"].as_str().unwrap_or(""), config["xsrfToken"].as_str().unwrap_or(""), &url) {
+        Ok(session) => session,
+        Err(error) => return (Err(error), None),
+    };
+    let result = query_cookie(config, &url, &mut session).await;
+    (result, session.renewal(&url))
+}
+
+async fn query_cookie(config: &Value, base: &reqwest::Url, session: &mut Session) -> Result<Value, String> {
     let server_id = validate_server_id(config["serverId"].as_str().unwrap_or(""))?;
 
-    let url = format!("https://server.zgocloud.cc/server/{server_id}/resource/traffic.json");
-    let client = reqwest::Client::builder()
+    let builder = reqwest::Client::builder()
         .timeout(Duration::from_secs(20))
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
+        .redirect(reqwest::redirect::Policy::none());
+    #[cfg(test)]
+    let builder = builder.no_proxy();
+    let client = builder.build()
         .map_err(|_| "无法创建 zgoCloud 客户端")?;
 
+    // Apply a rotation before issuing the next request. Parallel requests can
+    // race when the panel replaces its session or CSRF token in Set-Cookie.
+    let server = cookie_resource(&client, &base.join("server.json").map_err(|_|"zgoCloud 地址无效")?, session).await?;
+    let state = cookie_resource(&client, &base.join("state.json").map_err(|_|"zgoCloud 地址无效")?, session).await?;
+    normalize_overview(server_id, &server["data"]["traffic"], &state["data"]["state"]["traffic"]["total"], Utc::now())
+}
+
+async fn cookie_resource(client: &reqwest::Client, url: &reqwest::Url, session: &mut Session) -> Result<Value, String> {
+    let (cookie, xsrf) = session.headers(url)?;
     let response = client
-        .get(&url)
+        .get(url.clone())
         .header("Cookie", cookie)
         .header("x-xsrf-token", xsrf)
         .header("x-requested-with", "XMLHttpRequest")
@@ -138,54 +166,56 @@ async fn query_cookie(config: &Value) -> Result<Value, String> {
         .map_err(|e| {
             let code = e.status().map(|s| s.as_u16()).unwrap_or(0);
             if code == 401 || code == 419 {
-                "zgoCloud 鉴未已过期，请重新从浏览器复制 Cookie 和 XSRF Token".to_string()
+                EXPIRED.to_string()
             } else {
                 format!("zgoCloud HTTP 错误：{code}")
             }
         })?;
 
+    if !response.status().is_success() { return Err(EXPIRED.into()); }
+    let headers = response.headers().clone();
     let bytes = read_body(response).await?;
     let data: Value = serde_json::from_slice(&bytes).map_err(|_| "zgoCloud 响应不是有效 JSON")?;
-    if data["success"] != Value::Bool(true) && data["success"] != json!(true) {
-        if let Some(msg) = data["message"].as_str() {
-            return Err(format!("zgoCloud：{msg}"));
-        }
+    if data["success"] != Value::Bool(true) {
         return Err("zgoCloud 接口返回 success=false".into());
     }
+    session.accept(&headers, url);
+    Ok(data)
+}
 
-    // zgoCloud /resource/traffic.json 的响应有两层 data 嵌套：
-    //   { success: true, data: { hasMonthlyData, data: { monthlyRaw:[...] } } }
-    let monthly = &data["data"]["data"]["monthlyRaw"];
-    let entry = pick_current_with_keys(monthly, Utc::now(), "month_start", "month_end")
-        .ok_or("未找到当前流量周期，请检查面板的流量重置日期")?;
-
-    let used = positive(entry, "total")?;
-    // Config stores limitGB as a string from the form; accept either string or number.
-    let limit_gb = config["limitGB"].as_f64()
-        .or_else(|| config["limitGB"].as_str().and_then(|s| s.trim().parse::<f64>().ok()))
-        .filter(|n| n.is_finite() && *n > 0.0)
-        .unwrap_or(0.0);
-    let (limit_bytes, remaining, overflow) = if limit_gb > 0.0 {
-        let bytes = limit_gb * GIB;
-        (
-            bytes,
-            (bytes - used).max(0.0),
-            (used - bytes).max(0.0),
-        )
-    } else {
-        (0.0, 0.0, 0.0)
+fn normalize_overview(server_id: &str, traffic: &Value, counters: &Value, now: DateTime<Utc>) -> Result<Value, String> {
+    let period = |key: &str| traffic[key].as_str()
+        .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+        .map(|d| d.with_timezone(&Utc))
+        .ok_or_else(|| format!("zgoCloud 缺少有效周期：{key}"));
+    let start = period("start")?;
+    let end = period("end")?;
+    if start > now || end < now {return Err("zgoCloud 总览未返回当前流量周期".into());}
+    let rx = positive(counters, "rx")?;
+    let tx = positive(counters, "tx")?;
+    let (used, direction) = match traffic["countMethod"].as_u64() {
+        Some(1) => (rx + tx, "both"),
+        Some(2) => (rx, "rx"),
+        Some(3) => (tx, "tx"),
+        _ => return Err("zgoCloud 返回未知流量计费方向".into()),
     };
-
-    Ok(assemble(
+    let limit_bytes = positive(traffic, "limit")? * GIB;
+    if !used.is_finite() || !limit_bytes.is_finite() {return Err("zgoCloud 流量数值超出范围".into());}
+    let mut result = assemble(
         "zgocloudCookie",
         server_id,
         limit_bytes,
         used,
-        remaining,
-        overflow,
-        to_rfc3339(entry["month_start"].as_str().unwrap_or("")),
-        to_rfc3339(entry["month_end"].as_str().unwrap_or("")),
-    ))
+        (limit_bytes - used).max(0.0),
+        (used - limit_bytes).max(0.0),
+        start.to_rfc3339(),
+        end.to_rfc3339(),
+    );
+    let pack = &mut result["rows"][0]["TrafficPackageSet"][0];
+    pack["RxBytes"] = json!(rx);
+    pack["TxBytes"] = json!(tx);
+    pack["TrafficDirection"] = json!(direction);
+    Ok(result)
 }
 
 fn assemble(
@@ -237,7 +267,7 @@ fn blocks_extra_gb(entry: &Value) -> f64 {
 
 pub async fn query(config: &Value) -> Result<Value, String> {
     match config["provider"].as_str() {
-        Some("zgocloudCookie") => query_cookie(config).await,
+        Some("zgocloudCookie") => query_session(config).await.0,
         _ => query_token(config).await,
     }
 }
@@ -246,6 +276,88 @@ pub async fn query(config: &Value) -> Result<Value, String> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    async fn resources(replies: Vec<(u16, Vec<&'static str>, Value)>) -> (String, tokio::task::JoinHandle<Vec<String>>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener=tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base=format!("http://{}/server/123/resource/",listener.local_addr().unwrap());
+        let task=tokio::spawn(async move {
+            let mut requests=Vec::new();
+            for (status,cookies,body) in replies {
+                let (mut stream,_)=tokio::time::timeout(Duration::from_secs(5),listener.accept()).await.unwrap().unwrap();
+                let mut request=Vec::new();let mut chunk=[0u8;1024];
+                while !request.windows(4).any(|w|w==b"\r\n\r\n") {
+                    let n=stream.read(&mut chunk).await.unwrap();if n==0{break;}request.extend_from_slice(&chunk[..n]);
+                    assert!(request.len()<16384);
+                }
+                requests.push(String::from_utf8(request).unwrap());
+                let body=body.to_string();
+                let headers=cookies.into_iter().map(|c|format!("Set-Cookie: {c}\r\n")).collect::<String>();
+                stream.write_all(format!("HTTP/1.1 {status} Test\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: {}\r\n{headers}\r\n{body}",body.len()).as_bytes()).await.unwrap();
+            }
+            requests
+        });
+        (base,task)
+    }
+    fn session_config()->Value {json!({"serverId":"123","cookie":"virtfusion_session=old; XSRF-TOKEN=old","xsrfToken":"old"})}
+    fn metadata()->Value {json!({"success":true,"data":{"traffic":{"countMethod":1,"limit":500,"start":"2000-01-01T00:00:00Z","end":"2999-01-01T00:00:00Z"}}})}
+    fn state()->Value {json!({"success":true,"data":{"state":{"traffic":{"total":{"rx":10,"tx":20}}}}})}
+    #[tokio::test]
+    async fn rotated_cookies_are_used_immediately_and_survive_the_next_query() {
+        let (base,task)=resources(vec![
+            (200,vec!["virtfusion_session=first; Path=/; Max-Age=7200", "XSRF-TOKEN=first%3D; Path=/; Max-Age=7200"],metadata()),
+            (200,vec!["virtfusion_session=second; Path=/; Max-Age=7200", "XSRF-TOKEN=second%3D; Path=/; Max-Age=7200"],state()),
+            (200,vec![],metadata()),(200,vec![],state()),
+        ]).await;
+        let (data,renewal)=query_session_at(&session_config(),&base).await;
+        assert_eq!(data.unwrap()["rows"][0]["TrafficPackageSet"][0]["TrafficUsed"],30.0);
+        let renewal=renewal.unwrap();assert_eq!(renewal.xsrf_token,"second=");
+        let config=json!({"serverId":"123","cookie":renewal.cookie,"xsrfToken":renewal.xsrf_token});
+        let (data,renewal)=query_session_at(&config,&base).await;assert!(data.is_ok());assert!(renewal.is_none());
+        let requests=task.await.unwrap();
+        assert!(requests[0].contains("virtfusion_session=old"));
+        assert!(requests[1].contains("virtfusion_session=first"));assert!(requests[1].contains("x-xsrf-token: first="));
+        assert!(requests[2].contains("virtfusion_session=second"));assert!(requests[2].contains("x-xsrf-token: second="));
+        assert!(!requests[1].contains("virtfusion_session=old"));
+    }
+    #[tokio::test]
+    async fn failure_responses_never_replace_auth_but_prior_successful_rotation_is_kept() {
+        for (status,body) in [(401,json!({})),(419,json!({})),(302,json!({"success":true})),(200,json!({"success":false,"message":"not echoed"}))] {
+            let (base,task)=resources(vec![(status,vec!["virtfusion_session=rejected; Path=/"],body)]).await;
+            let (result,renewal)=query_session_at(&session_config(),&base).await;
+            assert!(result.is_err());assert!(renewal.is_none());assert_eq!(task.await.unwrap().len(),1);
+        }
+        let (base,task)=resources(vec![
+            (200,vec!["virtfusion_session=valid-renewal; Path=/"],metadata()),
+            (500,vec!["virtfusion_session=invalid-replacement; Path=/"],json!({})),
+        ]).await;
+        let (result,renewal)=query_session_at(&session_config(),&base).await;
+        assert!(result.is_err());assert!(renewal.unwrap().cookie.contains("valid-renewal"));assert_eq!(task.await.unwrap().len(),2);
+    }
+
+    #[test]
+    fn cookie_overview_matches_live_panel_instead_of_chart_history() {
+        let traffic=json!({"countMethod":1,"start":"2026-11-16T00:00:00.000000Z","end":"2026-12-15T23:59:59.999999Z","limit":500});
+        let counters=json!({"rx":203306628u64,"tx":203978483u64,"total":247129727u64});
+        let now=Utc.with_ymd_and_hms(2026,11,16,8,15,0).unwrap();
+        let result=normalize_overview("19383",&traffic,&counters,now).unwrap();
+        let pack=&result["rows"][0]["TrafficPackageSet"][0];
+        assert_eq!(pack["TrafficUsed"],407285111.0);
+        assert_eq!(pack["TrafficPackageTotal"],500.0*GIB);
+        assert_eq!(pack["TrafficPackageRemaining"],500.0*GIB-407285111.0);
+        assert_eq!(pack["TrafficDirection"],"both");
+        for (method,expected,direction) in [(2,203306628.0,"rx"),(3,203978483.0,"tx")] {
+            let mut configured=traffic.clone();configured["countMethod"]=json!(method);
+            let result=normalize_overview("19383",&configured,&counters,now).unwrap();
+            assert_eq!(result["rows"][0]["TrafficPackageSet"][0]["TrafficUsed"],expected);
+            assert_eq!(result["rows"][0]["TrafficPackageSet"][0]["TrafficDirection"],direction);
+        }
+        assert!(normalize_overview("19383",&traffic,&json!({}),now).is_err());
+        assert!(normalize_overview("19383",&traffic,&json!({"rx":-1,"tx":1}),now).is_err());
+        assert!(normalize_overview("19383",&traffic,&counters,Utc.with_ymd_and_hms(2026,12,16,0,0,0).unwrap()).is_err());
+        let mut unknown=traffic;unknown["countMethod"]=json!(9);
+        assert!(normalize_overview("19383",&unknown,&counters,now).is_err());
+    }
 
     fn entry_in_range() -> Value {
         json!({
@@ -340,34 +452,18 @@ mod tests {
     }
 
     #[test]
-    fn cookie_normalize_with_limit_uses_manual_value() {
-        let entry = cookie_entry();
-        let used = positive(&entry, "total").unwrap();
-        let limit_gb = 100.0_f64;
-        let bytes = limit_gb * GIB;
-        let remaining = (bytes - used).max(0.0);
-        let overflow = (used - bytes).max(0.0);
-        assert!(remaining > 0.0);
-        assert_eq!(overflow, 0.0);
-        // Confirm cookie endpoint date fields round-trip via parse_period.
-        assert!(to_rfc3339(entry["month_start"].as_str().unwrap()).starts_with("2025-01-06"));
-    }
-
-    #[test]
-    fn cookie_normalize_without_limit_returns_zero_for_total_remaining() {
-        let entry = cookie_entry();
-        let used = positive(&entry, "total").unwrap();
-        let limit_gb = 0.0_f64;
-        // Mirrors query_cookie's branch when limitGB is unset.
-        let (limit_bytes, remaining, overflow) = if limit_gb > 0.0 {
-            let b = limit_gb * GIB;
-            (b, (b - used).max(0.0), (used - b).max(0.0))
-        } else {
-            (0.0, 0.0, 0.0)
-        };
-        assert_eq!(limit_bytes, 0.0);
-        assert_eq!(remaining, 0.0);
-        assert_eq!(overflow, 0.0);
+    fn cookie_overview_exhausted_quota_keeps_overflow_and_rejects_missing_metadata() {
+        let now=Utc.with_ymd_and_hms(2026,11,16,8,15,0).unwrap();
+        let traffic=json!({"countMethod":1,"start":"2026-11-16T00:00:00Z","end":"2026-12-15T23:59:59Z","limit":1});
+        let counters=json!({"rx":GIB,"tx":10});
+        let result=normalize_overview("19383",&traffic,&counters,now).unwrap();
+        let pack=&result["rows"][0]["TrafficPackageSet"][0];
+        assert_eq!(pack["TrafficPackageRemaining"],0.0);
+        assert_eq!(pack["TrafficOverflow"],10.0);
+        for key in ["start","end","limit"] {
+            let mut missing=traffic.clone();missing.as_object_mut().unwrap().remove(key);
+            assert!(normalize_overview("19383",&missing,&counters,now).is_err());
+        }
     }
 
     #[test]

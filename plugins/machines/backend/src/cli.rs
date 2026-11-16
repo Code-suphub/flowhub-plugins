@@ -16,11 +16,29 @@ pub async fn request(ctx: Context, value: Value) -> Result<Value, String> {
     if action=="sessions" {return crate::machines::machines_api(ctx,"sharedSessions".into(),json!({})).await;}
     if action=="shared-config" {return crate::machines::machines_api(ctx,"sharedConfig".into(),json!({"path":value["target"]})).await;}
 
-    if !["collect", "query", "exec", "traffic-source-ssh", "traffic-cycle-start"].contains(&action) { return Err("支持 list、status、collect、query、exec、traffic-source-ssh、traffic-cycle-start".into()); }
+    if !["collect", "query", "exec", "traffic-read", "traffic-query", "traffic-refresh-session", "traffic-source-cloud", "traffic-source-ssh", "traffic-cycle-start"].contains(&action) { return Err("支持 list、status、collect、query、exec、traffic-read、traffic-query、traffic-refresh-session、traffic-source-cloud、traffic-source-ssh、traffic-cycle-start".into()); }
     let target = value["target"].as_str().ok_or("缺少机器 ID 或别名")?;
     let matched: Vec<_> = hosts.iter().filter(|h| h["id"].as_str()==Some(target) || h["alias"].as_str()==Some(target)).collect();
     if matched.len()!=1 { return Err("机器不存在或别名不唯一，请使用机器 ID".into()); }
     let host = matched[0];
+    if action == "traffic-read" || action == "traffic-query" {
+        return crate::machines::machines_api(ctx,if action=="traffic-read"{"trafficRead"}else{"trafficQuery"}.into(),json!({"hostId":host["id"]})).await;
+    }
+    if action == "traffic-source-cloud" {
+        return crate::machines::machines_api(ctx,"trafficRestoreCloud".into(),json!({"hostId":host["id"]})).await;
+    }
+    if action == "traffic-refresh-session" {
+        let current=crate::machines::machines_api(ctx.clone(),"trafficRead".into(),json!({"hostId":host["id"]})).await?;
+        if current["provider"]!="zgocloudCookie" {return Err("仅支持刷新已配置的 ZgoCloud Session Cookie 来源".into());}
+        let credentials=value["credentials"].as_object().ok_or("请通过 stdin 提供 Cookie 和 XSRF Token")?;
+        if credentials.len()!=2 || ["cookie","xsrfToken"].iter().any(|key|!credentials.get(*key).and_then(Value::as_str).is_some_and(|s|!s.trim().is_empty())) {
+            return Err("认证 JSON 只接受非空 cookie 和 xsrfToken".into());
+        }
+        return crate::machines::machines_api(ctx,"trafficSave".into(),json!({
+            "hostId":host["id"],"provider":current["provider"],"serverId":current["serverId"],"limitGB":current["limitGB"],
+            "cookie":credentials["cookie"],"xsrfToken":credentials["xsrfToken"]
+        })).await;
+    }
     if action == "traffic-source-ssh" {
         let host_id=host["id"].as_str().ok_or("机器 ID 无效")?;
         let current=crate::machines::machines_api(ctx.clone(),"trafficRead".into(),json!({"hostId":host_id})).await?;
@@ -91,11 +109,20 @@ pub async fn serve(ctx: Context, root: &Path) -> Result<(), String> {
 
 pub async fn run(args: &[String]) -> Result<(), String> {
     if args.is_empty() || args[0]=="--help" {
-        println!("flowhub-machines --cli monitor on|off\nflowhub-machines --cli sessions\nflowhub-machines --cli shared-config [绝对路径]\nflowhub-machines --cli list|status\nflowhub-machines --cli collect <机器ID或别名>\nflowhub-machines --cli query <机器> 'uptime'\nflowhub-machines --cli exec <机器> '命令'\nflowhub-machines --cli traffic-source-ssh <机器ID或别名>\nflowhub-machines --cli traffic-cycle-start <机器ID或别名> <YYYY-MM-DDTHH:mm:ss>\n连接正在运行的 FlowHub 机器插件，返回 JSON；FLOWHUB_PLUGIN_DATA 可指定数据目录。周期起点按北京时间解释。");
+        println!("flowhub-machines --cli traffic-refresh-session <机器ID或别名> --stdin\n仅刷新已配置的 ZgoCloud 会话；stdin JSON 只接受 cookie、xsrfToken，不修改实例或额度，不输出凭证。");
+        println!("flowhub-machines --cli monitor on|off\nflowhub-machines --cli sessions\nflowhub-machines --cli shared-config [绝对路径]\nflowhub-machines --cli list|status\nflowhub-machines --cli collect <机器ID或别名>\nflowhub-machines --cli query <机器> 'uptime'\nflowhub-machines --cli exec <机器> '命令'\nflowhub-machines --cli traffic-read <机器ID或别名>\nflowhub-machines --cli traffic-query <机器ID或别名>\nflowhub-machines --cli traffic-source-cloud <机器ID或别名>\nflowhub-machines --cli traffic-source-ssh <机器ID或别名>\nflowhub-machines --cli traffic-cycle-start <机器ID或别名> <YYYY-MM-DDTHH:mm:ss>\n连接正在运行的 FlowHub 机器插件，返回 JSON；FLOWHUB_PLUGIN_DATA 可指定数据目录。traffic-read 隐去凭证；traffic-query 查询并刷新缓存；traffic-source-cloud 恢复已保存的服务商配置。周期起点按北京时间解释。");
         return Ok(());
     }
     let root=std::env::var_os("FLOWHUB_PLUGIN_DATA").map(std::path::PathBuf::from).or_else(||dirs::home_dir().map(|h|h.join("Library/Application Support/FlowHub/machines"))).ok_or("找不到插件目录")?;
-    let value=json!({"action":args[0],"target":args.get(1),"command":args.get(2)});
+    let mut value=json!({"action":args[0],"target":args.get(1),"command":args.get(2)});
+    if args[0]=="traffic-refresh-session" {
+        use std::io::IsTerminal;
+        if args.len()!=3 || args[2]!="--stdin" || std::io::stdin().is_terminal(){return Err("用法：traffic-refresh-session <机器> --stdin；认证 JSON 通过管道输入".into());}
+        let mut bytes=Vec::new();
+        tokio::io::stdin().take(8193).read_to_end(&mut bytes).await.map_err(|_|"无法读取认证输入")?;
+        if bytes.len()>8192{return Err("认证输入超过 8 KiB".into());}
+        value["credentials"]=serde_json::from_slice(&bytes).map_err(|_|"认证输入不是有效 JSON")?;
+    }
     let mut stream=tokio::net::UnixStream::connect(root.join("cli.sock")).await.map_err(|_|"无法连接机器插件，请在 FlowHub 中启用或重新加载插件")?;
     stream.write_all(format!("{value}\n").as_bytes()).await.map_err(|e|e.to_string())?;
     let mut output=String::new();

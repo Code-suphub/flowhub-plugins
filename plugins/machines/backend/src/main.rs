@@ -40,7 +40,7 @@ async fn dispatch(ctx: Context, request: &Value) -> Result<Value, String> {
         "widget_api" => match p["action"].as_str() {
             Some("machineSettings") => {
                 let action=p["request"]["action"].as_str().unwrap_or("");
-                if !["state","hosts","sshRead","sshSave","sshProbe","networkRead","networkSave","chooseIdentity"].contains(&action){Err("此页面只支持机器配置操作".into())}
+                if !["state","hosts","sshRead","sshSave","sshProbe","networkRead","networkSave","chooseIdentity","trafficRead","trafficSave","trafficQuery"].contains(&action){Err("此页面只支持机器配置操作".into())}
                 else {machines::machines_api(ctx.clone(),action.into(),p["request"]["payload"].clone()).await}
             },
             Some("settings") => machines::widget_settings(ctx.clone(),p.clone(),false),

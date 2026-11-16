@@ -73,7 +73,15 @@ stdin/stdout 每行一条 JSON：
 
 机器管理 → 云流量 → 选择机器与云服务商 → 保存配置 → 查询已保存配置。
 凭证使用现有加密凭据库，按机器隔离；密钥不回显，留空保留。切换服务商需重新填写凭证。旧腾讯云配置原位兼容，原腾讯云 API 动作保留。
-组件编辑可选择“剩余流量（云服务商）”。插件运行时每 5 分钟查询；超过 15 分钟的数据不显示为当前余额。需要机器的 `ssh:configure` 权限，实际查询独立于 SSH 连接。
+组件编辑可选择“流量（采集量／套餐余量）”。插件运行时每 5 分钟查询；超过 15 分钟的数据不显示为当前数据。需要机器的 `ssh:configure` 权限，服务商查询独立于 SSH 连接。
+
+卡片明确标记数值含义：服务商套餐为“剩余／总额度”，共享流量池为“共享剩余／总额度”；本地网卡历史完整时可估算余额，历史不足时为“已采集／配置额度”，开机基线估算为“估算已用／配置额度”。本地采集不是服务商计费，可能包含非公网流量，周期也由本地设置决定。按 1024³ 换算标为 GiB，按 1000³ 换算标为 GB。
+
+机器名称不决定流量来源。排查时使用运行中插件的 `--cli traffic-read <机器>`（隐去凭证）与 `--cli traffic-query <机器>`（查询并刷新缓存）。`--cli traffic-source-cloud <机器>` 通过正常权限和加密配置路径恢复此前保存的服务商来源，保留其凭证，不影响其他机器。Cookie 过期时显示“流量需认证”，需在机器的“监控与流量 → 云流量”更新 Cookie 和 XSRF Token；不能用 SSH 估算冒充官网余额。
+
+已有 ZgoCloud Session Cookie 来源也支持 `--cli traffic-refresh-session <机器> --stdin`，通过管道传入仅含 `cookie`、`xsrfToken` 的 JSON（最多 8 KiB）。该命令只刷新当前实例的会话，保留 Server ID 与套餐额度，复用权限检查和加密保存路径，不接受其他字段；凭证不得放进命令参数、终端历史或日志。组件详情设置允许流量读取、保存与查询，仍拒绝任意业务执行。
+
+ZgoCloud Cookie 查询会接收成功 JSON 响应中的 `virtfusion_session` 和 `XSRF-TOKEN`，按 Cookie 的域、路径、有效期及删除规则更新，并将新 XSRF 解码后用于下一请求。`server.json` 与 `state.json` 顺序读取，同机并发查询串行处理；已成功接收的续期即使后续请求失败也会保留，401/419 或 `success=false` 响应不会替换认证。续期仅写回原加密凭证库，不进入 RPC、日志或前端；配置已被手动更新或切换来源时，旧响应不能覆盖新配置。自动续期保留配置版本，避免丢弃本次流量结果。运行中的后台查询沿用每 5 分钟周期，不新增定时器；应用退出、长时间休眠或服务端撤销会话后，仍可能需要重新登录。
 
 | 云服务商 / 产品 | 当前支持 | 配置与只读权限 |
 | --- | --- | --- |
@@ -85,18 +93,18 @@ stdin/stdout 每行一条 JSON：
 | Vultr | 本月至今账户共享池 | API Key 可读取 `/v2/account/bandwidth`，允许客户端 IP |
 | AWS Lightsail | 本月 UTC 入站＋出站监控用量 | AK/SK、地域、实例名称；`lightsail:GetInstanceMetricData` |
 | ZgoCloud (VirtFusion · API Token) | 当前周期套餐余量 | Bearer Token + 整数 serverId；`GET /api/v1/servers/{id}/traffic` |
-| ZgoCloud (VirtFusion · Session Cookie) | 当前周期累计（限额手动） | 浏览器 Cookie + XSRF Token + 整数 serverId；`GET /server/{id}/resource/traffic.json` |
+| ZgoCloud (VirtFusion · Session Cookie) | 官网总览的当前周期实时余额 | 浏览器 Cookie + XSRF Token + 整数 serverId；`GET /server/{id}/resource/server.json` + `state.json` |
 | 网卡计数器（本地 Netdata） | 自然月累计 rx/tx + 日均 + 剩余天数（限额手动） | 复用 FlowHub 已接入的 Netdata 节点；按北京时间自然月积分 `system.net` 速率；`GET netdata/api/v1/allmetrics` + `api/v1/data` |
 
-- 套餐显示“295/300 GB”，共享池显示“共享 295/300 GB”，仅监控显示“已用 5 GB”。沿用组件的紧凑 GB 标签；详情按原 API 数值尺度区分 GB/GiB。
+- 套餐显示“剩余 295/300 GiB”，共享池显示“共享剩余 295/300 GB”，仅监控显示已采集或估算已用；按实际换算尺度区分 GB/GiB。
 - Linode 地域独立池不能互相抵扣；账户汇总不代表单台机器专属余量。Vultr 使用已累计额度，不用月底预测额度。
 - AWS 监控可能延迟或缺失，不作为账单或套餐余额；不计算虚构的剩余量。
 - 华为云填写的是流量包 ID，不是服务器 ID。接口仅接受有效周期内、计量单位为 GB 的资源包。
 - 搬瓦工通过固定 HTTPS POST 请求，密钥不在 URL 中。按 `monthly_data_multiplier` 同时换算总量和已用量；实际倍率需用真实账单核对。
-- ZgoCloud 提供两种接入：API Token 走 Bearer（接口自带 limit/blocks），Session Cookie 走浏览器 session（接口只给累计，limitGB 由配置项手动填）。两路都把响应统一归一为 `rows[].TrafficPackageSet`，UI 同一套展示。Cookie 会过期，过期需重新从浏览器抓取；服务器重启或会话失效也会让 Cookie 失效。
+- ZgoCloud 提供两种接入：API Token 走 Bearer（接口自带 limit/blocks）；Session Cookie 与官网总览一致，从 server.json 读取额度、UTC 周期及 countMethod，从 state.json 读取实时 rx/tx，按双向、入站或出站计费，不使用可能延迟的 traffic.json 历史图表，也不使用手填限额。官网将 1024³ 标为 GB，插件按同一字节尺度准确标为 GiB。两路归一为 `rows[].TrafficPackageSet`。Cookie 会过期，过期需刷新，不自动回退为本地网卡估算。
 - 网卡计数器走的是 FlowHub 已接入的 Netdata 节点（无需额外鉴权，HTTP 即可），按北京时间自然月对 rx/tx 速率积分，并以本月已过去时间计算日均和剩余天数。limitGB 必须手动填；Netdata 历史样本不足时不计算日均。
 - 腾讯云、阿里云及 AWS 支持临时会话 Token；过期需更新，可显式清除。没有密钥时不生成演示余额。
-- 本轮新增厂商尚未使用真实用户凭证联调。已做响应解析、签名向量、配置持久化及交互验证；配置后需与控制台核对一轮。
+- ZgoCloud Session Cookie 已按官网总览接口核对；其他新增厂商仍需配置后与控制台核对一轮，不能仅凭解析、签名向量或配置持久化测试认定真实数据一致。
 - 这不是所有云产品的账单查询：ECS/EIP、EC2、DigitalOcean 等不能复用上述轻量套餐接口。尚未提供它们的权威套餐余额适配，不能由 SSH 网卡计数推导。
 
 ### 官方接口参考

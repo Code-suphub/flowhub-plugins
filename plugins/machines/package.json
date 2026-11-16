@@ -1,6 +1,6 @@
 {
   "name": "flowhub-machines-plugin",
-  "version": "0.4.1",
+  "version": "0.4.6",
   "private": true,
   "scripts": {
     "dev": "vite --config vite.config.mjs",

@@ -3,6 +3,18 @@ use serde_json::{json,Value};
 use sha2::{Digest,Sha256};
 use ring::hmac;
 use std::path::Path;
+use std::{collections::HashMap, path::PathBuf, sync::{Arc, Mutex, OnceLock, Weak}};
+static CONFIG_WRITES: Mutex<()> = Mutex::new(());
+type SessionLocks = HashMap<(PathBuf, String), Weak<tokio::sync::Mutex<()>>>;
+static SESSION_LOCKS: OnceLock<Mutex<SessionLocks>> = OnceLock::new();
+
+fn session_lock(root: &Path, host: &str) -> Arc<tokio::sync::Mutex<()>> {
+ let mut locks=SESSION_LOCKS.get_or_init(||Mutex::new(HashMap::new())).lock().unwrap();
+ locks.retain(|_,lock|lock.strong_count()>0);
+ let key=(root.to_path_buf(),host.to_owned());
+ if let Some(lock)=locks.get(&key).and_then(Weak::upgrade){return lock;}
+ let lock=Arc::new(tokio::sync::Mutex::new(()));locks.insert(key,Arc::downgrade(&lock));lock
+}
 // Retain the original vault account so existing Tencent credentials migrate in place.
 fn account(host:&str)->String{format!("tencent-traffic:{host}")}
 fn ssh_account(host:&str)->String{format!("ssh-traffic:{host}")}
@@ -15,7 +27,15 @@ fn load(root:&Path,host:&str)->Result<Value,String>{
  cloud_load(root,host)
 }
 pub fn read(root:&Path,host:&str)->Value{match load(root,host){Ok(v)=>{let mut result=json!({"configured":true,"provider":provider(&v),"revision":v["revision"]});for k in ["veid","region","instanceId","packageId","site","serverId","netdataId","limitGB","cycleStart","direction"]{result[k]=v[k].clone();}result},Err(_)=>json!({"configured":false})}}
+// Restore the saved cloud source through the usual validation/vault path. Never
+// copy credentials into the CLI response or infer a provider from the host name.
+pub fn restore_cloud(root:&Path,host:&str)->Result<Value,String>{
+ let saved=cloud_load(root,host).map_err(|_|"没有保存的云流量配置")?;
+ if matches!(provider(&saved),"localSsh"|"localNet"){return Err("保存的来源不是服务商接口".into());}
+ save(root,host,&saved)
+}
 pub fn save(root:&Path,host:&str,p:&Value)->Result<Value,String>{
+ let _write=CONFIG_WRITES.lock().map_err(|_|"流量配置暂不可写")?;
  let active=load(root,host).unwrap_or(Value::Null);
  let selected=p["provider"].as_str().unwrap_or("tencent");
  // SSH estimates use a separate encrypted slot so changing the active source
@@ -69,6 +89,22 @@ pub fn save(root:&Path,host:&str,p:&Value)->Result<Value,String>{
  }
  Ok(read(root,host))
 }
+
+fn persist_session(root:&Path,host:&str,expected:&Value,renewal:super::zgocloud_session::Renewal)->Result<bool,String>{
+ let _write=CONFIG_WRITES.lock().map_err(|_|"流量配置暂不可写")?;
+ let current=load(root,host)?;
+ // Compare the entire encrypted configuration snapshot, including credentials.
+ // User saves and source switches win over any in-flight response.
+ if &current!=expected || provider(&current)!="zgocloudCookie" {return Ok(false);}
+ let mut next=current;
+ next["cookie"]=json!(renewal.cookie);next["xsrfToken"]=json!(renewal.xsrf_token);
+ next["sessionRenewedAt"]=json!(chrono::Utc::now().to_rfc3339());
+ if next.to_string().len()>16384{return Err("zgoCloud 续期配置过长".into());}
+ // Preserve the user-facing revision so renewing a session does not invalidate
+ // the successful traffic result or an open settings form.
+ crate::data::vault::save(root,&account(host),&serde_json::to_vec(&next).map_err(|_|"无法保存 zgoCloud 续期配置")?)?;
+ Ok(true)
+}
 fn provider(v:&Value)->&str{v["provider"].as_str().unwrap_or("tencent")}
 fn find_netdata_in_state(root:&Path,id:&str)->Result<crate::monitoring::netdata::Instance,String>{
  let path=root.join("state.json");
@@ -93,7 +129,15 @@ fn hash(s:&str)->String{format!("{:x}",Sha256::digest(s.as_bytes()))}
 pub async fn query(root:&Path,host:&str,interval:u64)->Result<Value,String>{
  let v=load(root,host).map_err(|_|"请先保存云流量配置")?;
  if provider(&v)=="bandwagon"{return crate::traffic::bandwagon::query(&v).await;}
- if provider(&v)=="zgocloud"||provider(&v)=="zgocloudCookie"{return crate::traffic::zgocloud::query(&v).await;}
+ if provider(&v)=="zgocloudCookie"{
+  let lock=session_lock(root,host);let _session=lock.lock().await;
+  let current=load(root,host)?;
+  if provider(&current)!="zgocloudCookie"{return Err("流量来源已更新，请重新查询".into());}
+  let (result,renewal)=crate::traffic::zgocloud::query_session(&current).await;
+  if let Some(renewal)=renewal{persist_session(root,host,&current,renewal)?;}
+  return result;
+ }
+ if provider(&v)=="zgocloud"{return crate::traffic::zgocloud::query(&v).await;}
  if provider(&v)=="localNet"{return local_traffic_dispatch(root,&v).await;}
  if provider(&v)=="localSsh"{
   let limit_gb=v["limitGB"].as_str().and_then(|s|s.parse::<f64>().ok()).filter(|n|n.is_finite()&&*n>0.0).unwrap_or(0.0);
@@ -118,6 +162,58 @@ pub async fn query(root:&Path,host:&str,interval:u64)->Result<Value,String>{
  Ok(json!({"rows":rows,"at":now.to_rfc3339()}))
 }
 #[cfg(test)]mod tests{use super::*;#[test]fn credentials_survive_reopen_without_returning_secrets(){let dir=std::env::temp_dir().join(format!("tc-{}",chrono::Utc::now().timestamp_nanos_opt().unwrap()));std::fs::create_dir_all(&dir).unwrap();let p=json!({"secretId":"fixture-id","secretKey":"fixture-secret","region":"ap-shanghai","instanceId":"lhins-test"});save(&dir,"host1",&p).unwrap();assert!(!read(&dir,"host1").to_string().contains("fixture"));save(&dir,"host1",&json!({"region":"ap-singapore","instanceId":"lhins-next"})).unwrap();assert_eq!(load(&dir,"host1").unwrap()["secretKey"],"fixture-secret");assert!(!read(&dir,"host2")["configured"].as_bool().unwrap());std::fs::remove_dir_all(dir).unwrap();}}
+
+#[cfg(test)]mod restore_tests{
+ use super::*;
+ #[test]fn restores_saved_provider_without_disclosing_credentials_or_changing_other_hosts(){
+  let dir=std::env::temp_dir().join(format!("restore-cloud-{}",chrono::Utc::now().timestamp_nanos_opt().unwrap()));
+  std::fs::create_dir_all(&dir).unwrap();
+  save(&dir,"zgo",&json!({"provider":"zgocloudCookie","cookie":"private-cookie","xsrfToken":"private-xsrf","serverId":"19383","limitGB":"500"})).unwrap();
+  save(&dir,"zgo",&json!({"provider":"localSsh","limitGB":"500"})).unwrap();
+  save(&dir,"other",&json!({"provider":"localSsh","limitGB":"300"})).unwrap();
+  let other=read(&dir,"other");
+  assert_eq!(read(&dir,"zgo")["provider"],"localSsh");
+  let restored=restore_cloud(&dir,"zgo").unwrap();
+  assert_eq!(restored["provider"],"zgocloudCookie");
+  assert_eq!(restored["serverId"],"19383");
+  assert!(!restored.to_string().contains("private-"));
+  assert_eq!(load(&dir,"zgo").unwrap()["cookie"],"private-cookie");
+  assert_eq!(read(&dir,"other"),other);
+  assert!(restore_cloud(&dir,"missing").is_err());
+  assert_eq!(read(&dir,"other"),other);
+  std::fs::remove_dir_all(dir).unwrap();
+ }
+}
+
+#[cfg(test)]mod renewal_tests {
+ use super::*;
+ fn renewal(value:&str)->super::super::zgocloud_session::Renewal {
+  super::super::zgocloud_session::Renewal{cookie:format!("virtfusion_session={value}"),xsrf_token:format!("csrf-{value}")}
+ }
+ #[test]fn encrypted_renewal_preserves_revision_and_never_overwrites_newer_auth_or_source(){
+  let root=std::env::temp_dir().join(format!("zgo-renew-{}",chrono::Utc::now().timestamp_nanos_opt().unwrap()));
+  std::fs::create_dir_all(&root).unwrap();
+  let setup=json!({"provider":"zgocloudCookie","cookie":"virtfusion_session=initial","xsrfToken":"csrf-initial","serverId":"19383","limitGB":"500"});
+  save(&root,"target",&setup).unwrap();save(&root,"other",&setup).unwrap();
+  let other=load(&root,"other").unwrap();let before=read(&root,"target");let expected=load(&root,"target").unwrap();
+  assert!(persist_session(&root,"target",&expected,renewal("first-rotated")).unwrap());
+  assert_eq!(read(&root,"target"),before);
+  let after=load(&root,"target").unwrap();assert_eq!(after["xsrfToken"],"csrf-first-rotated");assert!(after["sessionRenewedAt"].is_string());
+  assert!(!persist_session(&root,"target",&expected,renewal("stale-rotated")).unwrap());
+  assert!(!std::fs::read(root.join("credentials.sqlite3")).unwrap().windows(13).any(|w|w==b"first-rotated"));
+  save(&root,"target",&setup).unwrap();
+  assert!(!persist_session(&root,"target",&after,renewal("stale-manual")).unwrap());
+  let manual=load(&root,"target").unwrap();save(&root,"target",&json!({"provider":"localSsh","limitGB":"500"})).unwrap();
+  assert!(!persist_session(&root,"target",&manual,renewal("stale-source")).unwrap());
+  assert_eq!(read(&root,"target")["provider"],"localSsh");assert_eq!(load(&root,"other").unwrap(),other);
+  std::fs::remove_dir_all(root).unwrap();
+ }
+ #[tokio::test]async fn session_queries_share_one_lock_per_machine(){
+  let root=Path::new("/test/session-query-lock");let first=session_lock(root,"one");let second=session_lock(root,"one");
+  assert!(Arc::ptr_eq(&first,&second));let guard=first.lock().await;
+  assert!(second.try_lock().is_err());assert!(session_lock(root,"two").try_lock().is_ok());drop(guard);assert!(second.try_lock().is_ok());
+ }
+}
 
 pub fn summary(data:&Value)->Value{
  if data["provider"]=="localNet"||data["provider"]=="localSsh"{
