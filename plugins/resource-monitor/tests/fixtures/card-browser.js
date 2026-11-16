@@ -4,7 +4,7 @@
   const wait=async(predicate,message)=>{for(let i=0;i<150;i++){if(predicate())return;await new Promise(done=>setTimeout(done,10));}throw Error(message);};
   const frames=[];
   const token='card-test-token';
-  const snapshot={at:Date.now(),system:{totalMemory:34359738368,swapUsed:1048576},rows:Array.from({length:28},(_,index)=>({
+  const snapshot={at:Date.now(),system:{totalMemory:34359738368,usedMemory:15247133900,cpuUsage:12.8,swapUsed:24105457336,pressure:'normal'},rows:Array.from({length:28},(_,index)=>({
     id:`app:${index}`,name:`Application ${index}`,appPath:index===27?'/Applications/Test.app':index===25?'/Applications/Unavailable.app':null,iconKey:index===26?'python':null,
     at:Date.now(),count:index+1,instanceCount:2,incomplete:false,systemAccounting:index===25?{footprint:84*1073741824,coalitionCount:1,shared:false}:null,values:{memory:index*1048576,rss:index*1048576,footprint:index*2097152,cpu:index}
   }))};
@@ -181,6 +181,37 @@
     const settingButton=label=>[...settings().querySelectorAll('button')].find(button=>button.textContent===label);
     const metricCheckbox=label=>[...settings().querySelectorAll('label')].find(field=>field.textContent===label).querySelector('input');
     const sortButton=label=>doc(host).querySelector(`.widget-sort[aria-label="按${label}排序"]`);
+    const summary=()=>doc(host).querySelector('[aria-label="整机资源摘要"]');
+    const columns=()=>doc(host).querySelector('.widget-summary-columns');
+    const compact=()=>doc(host).querySelector('.widget-summary-compact');
+    const shown=element=>host.element.contentWindow.getComputedStyle(element).display!=='none';
+    assert(summary().dataset.layout==='auto'&&shown(compact())&&!shown(columns()),'default narrow summary must use two lines');
+    assert(compact().textContent.includes('12.8%')&&compact().textContent.includes('14.20 GiB')&&compact().textContent.includes('22.45 GiB'),'system summary lost machine CPU, physical used or swap');
+    assert(!summary().textContent.includes('内存压力'),'system summary retained memory pressure');
+    for(const theme of ['light','dark'])for(const width of [260,315,480,640]){
+      host.send({type:'flowhub:theme',theme});
+      host.element.style.width=width+'px';
+      await wait(()=>doc(host).documentElement.dataset.theme===theme,'summary theme not applied');
+      assert(shown(columns())===(width>=424)&&shown(compact())===(width<424),'auto summary layout did not follow content width at '+width);
+      const box=summary().getBoundingClientRect();
+      assert(box.right<=width+1&&summary().scrollWidth<=summary().clientWidth+1,'system summary overflows at '+width+' '+theme);
+      if(shown(compact())){
+        const [physical,swap]=[...compact().querySelectorAll('.widget-summary-memory>span')].map(element=>element.getBoundingClientRect());
+        assert(Math.abs(physical.right-swap.right)<1&&swap.top>=physical.bottom,'physical memory and swap must be stacked and right aligned at '+width);
+        assert(compact().querySelector('strong').getBoundingClientRect().right<=physical.left,'CPU overlaps the memory column at '+width);
+      }
+      assert(list.clientHeight>0&&doc(host).querySelector('footer').getBoundingClientRect().bottom<=320,'summary hid scrollable list or footer');
+    }
+    host.element.style.width='480px';
+    settingButton('两行').click();
+    await wait(()=>host.config.summaryLayout==='compact'&&summary().dataset.layout==='compact','manual two-line choice not saved');
+    assert(shown(compact())&&!shown(columns()),'wide component ignored manual two-line choice');
+    host.element.style.width='260px';
+    settingButton('分栏').click();
+    await wait(()=>host.config.summaryLayout==='columns'&&summary().dataset.layout==='columns','manual columns choice not saved');
+    assert(shown(columns())&&!shown(compact())&&summary().scrollWidth<=summary().clientWidth+1,'forced narrow columns overflow or ignored preference');
+    host.element.style.width='380px';
+    checks.push('whole-machine summary values; automatic width selection; both themes; explicit compact and columns overrides');
     assert(!settings().textContent.includes('排序依据'),'sorting still appears in display settings');
     settingButton('前 3').click();
     await wait(()=>rows(host).length===3,'quick range did not select top three');
@@ -225,9 +256,12 @@
     await wait(()=>reopened.messages.some(message=>message.type==='flowhub:widget-ready'),'reopened card not ready');
     reopened.send({type:'flowhub:widget-init',context:{config:host.config,snapshot,canSaveConfig:true}});
     await wait(()=>rows(reopened).length===5&&doc(reopened).querySelector('.widget-sort[aria-label="按RSS排序"]'),'reopened card did not read saved range and metrics');
+    assert(doc(reopened).querySelector('[aria-label="整机资源摘要"]').dataset.layout==='columns','summary layout did not survive remount');
     assert(doc(reopened).querySelector('footer').textContent.includes('按活跃足迹 ↓'),'reopened card did not read shared sort');
     settingsButton.click();
     await wait(settings,'could not reopen to restore the full range');
+    settingButton('自动').click();
+    await wait(()=>host.config.summaryLayout==='auto'&&summary().dataset.layout==='auto','automatic layout was not restored');
     settingButton('完整列表').click();
     await wait(()=>rows(host).length===28&&host.config.display==='all','full range was not restored');
     settings().dispatchEvent(new Event('cancel',{cancelable:true}));
@@ -279,12 +313,12 @@
     editor.send({type:'flowhub:widget-save',id:'before-init'});
     await wait(()=>editor.messages.some(message=>message.id==='before-init'),'save callback was not registered before ready');
     assert(!editor.messages.find(message=>message.id==='before-init').error,'early editor save failed');
-    editor.send({type:'flowhub:widget-init',context:{preview:true,config:{title:'Saved title',sort:'cpu',display:'top',limit:3,showFootprint:true,showRss:true,showAccounting:true,groupId:'app:5'},snapshot}});
+    editor.send({type:'flowhub:widget-init',context:{preview:true,config:{title:'Saved title',summaryLayout:'compact',sort:'cpu',display:'top',limit:3,showFootprint:true,showRss:true,showAccounting:true,groupId:'app:5'},snapshot}});
     await wait(()=>doc(editor).querySelector('input')?.value==='Saved title','editor context missing');
     editor.send({type:'flowhub:widget-save',id:'configured'});
     await wait(()=>editor.messages.some(message=>message.id==='configured'),'configured editor save missing');
     const saved=editor.messages.find(message=>message.id==='configured').config;
-    assert(saved.title==='Saved title'&&saved.sort==='cpu'&&saved.display==='top'&&saved.limit===3&&saved.showFootprint&&saved.showRss&&saved.showAccounting&&saved.groupId==='app:5','saved configuration changed');
+    assert(saved.title==='Saved title'&&saved.summaryLayout==='compact'&&saved.sort==='cpu'&&saved.display==='top'&&saved.limit===3&&saved.showFootprint&&saved.showRss&&saved.showAccounting&&saved.groupId==='app:5','saved configuration changed');
     checks.push('editor early save registration and initialized configuration');
 
     const main=await frame('index.html');

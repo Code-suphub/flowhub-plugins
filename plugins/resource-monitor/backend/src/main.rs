@@ -20,6 +20,7 @@ mod finder_extensions;
 #[cfg(target_os = "macos")]
 mod native;
 mod surfaces;
+mod system_metrics;
 #[cfg(not(target_os = "macos"))]
 compile_error!("应用资源监控第一版仅支持 macOS");
 
@@ -53,6 +54,7 @@ struct Monitor {
     cache: Cache,
     previous: HashMap<i32, (Identity, u64)>,
     sampled: Option<Instant>,
+    system: system_metrics::Sampler,
     plans: HashMap<String, Plan>,
     links: surfaces::Links,
     quitter: applications::Quitter,
@@ -67,6 +69,7 @@ impl Monitor {
             cache,
             previous: HashMap::new(),
             sampled: None,
+            system: system_metrics::Sampler::default(),
             plans: HashMap::new(),
             links: surfaces::Links::default(),
             quitter: applications::Quitter::default(),
@@ -129,7 +132,7 @@ impl Monitor {
         let at=now();
         let script_records=self.scripts.observe(&groups,at,native::parent_matches,native::responsibility_owner,|id|native::identity(id.pid).as_ref()==Some(id));
         diagnostics::phase("system");
-        let mut snapshot=Snapshot::new(at, groups, native::system());
+        let mut snapshot=Snapshot::new(at, groups, self.system.sample());
         snapshot.script_records=Arc::new(script_records);
         Ok(snapshot)
     }

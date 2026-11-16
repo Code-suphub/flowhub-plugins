@@ -1,6 +1,7 @@
 import {useEffect,useRef,useState,type CSSProperties} from 'react';
 import {Button,Checkbox,DialogShell} from '@flowhub/plugin-common/react';
 import {RequestDetails} from './RequestDetails';
+import {SummaryLayoutPicker,SystemSummary} from './SystemSummary';
 import {displayError,errorText} from './errors';
 import type {DisplayError} from './errors';
 import {accountingDisplay,bytes,cpu,defaultRankingOrder,newerSnapshot,widgetRows} from './model';
@@ -87,6 +88,7 @@ export function Card({api,context}:{api:Api;context:Context}) {
     {saveState==='failed'?<div className="flex items-center gap-2 text-xs warning" role="alert">卡片设置未保存<Button size="sm" disabled={!canSave} onClick={()=>change(pending.current)}>重试</Button></div>:null}
     {sortingError?<div className="warning text-xs"><p role="alert">{errorText(sortingError)}</p><RequestDetails error={sortingError}/></div>:null}
     {error||snapshot?.error||stale?<div className="warning text-xs"><p role="alert">{errorText(error||snapshot?.error||'数据已过期')}</p><RequestDetails error={error}/></div>:null}
+    <SystemSummary system={snapshot?.system} layout={preferences.summaryLayout}/>
     <div className="widget-list" role="region" aria-label="应用资源列表，可滚动查看" tabIndex={0}>
       <div className="widget-grid widget-columns muted text-xs">
         <span className="widget-identity">应用</span>
@@ -122,6 +124,7 @@ export function Card({api,context}:{api:Api;context:Context}) {
     </footer>
     <DialogShell open={settingsOpen} onOpenChange={setSettingsOpen} title="显示设置" className="widget-settings-dialog" contentClassName="widget-settings-content"
       footer={!api.preview?<span className="mr-auto muted text-xs" role="status">{canSave?(saveState==='saving'?'保存中…':saveState==='failed'?'未保存':'修改自动保存'):'当前无法保存卡片设置'}</span>:undefined}>
+      <SummaryLayoutPicker value={preferences.summaryLayout} disabled={!canSave} onChange={summaryLayout=>change({summaryLayout})}/>
       <fieldset className="widget-settings-group">
         <legend>显示指标</legend>
         <div className="flex flex-wrap gap-x-3">

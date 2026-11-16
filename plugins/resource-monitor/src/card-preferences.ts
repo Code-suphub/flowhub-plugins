@@ -7,12 +7,14 @@ export const cardSortOptions = [
   {value:'accounting',label:'系统归属记账'},
 ] as const;
 export const cardLimits = [3,5,8,10] as const;
+export const summaryLayouts = [{value:'auto',label:'自动'},{value:'columns',label:'分栏'},{value:'compact',label:'两行'}] as const;
 export const cardMetricFields = {footprint:'showFootprint',memory:'showRss',accounting:'showAccounting'} as const;
 
 export function cardPreferences(config: Config = {}) {
   const savedSort = cardSortOptions.find(option=>option.value===config.sort)?.value??'cpu';
   const sort = savedSort!=='cpu'&&config[cardMetricFields[savedSort]]===false?'cpu':savedSort;
   return {
+    summaryLayout: summaryLayouts.find(option=>option.value===config.summaryLayout)?.value??'auto',
     sort,
     showFootprint: config.showFootprint ?? (sort === 'footprint'),
     showRss: config.showRss ?? (sort === 'memory'),

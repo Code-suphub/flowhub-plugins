@@ -1,6 +1,7 @@
 import {useEffect,useRef,useState} from 'react';
 import {Alert,Select} from 'antd';
 import {Checkbox,Input} from '@flowhub/plugin-common/react';
+import {SummaryLayoutPicker} from './SystemSummary';
 import {cardLimitOptions,cardMetricFields,cardPreferences,cardRowLimit,cardSortOptions} from './card-preferences';
 import type {Api,Config,Context} from './types';
 
@@ -24,6 +25,7 @@ export function Editor({api,context}:{api:Api;context:Context}) {
   return <main className="editor grid gap-4 p-4">
     <label className="grid gap-2 text-sm">卡片标题<Input maxLength={40} value={config.title??''} placeholder="应用资源" onChange={e=>change({title:e.target.value})}/></label>
     <label className="grid gap-2 text-sm">关注范围<Select aria-label="关注范围" showSearch optionFilterProp="label" value={config.groupId??''} onChange={groupId=>change({groupId})} options={[{value:'',label:'全部应用'},...(context.snapshot?.rows??[]).map(r=>({value:r.id,label:r.name})),...(config.groupId&&!context.snapshot?.rows?.some(r=>r.id===config.groupId)?[{value:config.groupId,label:'已退出的关注应用'}]:[])]}/></label>
+    <SummaryLayoutPicker value={preferences.summaryLayout} onChange={summaryLayout=>change({summaryLayout})}/>
     <fieldset className="widget-settings-group">
       <legend>额外显示指标</legend>
       <div className="flex flex-wrap gap-x-4">

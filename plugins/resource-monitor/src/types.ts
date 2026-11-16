@@ -26,7 +26,7 @@ export interface Group {
 export interface SourceOrigin {name:string;appPath:string|null;evidence:string}
 export interface Presentation {name:string|null;sources:SourceOrigin[];services?:Array<{name:string;label:string;evidence:string}>}
 export interface Instance {id:string;root:Identity;count:number;memory:number|null;footprint:number|null;cpu:number|null;incomplete:boolean;footprintIncomplete:boolean;canTerminate:boolean;presentation?:Presentation|null}
-export interface SystemInfo {totalMemory?:number|null;swapUsed?:number|null;pressure?:string|null}
+export interface SystemInfo {totalMemory?:number|null;usedMemory?:number|null;cpuUsage?:number|null;swapUsed?:number|null;pressure?:string|null}
 export interface SnapshotState {at:number;revision?:number;sampling?:boolean;stale?:boolean;scriptRunningCount?:number;system:SystemInfo;error?:string|null;memoryMetric:'footprint';interval:number}
 export interface ScriptNode extends Identity {name:string;appPath:string|null}
 export interface ScriptRecord {id:string;process:ScriptNode;chain:ScriptNode[];responsible:ScriptNode|null;source:SourceOrigin|null;chainNote:string;firstSeen:number;lastSeen:number;running:boolean}
@@ -56,7 +56,8 @@ export type RankingSort = Sort|'processCount';
 export type SortOrder = 'ascend'|'descend';
 export interface RankingOrder {key:RankingSort;order:SortOrder}
 export interface ViewPreferences {includeSystem:boolean;sorting:RankingOrder}
-export interface Config {title?:string;sort?:Sort;display?:'all'|'top';limit?:number;showFootprint?:boolean;showRss?:boolean;showAccounting?:boolean;groupId?:string;selection?:{groupId?:string};sourceView?:string;scriptEventId?:string}
+export type SummaryLayout = 'auto'|'columns'|'compact';
+export interface Config {title?:string;summaryLayout?:SummaryLayout;sort?:Sort;display?:'all'|'top';limit?:number;showFootprint?:boolean;showRss?:boolean;showAccounting?:boolean;groupId?:string;selection?:{groupId?:string};sourceView?:string;scriptEventId?:string}
 export interface ApplicationState {canQuit:boolean;message:string;instances?:number;quitInstances?:string[];contextKind?:'arc'|'codex'|null}
 export interface QuitPlan {token:string;expiresIn:number;name:string;appPath:string;targets:Identity[];instanceId?:string;root?:Identity}
 export interface ContextEntry {id:string;token:string|null;title:string;detail:string;processes:Identity[];source:string;shared:boolean;ambiguous:boolean}

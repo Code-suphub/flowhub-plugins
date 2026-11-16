@@ -144,5 +144,5 @@ export function sampleSnapshot():Snapshot {
     ['system:windowserver','WindowServer','系统进程',[{...make(460,'WindowServer','/System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer',670000000),protected:true,protection:'系统进程',uid:88}]],
   ];
   const groups=definitions.map(([id,name,source,processes])=>({id,name,source,processes:processes.map(p=>({...p,groupId:id})),memory:processes.reduce((s,p)=>s+(p.memory??0),0),footprint:processes.reduce((s,p)=>s+(p.footprint??0),0),footprintIncomplete:false,appPath:appPath(processes),cpu:processes.reduce((s,p)=>s+(p.cpu??0),0),system:id.startsWith('system:'),canTerminate:processes.every(p=>!p.protected),incomplete:false}));
-  return {at:Date.now(),groups,system:{totalMemory:34359738368,swapUsed:810000000,pressure:'normal'},memoryMetric:'footprint',interval:5};
+  return {at:Date.now(),groups,system:{totalMemory:34359738368,usedMemory:15247133900,cpuUsage:12.8,swapUsed:810000000,pressure:'normal'},memoryMetric:'footprint',interval:5};
 }

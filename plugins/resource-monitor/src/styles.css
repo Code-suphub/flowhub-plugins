@@ -63,7 +63,20 @@
   .script-responsibility {padding:10px;background:var(--fh-surface-soft);border-radius:7px;margin:12px 0}
   .confirm-target {display:grid;gap:5px;padding:10px 0;border-bottom:1px solid var(--fh-border)}
   .widget {min-width:0;background:var(--fh-surface)}
-  .widget--card {display:flex;flex-direction:column;height:100dvh;overflow:hidden}
+  .widget--card {display:flex;flex-direction:column;height:100dvh;overflow:hidden;container-type:inline-size}
+  .widget-system-summary {padding:4px 0 10px;margin-bottom:6px;border-bottom:1px solid var(--fh-border);font-variant-numeric:tabular-nums}
+  .widget-summary-columns {display:none;margin:0}
+  .widget-summary-columns dt,.widget-summary-columns small {font-size:11px;color:var(--fh-muted)}
+  .widget-summary-columns dd {margin:3px 0;font-size:18px;font-weight:600;overflow-wrap:anywhere}
+  .widget-summary-capacity {font-size:11px;font-weight:400}
+  .widget-summary-compact {display:grid;font-size:12px}
+  .widget-summary-memory>span+span {font-size:11px;color:var(--fh-muted)}
+  .widget-system-summary[data-layout=columns] .widget-summary-columns {display:grid}
+  .widget-system-summary[data-layout=columns] .widget-summary-compact {display:none}
+  @container(min-width:400px) {
+    .widget-system-summary[data-layout=auto] .widget-summary-columns {display:grid}
+    .widget-system-summary[data-layout=auto] .widget-summary-compact {display:none}
+  }
   .widget--card> :not(.widget-list) {flex-shrink:0}
   .widget-list {flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable}
   .widget-list:focus-visible {outline:2px solid var(--fh-accent);outline-offset:2px}
